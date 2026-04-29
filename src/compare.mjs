@@ -1,4 +1,37 @@
-export function compareReports(baseline, current) {
+const defaultThresholds = {
+  missingDependencyErrors: 0,
+  pluginLoadFailures: 0,
+  healthFailures: 0,
+  peakRssMb: 100,
+  cpuPercentMax: 25,
+  coldReadyMs: 5000,
+  warmReadyMs: 3000,
+  upgradeMs: 10000,
+  statusMs: 1000,
+  pluginsListMs: 1000,
+  modelsListMs: 3000,
+  agentTurnMs: 10000,
+  tcpConnectMaxMs: 250,
+  timeToListeningMs: 3000,
+  timeToHealthReadyMs: 5000,
+  readinessFailures: 0,
+  healthP95Ms: 1000,
+  gatewayRestartCount: 0,
+  providerTimeoutMentions: 0,
+  eventLoopDelayMentions: 0,
+  metadataScanMentions: 10,
+  configNormalizationMentions: 10,
+  pluginMetadataScanCount: 10,
+  configNormalizationCount: 10,
+  runtimeDepsStagingMs: 5000,
+  eventLoopDelayMs: 250,
+  providerModelTimingMs: 5000,
+  diagnosticArtifactBytes: 25 * 1024 * 1024,
+  heapSnapshotBytes: 50 * 1024 * 1024
+};
+
+export function compareReports(baseline, current, options = {}) {
+  const thresholds = resolveThresholds(options.thresholds);
   const baselineRecords = indexRecords(baseline.records ?? []);
   const currentRecords = current.records ?? [];
   const scenarios = [];
@@ -31,7 +64,7 @@ export function compareReports(baseline, current) {
       });
     }
 
-    regressions.push(...metricRegressions(baselineRecord.measurements ?? {}, currentRecord.measurements ?? {}));
+    regressions.push(...metricRegressions(baselineRecord.measurements ?? {}, currentRecord.measurements ?? {}, thresholds));
 
     scenarios.push({
       key,
@@ -73,10 +106,39 @@ export function compareReports(baseline, current) {
     generatedAt: new Date().toISOString(),
     baseline: reportSummary(baseline),
     current: reportSummary(current),
+    thresholds,
     ok: regressionCount === 0,
     regressionCount,
     scenarios
   };
+}
+
+export function renderCompareFixerSummary(comparison) {
+  const lines = [
+    "Kova OpenClaw Regression Summary",
+    "",
+    `Baseline: ${comparison.baseline.runId ?? "unknown"} (${comparison.baseline.target ?? "unknown"})`,
+    `Current: ${comparison.current.runId ?? "unknown"} (${comparison.current.target ?? "unknown"})`,
+    `Result: ${comparison.ok ? "OK" : "REGRESSED"}`,
+    ""
+  ];
+
+  if (comparison.ok) {
+    lines.push("No blocking regressions were detected.");
+    return lines.join("\n");
+  }
+
+  for (const scenario of comparison.scenarios.filter((item) => item.regressions.length > 0)) {
+    lines.push(`Scenario: ${scenario.key}`);
+    lines.push(`Status: ${scenario.baselineStatus ?? "missing"} -> ${scenario.currentStatus ?? "missing"}`);
+    lines.push("Fixer notes:");
+    for (const regression of scenario.regressions) {
+      lines.push(`- ${regression.message}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n").trimEnd();
 }
 
 export function renderCompareSummary(comparison) {
@@ -133,28 +195,11 @@ function statusRank(status) {
   return ranks[status] ?? 2;
 }
 
-function metricRegressions(baseline, current) {
+function metricRegressions(baseline, current, thresholds) {
   const regressions = [];
-  addIncreaseRegression(regressions, baseline, current, "missingDependencyErrors", 0);
-  addIncreaseRegression(regressions, baseline, current, "pluginLoadFailures", 0);
-  addIncreaseRegression(regressions, baseline, current, "healthFailures", 0);
-  addIncreaseRegression(regressions, baseline, current, "peakRssMb", 100);
-  addIncreaseRegression(regressions, baseline, current, "coldReadyMs", 5000);
-  addIncreaseRegression(regressions, baseline, current, "warmReadyMs", 3000);
-  addIncreaseRegression(regressions, baseline, current, "upgradeMs", 10000);
-  addIncreaseRegression(regressions, baseline, current, "statusMs", 1000);
-  addIncreaseRegression(regressions, baseline, current, "pluginsListMs", 1000);
-  addIncreaseRegression(regressions, baseline, current, "modelsListMs", 3000);
-  addIncreaseRegression(regressions, baseline, current, "tcpConnectMaxMs", 250);
-  addIncreaseRegression(regressions, baseline, current, "timeToListeningMs", 3000);
-  addIncreaseRegression(regressions, baseline, current, "timeToHealthReadyMs", 5000);
-  addIncreaseRegression(regressions, baseline, current, "readinessFailures", 0);
-  addIncreaseRegression(regressions, baseline, current, "healthP95Ms", 1000);
-  addIncreaseRegression(regressions, baseline, current, "gatewayRestartCount", 0);
-  addIncreaseRegression(regressions, baseline, current, "providerTimeoutMentions", 0);
-  addIncreaseRegression(regressions, baseline, current, "eventLoopDelayMentions", 0);
-  addIncreaseRegression(regressions, baseline, current, "metadataScanMentions", 10);
-  addIncreaseRegression(regressions, baseline, current, "configNormalizationMentions", 10);
+  for (const [metric, tolerance] of Object.entries(thresholds)) {
+    addIncreaseRegression(regressions, baseline, current, metric, tolerance);
+  }
   return regressions;
 }
 
@@ -185,12 +230,14 @@ function metricDeltas(baseline, current) {
   const metrics = {};
   for (const metric of [
     "peakRssMb",
+    "cpuPercentMax",
     "coldReadyMs",
     "warmReadyMs",
     "upgradeMs",
     "statusMs",
     "pluginsListMs",
     "modelsListMs",
+    "agentTurnMs",
     "tcpConnectMaxMs",
     "timeToListeningMs",
     "timeToHealthReadyMs",
@@ -207,7 +254,14 @@ function metricDeltas(baseline, current) {
     "providerTimeoutMentions",
     "eventLoopDelayMentions",
     "v8ReportCount",
-    "heapSnapshotCount"
+    "heapSnapshotCount",
+    "diagnosticArtifactBytes",
+    "heapSnapshotBytes",
+    "pluginMetadataScanCount",
+    "configNormalizationCount",
+    "runtimeDepsStagingMs",
+    "eventLoopDelayMs",
+    "providerModelTimingMs"
   ]) {
     const currentValue = current?.[metric] ?? null;
     const baselineValue = baseline?.[metric] ?? null;
@@ -218,4 +272,18 @@ function metricDeltas(baseline, current) {
     };
   }
   return metrics;
+}
+
+function resolveThresholds(raw) {
+  if (!raw) {
+    return { ...defaultThresholds };
+  }
+  const overrides = raw.metrics && typeof raw.metrics === "object" ? raw.metrics : raw;
+  const thresholds = { ...defaultThresholds };
+  for (const [key, value] of Object.entries(overrides)) {
+    if (typeof value === "number" && Number.isFinite(value)) {
+      thresholds[key] = value;
+    }
+  }
+  return thresholds;
 }

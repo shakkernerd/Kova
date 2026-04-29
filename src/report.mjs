@@ -43,6 +43,7 @@ export function renderMarkdownReport(report) {
     lines.push(`- Objective: ${record.objective}`);
     if (record.measurements) {
       lines.push(`- Peak RSS: ${record.measurements.peakRssMb ?? "unknown"} MB`);
+      lines.push(`- Max CPU: ${record.measurements.cpuPercentMax ?? "unknown"}%`);
       lines.push(`- Cold ready: ${record.measurements.coldReadyMs ?? "unknown"} ms`);
       lines.push(`- Warm ready: ${record.measurements.warmReadyMs ?? "unknown"} ms`);
       lines.push(`- Time to listening: ${record.measurements.timeToListeningMs ?? "unknown"} ms`);
@@ -59,7 +60,12 @@ export function renderMarkdownReport(report) {
       lines.push(`- Config normalization mentions: ${record.measurements.configNormalizationMentions ?? "unknown"}`);
       lines.push(`- Provider/model timeout mentions: ${record.measurements.providerTimeoutMentions ?? "unknown"}`);
       lines.push(`- Event-loop delay mentions: ${record.measurements.eventLoopDelayMentions ?? "unknown"}`);
+      lines.push(`- Structured event-loop delay: ${record.measurements.eventLoopDelayMs ?? "unknown"} ms`);
+      lines.push(`- Runtime deps staging: ${record.measurements.runtimeDepsStagingMs ?? "unknown"} ms`);
+      lines.push(`- Provider/model timing: ${record.measurements.providerModelTimingMs ?? "unknown"} ms`);
+      lines.push(`- Agent turn: ${record.measurements.agentTurnMs ?? "unknown"} ms (${record.measurements.agentResponseOk ?? "not-run"})`);
       lines.push(`- V8 reports / heap snapshots: ${record.measurements.v8ReportCount ?? "unknown"} / ${record.measurements.heapSnapshotCount ?? "unknown"}`);
+      lines.push(`- Diagnostic / heap bytes: ${record.measurements.diagnosticArtifactBytes ?? "unknown"} / ${record.measurements.heapSnapshotBytes ?? "unknown"}`);
     }
     lines.push("");
     if (record.violations?.length > 0) {
@@ -209,6 +215,29 @@ function formatMetrics(metrics) {
     lines.push(`- diagnostic files: ${metrics.diagnostics.fileCount}`);
     lines.push(`- V8 reports: ${metrics.diagnostics.v8ReportCount}`);
     lines.push(`- heap snapshots: ${metrics.diagnostics.heapSnapshotCount}`);
+    lines.push(`- diagnostic artifact bytes: ${metrics.diagnostics.artifactBytes}`);
+  }
+
+  if (metrics.heapSnapshot) {
+    lines.push(`- heap snapshot trigger: ${metrics.heapSnapshot.fileCount} file(s), ${metrics.heapSnapshot.artifactBytes} bytes`);
+  }
+
+  if (metrics.openclawDiagnostics) {
+    lines.push(`- OpenClaw diagnostics source: ${metrics.openclawDiagnostics.source}`);
+    lines.push(`- OpenClaw diagnostic events: ${metrics.openclawDiagnostics.eventCount}`);
+    lines.push(`- plugin metadata scans: ${metrics.openclawDiagnostics.pluginMetadataScanCount ?? "unknown"}`);
+    lines.push(`- config normalizations: ${metrics.openclawDiagnostics.configNormalizationCount ?? "unknown"}`);
+    lines.push(`- runtime deps staging: ${metrics.openclawDiagnostics.runtimeDepsStagingMs ?? "unknown"}ms`);
+    lines.push(`- event-loop delay: ${metrics.openclawDiagnostics.eventLoopDelayMs ?? "unknown"}ms`);
+    lines.push(`- provider/model timing: ${metrics.openclawDiagnostics.providerModelTimingMs ?? "unknown"}ms`);
+  }
+
+  if (metrics.collectors?.length > 0) {
+    lines.push("- collectors:");
+    for (const collector of metrics.collectors) {
+      const suffix = collector.error ? ` (${collector.error})` : "";
+      lines.push(`  - ${collector.id}: ${collector.status}, ${collector.durationMs}ms, artifacts ${collector.artifactCount}${suffix}`);
+    }
   }
 
   return lines.length > 0 ? lines : ["- unavailable"];
@@ -286,7 +315,7 @@ export function renderPasteSummary(report) {
     if (record.status === "PASS" || record.status === "DRY-RUN") {
       lines.push(`Evidence: ${record.phases?.length ?? 0} phases recorded.`);
       if (record.measurements) {
-        lines.push(`Measurements: cold ready ${record.measurements.coldReadyMs ?? "unknown"}ms; warm ready ${record.measurements.warmReadyMs ?? "unknown"}ms; listening ${record.measurements.timeToListeningMs ?? "unknown"}ms; health ready ${record.measurements.timeToHealthReadyMs ?? "unknown"}ms; peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}; restarts ${record.measurements.gatewayRestartCount ?? "unknown"}; provider/model timeouts ${record.measurements.providerTimeoutMentions ?? "unknown"}; event-loop signals ${record.measurements.eventLoopDelayMentions ?? "unknown"}.`);
+        lines.push(`Measurements: cold ready ${record.measurements.coldReadyMs ?? "unknown"}ms; warm ready ${record.measurements.warmReadyMs ?? "unknown"}ms; listening ${record.measurements.timeToListeningMs ?? "unknown"}ms; health ready ${record.measurements.timeToHealthReadyMs ?? "unknown"}ms; peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; max CPU ${record.measurements.cpuPercentMax ?? "unknown"}%; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}; restarts ${record.measurements.gatewayRestartCount ?? "unknown"}; agent turn ${record.measurements.agentTurnMs ?? "not-run"}ms; provider/model timeouts ${record.measurements.providerTimeoutMentions ?? "unknown"}; event-loop signals ${record.measurements.eventLoopDelayMentions ?? "unknown"}; runtime deps staging ${record.measurements.runtimeDepsStagingMs ?? "unknown"}ms.`);
       }
     } else if (record.violations?.length > 0) {
       lines.push("Violations:");

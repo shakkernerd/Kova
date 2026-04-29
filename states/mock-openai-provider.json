@@ -1,0 +1,40 @@
+{
+  "id": "mock-openai-provider",
+  "title": "Mock OpenAI Provider",
+  "objective": "A local OpenAI-compatible provider endpoint wired into OpenClaw config so agent turns exercise the real OpenClaw agent path without external model dependencies.",
+  "tags": ["agent", "models", "providers", "mock", "latency"],
+  "prepare": [
+    {
+      "id": "start-mock-openai",
+      "title": "Start Mock OpenAI Provider",
+      "intent": "Start a local instrumented OpenAI-compatible server and wait until it is healthy.",
+      "commands": [
+        "mkdir -p '{artifactDir}/mock-openai' && node support/mock-openai-server.mjs --port-file '{artifactDir}/mock-openai/port' --request-log '{artifactDir}/mock-openai/requests.jsonl' --marker KOVA_AGENT_OK >'{artifactDir}/mock-openai/server.log' 2>&1 & echo $! >'{artifactDir}/mock-openai/pid'; for i in $(seq 1 100); do test -s '{artifactDir}/mock-openai/port' && node -e 'fetch(`http://127.0.0.1:${process.argv[1]}/health`).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))' \"$(cat '{artifactDir}/mock-openai/port')\" && exit 0; sleep 0.1; done; cat '{artifactDir}/mock-openai/server.log' >&2; exit 1"
+      ],
+      "evidence": ["mock provider port", "mock provider request log", "mock provider health"]
+    }
+  ],
+  "setup": [
+    {
+      "id": "configure-openclaw-model",
+      "title": "Configure OpenClaw Model Provider",
+      "intent": "Write OpenClaw config pointing the default agent model at the local mock provider.",
+      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start"],
+      "commands": [
+        "ocm env exec {env} -- node -e 'const fs=require(\"fs\"), path=require(\"path\"); const port=fs.readFileSync(\"{artifactDir}/mock-openai/port\",\"utf8\").trim(); const state=process.env.OPENCLAW_STATE_DIR || path.join(process.env.OPENCLAW_HOME,\".openclaw\"); const configPath=process.env.OPENCLAW_CONFIG_PATH || path.join(state,\"openclaw.json\"); fs.mkdirSync(path.dirname(configPath),{recursive:true}); fs.writeFileSync(path.join(state,\".env\"),\"OPENAI_API_KEY=kova-mock-key\\n\"); let cfg={}; try { cfg=JSON.parse(fs.readFileSync(configPath,\"utf8\")); } catch {} const modelRef=\"openai/gpt-5.5\"; const cost={input:0,output:0,cacheRead:0,cacheWrite:0}; cfg.models={...(cfg.models||{}),mode:\"merge\",providers:{...(cfg.models?.providers||{}),openai:{...(cfg.models?.providers?.openai||{}),baseUrl:`http://127.0.0.1:${port}/v1`,apiKey:{source:\"env\",provider:\"default\",id:\"OPENAI_API_KEY\"},api:\"openai-responses\",request:{...(cfg.models?.providers?.openai?.request||{}),allowPrivateNetwork:true},models:[{id:\"gpt-5.5\",name:\"gpt-5.5\",api:\"openai-responses\",reasoning:false,input:[\"text\"],cost,contextWindow:128000,contextTokens:96000,maxTokens:4096}]}}}; cfg.agents={...(cfg.agents||{}),defaults:{...(cfg.agents?.defaults||{}),model:{primary:modelRef},models:{...(cfg.agents?.defaults?.models||{}),[modelRef]:{params:{transport:\"sse\",openaiWsWarmup:false}}}}}; fs.writeFileSync(configPath,`${JSON.stringify(cfg,null,2)}\\n`); console.log(configPath);'"
+      ],
+      "evidence": ["OpenClaw config points to mock provider", "default agent model is openai/gpt-5.5"]
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "stop-mock-openai",
+      "title": "Stop Mock OpenAI Provider",
+      "intent": "Stop the host-side mock provider process created for this run.",
+      "commands": [
+        "if test -f '{artifactDir}/mock-openai/pid'; then kill \"$(cat '{artifactDir}/mock-openai/pid')\" 2>/dev/null || true; fi"
+      ],
+      "evidence": ["mock provider stopped"]
+    }
+  ]
+}

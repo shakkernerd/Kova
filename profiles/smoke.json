@@ -18,6 +18,11 @@
     {
       "scenario": "gateway-performance",
       "state": "many-bundled-plugins"
+    },
+    {
+      "scenario": "agent-message-latency",
+      "state": "mock-openai-provider",
+      "timeoutMs": 180000
     }
   ]
 }

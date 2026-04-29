@@ -1,0 +1,41 @@
+{
+  "id": "agent-message-latency",
+  "title": "Agent Message Latency",
+  "objective": "Send a real message through OpenClaw's CLI agent path, verify an assistant response is produced, and measure full turn latency, provider routing, gateway health, memory, and logs.",
+  "tags": ["agent", "message", "latency", "providers", "gateway"],
+  "timeoutMs": 180000,
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "agentTurnMs": 45000,
+    "statusMs": 10000,
+    "peakRssMb": 900,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0,
+    "providerTimeoutMentions": 0
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision Agent Env",
+      "intent": "Start a disposable OpenClaw gateway before wiring the model provider and sending a message.",
+      "commands": ["ocm start {env} {startSelector} --json"],
+      "evidence": ["gateway port", "runtime binding", "startup readiness"]
+    },
+    {
+      "id": "agent-turn",
+      "title": "Run Local Agent Turn",
+      "intent": "Use OpenClaw's real local embedded agent CLI command and require a JSON assistant response.",
+      "commands": [
+        "OPENAI_API_KEY=kova-mock-key ocm @{env} -- agent --local --agent main --session-id kova-agent-message-latency --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 120 --json"
+      ],
+      "evidence": ["agent command duration", "final assistant text", "mock provider request log", "token usage"]
+    },
+    {
+      "id": "post-agent-health",
+      "title": "Post-Agent Gateway Health",
+      "intent": "Verify the gateway remains responsive after the agent turn and capture provider/plugin diagnostics.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["gateway status", "provider logs", "plugin errors", "memory after agent turn"]
+    }
+  ]
+}

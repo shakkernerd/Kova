@@ -33,6 +33,11 @@
       "state": "model-auth-missing"
     },
     {
+      "scenario": "agent-message-latency",
+      "state": "mock-openai-provider",
+      "timeoutMs": 180000
+    },
+    {
       "scenario": "dashboard-tui",
       "state": "fresh"
     },

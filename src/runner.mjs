@@ -111,7 +111,7 @@ export async function executeScenario(scenario, context) {
           commands,
           evidence: phase.evidence ?? [],
           results,
-          metrics: await collectEnvMetrics(envName, metricOptions(context, scenario, phase))
+          metrics: await collectEnvMetrics(envName, metricOptions(context, scenario, phase, artifactDir))
         });
 
         const statePhase = await executeStateSetupAfterPhase(context, envName, phase.id, scenario, artifactDir);
@@ -130,7 +130,7 @@ export async function executeScenario(scenario, context) {
     }
   } finally {
     record.finishedAt = new Date().toISOString();
-    record.finalMetrics = await collectEnvMetrics(envName, metricOptions(context, scenario, null));
+    record.finalMetrics = await collectEnvMetrics(envName, metricOptions(context, scenario, null, artifactDir));
     evaluateRecord(record, scenario);
 
     const shouldRetain = context.keepEnv || (context.retainOnFailure && record.status !== "PASS");
@@ -194,7 +194,7 @@ async function executeStateLifecycleSteps(context, envName, scenario, kind, step
     commands,
     evidence,
     results,
-    metrics: await collectEnvMetrics(envName, metricOptions(context, scenario, { id: phaseId }))
+    metrics: await collectEnvMetrics(envName, metricOptions(context, scenario, { id: phaseId }, artifactDir))
   };
 }
 
@@ -225,13 +225,15 @@ function stateStepMatchesPhase(step, phaseId) {
   return step.afterPhase === phaseId;
 }
 
-function metricOptions(context, scenario, phase) {
+function metricOptions(context, scenario, phase, artifactDir) {
   return {
     timeoutMs: context.timeoutMs,
     healthSamples: context.healthSamples,
     healthIntervalMs: context.healthIntervalMs,
     readinessTimeoutMs: readinessTimeoutForPhase(scenario, phase),
-    readinessIntervalMs: context.readinessIntervalMs
+    readinessIntervalMs: context.readinessIntervalMs,
+    heapSnapshot: context.heapSnapshot,
+    artifactDir
   };
 }
 

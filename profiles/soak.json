@@ -27,6 +27,11 @@
       "scenario": "provider-models",
       "state": "model-auth-missing",
       "timeoutMs": 120000
+    },
+    {
+      "scenario": "agent-message-latency",
+      "state": "mock-openai-provider",
+      "timeoutMs": 180000
     }
   ]
 }

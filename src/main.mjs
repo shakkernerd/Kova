@@ -2,7 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { bundleReport } from "./artifacts.mjs";
 import { runCommand } from "./commands.mjs";
-import { compareReports, renderCompareSummary } from "./compare.mjs";
+import { compareReports, renderCompareFixerSummary, renderCompareSummary } from "./compare.mjs";
 import { parseFlags, printHelp, required, resolveFromCwd } from "./cli.mjs";
 import { platformInfo } from "./platform.mjs";
 import { loadProfile, loadProfiles } from "./profiles.mjs";
@@ -210,14 +210,15 @@ async function reportCommand(flags) {
 async function compareReportsCommand(baselinePath, currentPath, flags) {
   const baseline = await readReport(baselinePath);
   const current = await readReport(currentPath);
-  const comparison = compareReports(baseline, current);
+  const thresholds = flags.thresholds ? await readReport(flags.thresholds) : null;
+  const comparison = compareReports(baseline, current, { thresholds });
 
   if (flags.json) {
     console.log(JSON.stringify(comparison, null, 2));
     return;
   }
 
-  console.log(renderCompareSummary(comparison));
+  console.log(flags.fixer ? renderCompareFixerSummary(comparison) : renderCompareSummary(comparison));
   if (!comparison.ok) {
     throw new Error("comparison found regressions");
   }
@@ -257,6 +258,7 @@ async function matrixRun(flags) {
       healthSamples: Number(flags.health_samples ?? 3),
       healthIntervalMs: Number(flags.health_interval_ms ?? 250),
       readinessIntervalMs: Number(flags.readiness_interval_ms ?? 250),
+      heapSnapshot: flags.heap_snapshot === true,
       targetSetup
     };
 
@@ -581,10 +583,11 @@ async function run(flags) {
     execute: flags.execute === true,
     keepEnv: flags.keep_env === true,
     retainOnFailure: flags.retain_on_failure === true,
-    timeoutMs: Number(flags.timeout_ms ?? 120000),
+    timeoutMs: resolveRunTimeout(scenarios, flags),
     healthSamples: Number(flags.health_samples ?? 3),
     healthIntervalMs: Number(flags.health_interval_ms ?? 250),
     readinessIntervalMs: Number(flags.readiness_interval_ms ?? 250),
+    heapSnapshot: flags.heap_snapshot === true,
     targetSetup: { completed: false }
   };
   const records = [];
@@ -633,4 +636,14 @@ async function run(flags) {
 
   console.log(`Kova ${mode} report written: ${relative(process.cwd(), reportPath)}`);
   console.log(`Kova ${mode} data written: ${relative(process.cwd(), jsonPath)}`);
+}
+
+function resolveRunTimeout(scenarios, flags) {
+  if (flags.timeout_ms) {
+    return Number(flags.timeout_ms);
+  }
+  const scenarioTimeouts = scenarios
+    .map((scenario) => scenario.timeoutMs)
+    .filter((timeout) => typeof timeout === "number");
+  return scenarioTimeouts.length === 0 ? 120000 : Math.max(...scenarioTimeouts);
 }

@@ -7,6 +7,7 @@ export function evaluateRecord(record, scenario) {
   const violations = [];
   const allResults = collectResults(record);
   const peakRssMb = collectPeakRss(record);
+  const cpuPercentMax = collectCpuPercentMax(record);
   const missingDependencyErrors = countMissingDependencyErrors(allResults) + countLogMetric(record, "missingDependencyErrors");
   const pluginLoadFailures = countLogMetric(record, "pluginLoadFailures");
   const metadataScanMentions = countLogMetric(record, "metadataScanMentions");
@@ -19,6 +20,11 @@ export function evaluateRecord(record, scenario) {
   const v8DiagnosticMentions = countLogMetric(record, "v8DiagnosticMentions");
   const v8ReportCount = countDiagnosticMetric(record, "v8ReportCount");
   const heapSnapshotCount = countDiagnosticMetric(record, "heapSnapshotCount");
+  const diagnosticArtifactBytes = countDiagnosticMetric(record, "artifactBytes");
+  const heapSnapshotBytes = countHeapSnapshotBytes(record);
+  const openclawDiagnostics = collectOpenClawDiagnostics(record);
+  const agentTurnMs = maxDurationWhere(allResults, isAgentMessageCommand);
+  const agentResponseOk = agentTurnMs === null ? null : allResults.filter((result) => isAgentMessageCommand(result.command)).every(agentResultHasUsableResponse);
   const finalGatewayState = record.finalMetrics?.service?.gatewayState ?? null;
   const healthFailures = countHealthFailures(record);
   const healthP95Ms = collectHealthP95(record);
@@ -34,6 +40,7 @@ export function evaluateRecord(record, scenario) {
   const pluginsListMs = maxDurationWhere(allResults, (command) => command.includes(" -- plugins list"));
   const modelsListMs = maxDurationWhere(allResults, (command) => command.includes(" -- models list"));
 
+  checkDuration(violations, allResults, "agentTurnMs", thresholds.agentTurnMs, isAgentMessageCommand);
   checkDuration(violations, allResults, "statusMs", thresholds.statusMs, (command) => command.includes(" -- status"));
   checkDuration(violations, allResults, "pluginsListMs", thresholds.pluginsListMs, (command) => command.includes(" -- plugins list"));
   checkDuration(violations, allResults, "pluginUpdateDryRunMs", thresholds.pluginUpdateDryRunMs, (command) =>
@@ -55,6 +62,16 @@ export function evaluateRecord(record, scenario) {
       expected: `<= ${thresholds.peakRssMb}`,
       actual: peakRssMb,
       message: `peak RSS ${peakRssMb} MB exceeded threshold ${thresholds.peakRssMb} MB`
+    });
+  }
+
+  if (typeof thresholds.cpuPercentMax === "number" && cpuPercentMax !== null && cpuPercentMax > thresholds.cpuPercentMax) {
+    violations.push({
+      kind: "threshold",
+      metric: "cpuPercentMax",
+      expected: `<= ${thresholds.cpuPercentMax}`,
+      actual: cpuPercentMax,
+      message: `max CPU ${cpuPercentMax}% exceeded threshold ${thresholds.cpuPercentMax}%`
     });
   }
 
@@ -173,14 +190,47 @@ export function evaluateRecord(record, scenario) {
     });
   }
 
+  if (typeof thresholds.eventLoopDelayMs === "number" && openclawDiagnostics.eventLoopDelayMs !== null && openclawDiagnostics.eventLoopDelayMs > thresholds.eventLoopDelayMs) {
+    violations.push({
+      kind: "performance",
+      metric: "eventLoopDelayMs",
+      expected: `<= ${thresholds.eventLoopDelayMs}`,
+      actual: openclawDiagnostics.eventLoopDelayMs,
+      message: `structured event-loop delay ${openclawDiagnostics.eventLoopDelayMs}ms exceeded threshold ${thresholds.eventLoopDelayMs}ms`
+    });
+  }
+
+  if (typeof thresholds.runtimeDepsStagingMs === "number" && openclawDiagnostics.runtimeDepsStagingMs !== null && openclawDiagnostics.runtimeDepsStagingMs > thresholds.runtimeDepsStagingMs) {
+    violations.push({
+      kind: "plugins",
+      metric: "runtimeDepsStagingMs",
+      expected: `<= ${thresholds.runtimeDepsStagingMs}`,
+      actual: openclawDiagnostics.runtimeDepsStagingMs,
+      message: `runtime dependency staging took ${openclawDiagnostics.runtimeDepsStagingMs}ms, over threshold ${thresholds.runtimeDepsStagingMs}ms`
+    });
+  }
+
+  if (agentResponseOk === false) {
+    violations.push({
+      kind: "agent",
+      metric: "agentResponseOk",
+      expected: "true",
+      actual: false,
+      message: "agent message command finished without a usable assistant response"
+    });
+  }
+
   record.measurements = {
     peakRssMb,
+    cpuPercentMax,
     coldReadyMs,
     warmReadyMs,
     upgradeMs,
     statusMs,
     pluginsListMs,
     modelsListMs,
+    agentTurnMs,
+    agentResponseOk,
     tcpConnectMaxMs,
     timeToListeningMs,
     timeToHealthReadyMs,
@@ -200,7 +250,14 @@ export function evaluateRecord(record, scenario) {
     eventLoopDelayMentions,
     v8DiagnosticMentions,
     v8ReportCount,
-    heapSnapshotCount
+    heapSnapshotCount,
+    diagnosticArtifactBytes,
+    heapSnapshotBytes,
+    pluginMetadataScanCount: openclawDiagnostics.pluginMetadataScanCount,
+    configNormalizationCount: openclawDiagnostics.configNormalizationCount,
+    runtimeDepsStagingMs: openclawDiagnostics.runtimeDepsStagingMs,
+    eventLoopDelayMs: openclawDiagnostics.eventLoopDelayMs,
+    providerModelTimingMs: openclawDiagnostics.providerModelTimingMs
   };
 
   if (violations.length > 0) {
@@ -379,6 +436,23 @@ function collectPeakRss(record) {
   return peak;
 }
 
+function collectCpuPercentMax(record) {
+  const values = [];
+  for (const phase of record.phases ?? []) {
+    const cpu = phase.metrics?.process?.cpuPercent;
+    if (typeof cpu === "number") {
+      values.push(cpu);
+    }
+  }
+
+  const finalCpu = record.finalMetrics?.process?.cpuPercent;
+  if (typeof finalCpu === "number") {
+    values.push(finalCpu);
+  }
+
+  return values.length === 0 ? null : Math.max(...values);
+}
+
 function countLogMetric(record, key) {
   let count = 0;
   for (const phase of record.phases ?? []) {
@@ -395,6 +469,60 @@ function countLogMetric(record, key) {
   return count;
 }
 
+function countHeapSnapshotBytes(record) {
+  let count = 0;
+  for (const phase of record.phases ?? []) {
+    const value = phase.metrics?.heapSnapshot?.artifactBytes;
+    if (typeof value === "number") {
+      count = Math.max(count, value);
+    }
+  }
+
+  const finalValue = record.finalMetrics?.heapSnapshot?.artifactBytes;
+  if (typeof finalValue === "number") {
+    count = Math.max(count, finalValue);
+  }
+  return count;
+}
+
+function collectOpenClawDiagnostics(record) {
+  const values = {
+    pluginMetadataScanCount: null,
+    configNormalizationCount: null,
+    runtimeDepsStagingMs: null,
+    eventLoopDelayMs: null,
+    providerModelTimingMs: null
+  };
+
+  for (const metrics of allMetricObjects(record)) {
+    const diagnostics = metrics?.openclawDiagnostics;
+    if (!diagnostics) {
+      continue;
+    }
+    values.pluginMetadataScanCount = maxNullable(values.pluginMetadataScanCount, diagnostics.pluginMetadataScanCount);
+    values.configNormalizationCount = maxNullable(values.configNormalizationCount, diagnostics.configNormalizationCount);
+    values.runtimeDepsStagingMs = maxNullable(values.runtimeDepsStagingMs, diagnostics.runtimeDepsStagingMs);
+    values.eventLoopDelayMs = maxNullable(values.eventLoopDelayMs, diagnostics.eventLoopDelayMs);
+    values.providerModelTimingMs = maxNullable(values.providerModelTimingMs, diagnostics.providerModelTimingMs);
+  }
+
+  return values;
+}
+
+function allMetricObjects(record) {
+  return [
+    ...(record.phases ?? []).map((phase) => phase.metrics).filter(Boolean),
+    record.finalMetrics
+  ].filter(Boolean);
+}
+
+function maxNullable(left, right) {
+  if (typeof right !== "number") {
+    return left;
+  }
+  return left === null ? right : Math.max(left, right);
+}
+
 function countDiagnosticMetric(record, key) {
   let count = 0;
   for (const phase of record.phases ?? []) {
@@ -409,6 +537,53 @@ function countDiagnosticMetric(record, key) {
     count = Math.max(count, finalValue);
   }
   return count;
+}
+
+function isAgentMessageCommand(command) {
+  return command.includes(" -- agent ") && command.includes("--message");
+}
+
+function agentResultHasUsableResponse(result) {
+  if (result.status !== 0 || result.timedOut) {
+    return false;
+  }
+
+  const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  try {
+    const parsed = JSON.parse(result.stdout);
+    const finalText = findFirstString(parsed, [
+      "finalAssistantVisibleText",
+      "finalAssistantRawText",
+      "text",
+      "reply"
+    ]);
+    if (typeof finalText === "string" && finalText.trim().length > 0 && finalText.trim() !== "NO_REPLY") {
+      return true;
+    }
+  } catch {
+    // Fall through to tolerant text checks. Some OpenClaw builds still emit
+    // diagnostics alongside JSON in integration environments.
+  }
+
+  return /"finalAssistant(?:Raw|Visible)Text"\s*:\s*"[^"]+"/.test(text) && !/"finalAssistant(?:Raw|Visible)Text"\s*:\s*"NO_REPLY"/.test(text);
+}
+
+function findFirstString(value, keys) {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  for (const key of keys) {
+    if (typeof value[key] === "string") {
+      return value[key];
+    }
+  }
+  for (const child of Object.values(value)) {
+    const nested = findFirstString(child, keys);
+    if (typeof nested === "string") {
+      return nested;
+    }
+  }
+  return null;
 }
 
 function countMissingDependencyErrors(results) {
