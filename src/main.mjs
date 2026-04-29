@@ -255,12 +255,12 @@ async function matrixRun(flags) {
       keepEnv: flags.keep_env === true,
       retainOnFailure: flags.retain_on_failure === true,
       timeoutMs: resolveEntryTimeout(entry, flags),
-      healthSamples: Number(flags.health_samples ?? 3),
-      healthIntervalMs: Number(flags.health_interval_ms ?? 250),
-      readinessIntervalMs: Number(flags.readiness_interval_ms ?? 250),
+      healthSamples: positiveIntegerFlag(flags, "health_samples", 3),
+      healthIntervalMs: positiveIntegerFlag(flags, "health_interval_ms", 250),
+      readinessIntervalMs: positiveIntegerFlag(flags, "readiness_interval_ms", 250),
       heapSnapshot: flags.heap_snapshot === true,
       nodeProfile: flags.node_profile === true,
-      resourceSampleIntervalMs: Number(flags.resource_sample_interval_ms ?? 1000),
+      resourceSampleIntervalMs: positiveIntegerFlag(flags, "resource_sample_interval_ms", 1000),
       targetSetup
     };
 
@@ -439,11 +439,11 @@ function platformKeys(platform) {
 }
 
 function resolveEntryTimeout(entry, flags) {
-  return Number(flags.timeout_ms ?? entry.timeoutMs ?? entry.scenario.timeoutMs ?? 120000);
+  return positiveIntegerValue(flags.timeout_ms ?? entry.timeoutMs ?? entry.scenario.timeoutMs ?? 120000, "--timeout-ms");
 }
 
 function matrixControlSummary(flags, targetPlan) {
-  const requestedParallel = Math.max(1, Number(flags.parallel ?? 1));
+  const requestedParallel = positiveIntegerFlag(flags, "parallel", 1);
   const failFast = flags.fail_fast === true;
   const parallel = failFast || targetPlan.kind === "local-build" ? 1 : requestedParallel;
   return {
@@ -586,12 +586,12 @@ async function run(flags) {
     keepEnv: flags.keep_env === true,
     retainOnFailure: flags.retain_on_failure === true,
     timeoutMs: resolveRunTimeout(scenarios, flags),
-    healthSamples: Number(flags.health_samples ?? 3),
-    healthIntervalMs: Number(flags.health_interval_ms ?? 250),
-    readinessIntervalMs: Number(flags.readiness_interval_ms ?? 250),
+    healthSamples: positiveIntegerFlag(flags, "health_samples", 3),
+    healthIntervalMs: positiveIntegerFlag(flags, "health_interval_ms", 250),
+    readinessIntervalMs: positiveIntegerFlag(flags, "readiness_interval_ms", 250),
     heapSnapshot: flags.heap_snapshot === true,
     nodeProfile: flags.node_profile === true,
-    resourceSampleIntervalMs: Number(flags.resource_sample_interval_ms ?? 1000),
+    resourceSampleIntervalMs: positiveIntegerFlag(flags, "resource_sample_interval_ms", 1000),
     targetSetup: { completed: false }
   };
   const records = [];
@@ -643,11 +643,29 @@ async function run(flags) {
 }
 
 function resolveRunTimeout(scenarios, flags) {
-  if (flags.timeout_ms) {
-    return Number(flags.timeout_ms);
+  if (flags.timeout_ms !== undefined) {
+    return positiveIntegerFlag(flags, "timeout_ms", 120000);
   }
   const scenarioTimeouts = scenarios
     .map((scenario) => scenario.timeoutMs)
     .filter((timeout) => typeof timeout === "number");
   return scenarioTimeouts.length === 0 ? 120000 : Math.max(...scenarioTimeouts);
+}
+
+function positiveIntegerFlag(flags, key, defaultValue) {
+  if (flags[key] === undefined) {
+    return defaultValue;
+  }
+  return positiveIntegerValue(flags[key], `--${key.replaceAll("_", "-")}`);
+}
+
+function positiveIntegerValue(raw, label) {
+  if (raw === true) {
+    throw new Error(`${label} requires a positive integer value`);
+  }
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`${label} must be a positive integer, got ${JSON.stringify(raw)}`);
+  }
+  return value;
 }

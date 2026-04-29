@@ -36,6 +36,16 @@ export async function runSelfCheck(flags = {}) {
       assertEqual(data.entries.length, 1, "matrix include filter count");
       assertEqual(data.controls?.requestedParallel, 2, "matrix requested parallel");
     }));
+    checks.push(await failingCommandCheck(
+      "invalid-parallel-rejected",
+      "node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --parallel nope --json",
+      "--parallel must be a positive integer"
+    ));
+    checks.push(await failingCommandCheck(
+      "invalid-timeout-rejected",
+      "node bin/kova.mjs run --target runtime:stable --scenario fresh-install --timeout-ms 0 --json",
+      "--timeout-ms must be a positive integer"
+    ));
     checks.push(await jsonCommandCheck("cleanup-json", "node bin/kova.mjs cleanup envs --json", (data) => {
       assertEqual(data.schemaVersion, "kova.cleanup.envs.v1", "cleanup schema");
       assertEqual(data.execute, false, "cleanup execute flag");
@@ -199,6 +209,20 @@ async function commandCheck(id, command) {
     command,
     durationMs: result.durationMs,
     message: result.status === 0 ? "" : result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`
+  };
+}
+
+async function failingCommandCheck(id, command, expectedMessage) {
+  const result = await runCommand(command, { timeoutMs: 30000, maxOutputChars: 1000000 });
+  const output = `${result.stdout}\n${result.stderr}`;
+  return {
+    id,
+    status: result.status !== 0 && output.includes(expectedMessage) ? "PASS" : "FAIL",
+    command,
+    durationMs: result.durationMs,
+    message: result.status !== 0 && output.includes(expectedMessage)
+      ? ""
+      : `expected failure containing ${JSON.stringify(expectedMessage)}, got status ${result.status}: ${output.trim()}`
   };
 }
 
