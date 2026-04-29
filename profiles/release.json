@@ -2,6 +2,34 @@
   "id": "release",
   "title": "Release Matrix",
   "objective": "Broad OpenClaw release confidence across install, upgrade, bundled plugins, model/provider, UI, failure, soak, and platform smoke scenarios.",
+  "gate": {
+    "id": "openclaw-release",
+    "blocking": [
+      { "scenario": "release-runtime-startup", "state": "fresh" },
+      { "scenario": "fresh-install", "state": "fresh" },
+      { "scenario": "fresh-install", "state": "onboarded-user" },
+      { "scenario": "upgrade-existing-user", "state": "old-release-user" },
+      { "scenario": "bundled-runtime-deps", "state": "missing-plugin-index" },
+      { "scenario": "plugin-lifecycle", "state": "plugin-index" },
+      { "scenario": "plugin-external-install", "state": "fresh" },
+      { "scenario": "plugin-remove", "state": "fresh" },
+      { "scenario": "plugin-update", "state": "fresh" },
+      { "scenario": "plugin-bad-manifest", "state": "fresh" },
+      { "scenario": "plugin-missing-runtime-deps", "state": "fresh" },
+      { "scenario": "bundled-plugin-startup", "state": "fresh" },
+      { "scenario": "plugin-lifecycle", "state": "external-plugin" },
+      { "scenario": "provider-models", "state": "model-auth-missing" },
+      { "scenario": "agent-message-latency", "state": "mock-openai-provider" },
+      { "scenario": "dashboard-readiness", "state": "fresh" },
+      { "scenario": "tui-responsiveness", "state": "fresh" },
+      { "scenario": "gateway-performance", "state": "many-bundled-plugins" }
+    ],
+    "warning": [
+      { "scenario": "failure-injection", "state": "broken-plugin-deps" },
+      { "scenario": "soak", "state": "large-workspace" },
+      { "scenario": "cross-platform-smoke", "state": "slow-filesystem" }
+    ]
+  },
   "entries": [
     {
       "scenario": "release-runtime-startup",

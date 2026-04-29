@@ -61,8 +61,38 @@ export function validateProfileShape(profile, sourceName = "profile") {
     }
   }
 
+  if (profile.gate !== undefined) {
+    validateGate(profile.gate, "gate", errors);
+  }
+
   if (errors.length > 0) {
     throw new Error(`${sourceName} is invalid:\n- ${errors.join("\n- ")}`);
+  }
+}
+
+function validateGate(gate, prefix, errors) {
+  if (!gate || typeof gate !== "object" || Array.isArray(gate)) {
+    errors.push(`${prefix} must be an object`);
+    return;
+  }
+  if (gate.id !== undefined && (typeof gate.id !== "string" || gate.id.length === 0)) {
+    errors.push(`${prefix}.id must be a non-empty string when set`);
+  }
+  for (const key of ["blocking", "warning"]) {
+    if (gate[key] === undefined) {
+      continue;
+    }
+    if (!Array.isArray(gate[key])) {
+      errors.push(`${prefix}.${key} must be an array`);
+      continue;
+    }
+    for (const [index, entry] of gate[key].entries()) {
+      const entryPrefix = `${prefix}.${key}[${index}]`;
+      requireString(entry, "scenario", errors, entryPrefix);
+      if (entry.state !== undefined && (typeof entry.state !== "string" || entry.state.length === 0)) {
+        errors.push(`${entryPrefix}.state must be a non-empty string when set`);
+      }
+    }
   }
 }
 

@@ -32,6 +32,7 @@ kova.report.v1
     "node": "v24.13.0"
   },
   "targetCleanup": null,
+  "gate": null,
   "summary": {
     "total": 1,
     "statuses": {
@@ -45,6 +46,10 @@ kova.report.v1
 `targetCleanup` is normally `null`. For `local-build:<repo>` targets, it records
 whether Kova removed the generated temporary OCM runtime after execution, or why
 it retained that runtime.
+
+`gate` is normally `null`. When `kova matrix run --gate` is used, it contains
+the release gate verdict, blocking/warning counts, required scenario policy, and
+failure cards.
 
 ## Record
 
@@ -193,6 +198,41 @@ that same directory with the Markdown and JSON reports.
 Matrix filters accept `scenario:<id>`, `state:<id>`, `tag:<tag>`, or a bare
 scenario/state/tag value. Entries can be skipped by platform eligibility and
 will appear as `SKIPPED` records with `skipReason`.
+
+## Release Gate
+
+`kova matrix run --profile release --target <selector> --execute --gate` uses
+the existing matrix runner and adds:
+
+```json
+{
+  "schemaVersion": "kova.gate.v1",
+  "enabled": true,
+  "profileId": "release",
+  "policyId": "openclaw-release",
+  "verdict": "DO_NOT_SHIP",
+  "ok": false,
+  "blockingCount": 1,
+  "warningCount": 0,
+  "infoCount": 0,
+  "required": [],
+  "warning": [],
+  "cards": []
+}
+```
+
+Verdicts:
+
+- `SHIP`: every blocking gate entry passed; warnings may still exist.
+- `DO_NOT_SHIP`: a blocking OpenClaw scenario failed.
+- `BLOCKED`: Kova cannot make a ship/no-ship decision, usually because the run
+  was not executed, a required gate scenario was filtered out, skipped, or
+  blocked by harness/provisioning behavior.
+
+Gate cards are concise fixer records. They include severity, scenario/state,
+status, summary, expected/actual, impact, likely owner, failed command when
+available, violation text, and compact measurements. The matrix receipt includes
+only the gate verdict/count summary; the full cards live in the JSON report.
 
 ## Compare Report
 

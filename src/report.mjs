@@ -25,6 +25,10 @@ export function renderMarkdownReport(report) {
     ...Object.entries(report.summary.statuses).map(([status, count]) => `- ${status}: ${count}`),
     ""
   ];
+  if (report.gate) {
+    lines.push(...formatGateSection(report.gate));
+  }
+
   if (report.targetCleanup) {
     lines.push("## Target Cleanup");
     lines.push("");
@@ -350,6 +354,7 @@ export function renderReportSummary(report, options = {}) {
     target: report.target,
     from: report.from ?? null,
     platform: report.platform,
+    gate: report.gate ?? null,
     statuses: report.summary?.statuses ?? summarizeRecords(records).statuses,
     scenarios: records.map((record) => {
       const failed = firstFailedCommand(record);
@@ -376,6 +381,9 @@ export function renderReportSummary(report, options = {}) {
     `Mode: ${summary.mode}`,
     `Target: ${summary.target}`,
     `Platform: ${summary.platform?.os ?? "unknown"} ${summary.platform?.release ?? ""} (${summary.platform?.arch ?? "unknown"})`,
+    ...(summary.gate ? [
+      `Gate: ${summary.gate.verdict} (${summary.gate.blockingCount} blocking, ${summary.gate.warningCount} warning)`
+    ] : []),
     "Statuses:",
     ...Object.entries(summary.statuses).map(([status, count]) => `- ${status}: ${count}`),
     "",
@@ -437,6 +445,25 @@ export function renderPasteSummary(report) {
     ""
   ];
 
+  if (report.gate) {
+    lines.push(`Gate: ${report.gate.verdict}`);
+    lines.push(`Blocking: ${report.gate.blockingCount}`);
+    lines.push(`Warnings: ${report.gate.warningCount}`);
+    for (const card of report.gate.cards ?? []) {
+      lines.push("");
+      lines.push(`${card.severity.toUpperCase()}: ${card.scenario ?? "gate"}${card.state ? `/${card.state}` : ""}`);
+      lines.push(`Summary: ${card.summary}`);
+      lines.push(`Expected: ${card.expected}`);
+      lines.push(`Actual: ${card.actual}`);
+      lines.push(`Impact: ${card.impact}`);
+      lines.push(`Likely owner: ${card.likelyOwner}`);
+      if (card.failedCommand) {
+        lines.push(`Command: ${card.failedCommand}`);
+      }
+    }
+    lines.push("");
+  }
+
   for (const record of records) {
     const failed = firstFailedCommand(record);
     lines.push(`Scenario: ${record.scenario}`);
@@ -475,6 +502,33 @@ export function renderPasteSummary(report) {
   }
 
   return lines.join("\n");
+}
+
+function formatGateSection(gate) {
+  const lines = [
+    "## Release Gate",
+    "",
+    `- Verdict: ${gate.verdict}`,
+    `- Blocking: ${gate.blockingCount}`,
+    `- Warnings: ${gate.warningCount}`,
+    ""
+  ];
+  if ((gate.cards ?? []).length > 0) {
+    lines.push("### Failure Cards");
+    lines.push("");
+    for (const card of gate.cards) {
+      lines.push(`- ${card.severity.toUpperCase()} ${card.scenario ?? "gate"}${card.state ? `/${card.state}` : ""}: ${card.summary}`);
+      lines.push(`  - expected: ${card.expected}`);
+      lines.push(`  - actual: ${card.actual}`);
+      lines.push(`  - impact: ${card.impact}`);
+      lines.push(`  - likely owner: ${card.likelyOwner}`);
+      if (card.failedCommand) {
+        lines.push(`  - command: \`${card.failedCommand}\``);
+      }
+    }
+    lines.push("");
+  }
+  return lines;
 }
 
 function firstFailedCommand(record) {

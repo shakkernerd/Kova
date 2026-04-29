@@ -50,6 +50,7 @@ node bin/kova.mjs plan --json
 node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --json
 node bin/kova.mjs matrix run --profile smoke --target runtime:stable --json
 node bin/kova.mjs matrix run --profile release --target channel:beta --include tag:plugins --parallel 2 --json
+node bin/kova.mjs matrix run --profile release --target local-build:/path/to/openclaw --execute --gate --json
 node bin/kova.mjs report compare reports/baseline.json reports/current.json --json
 node bin/kova.mjs plan --scenario fresh-install
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install
@@ -74,6 +75,17 @@ node bin/kova.mjs matrix run --profile release --target npm:2026.4.27 --include 
 
 Matrix filters accept `scenario:<id>`, `state:<id>`, `tag:<tag>`, or a bare
 scenario/state/tag value. Matrix runs bundle their report automatically.
+
+Release gate mode uses the existing matrix runner:
+
+```sh
+node bin/kova.mjs matrix run --profile release --target local-build:/path/to/openclaw --execute --gate --json
+```
+
+`--gate` evaluates the selected profile against its gate policy and adds a
+ship/no-ship verdict to the report. The verdict is `SHIP`, `DO_NOT_SHIP`, or
+`BLOCKED`. Non-ship verdicts exit non-zero after writing the Markdown/JSON
+report and artifact bundle.
 
 Gateway readiness is classified. Kova polls TCP listening and `/health` until a
 hard deadline, while separately enforcing the scenario readiness threshold.
@@ -176,6 +188,7 @@ The repo has the first production skeleton:
 - threshold evaluation for command latency, peak RSS, missing dependency errors,
   and final gateway state
 - Markdown and JSON reports
+- release gate verdicts and failure cards through `matrix run --gate`
 - explicit execution mode
 - default cleanup of temporary envs
 

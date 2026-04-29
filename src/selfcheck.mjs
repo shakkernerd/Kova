@@ -107,6 +107,7 @@ export async function runSelfCheck(flags = {}) {
         assertEqual(data.summary?.statuses?.["DRY-RUN"], 5, "filtered matrix dry-run count");
       }
     ));
+    checks.push(await gateDryRunCheck(tmp));
 
     if (receiptCheck.status === "PASS") {
       const report = JSON.parse(await readFile(receiptCheck.data.jsonPath, "utf8"));
@@ -153,6 +154,36 @@ export async function runSelfCheck(flags = {}) {
 
   if (!ok) {
     throw new Error("self-check failed");
+  }
+}
+
+async function gateDryRunCheck(tmp) {
+  const command = `node bin/kova.mjs matrix run --profile release --target runtime:stable --include scenario:release-runtime-startup --gate --report-dir ${quoteShell(tmp)} --json`;
+  const result = await runCommand(command, { timeoutMs: 30000, maxOutputChars: 1000000 });
+  try {
+    if (result.status === 0) {
+      throw new Error("gate dry-run should exit non-zero");
+    }
+    const data = JSON.parse(result.stdout);
+    assertEqual(data.schemaVersion, "kova.matrix.run.receipt.v1", "gate receipt schema");
+    assertEqual(data.gate?.verdict, "BLOCKED", "gate dry-run verdict");
+    assertEqual(data.gate?.ok, false, "gate dry-run ok");
+    const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
+    assertEqual(report.gate?.cards?.some((card) => card.kind === "not-executed"), true, "gate not-executed card");
+    return {
+      id: "gate-dry-run-blocked",
+      status: "PASS",
+      command,
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "gate-dry-run-blocked",
+      status: "FAIL",
+      command,
+      durationMs: result.durationMs,
+      message: error.message
+    };
   }
 }
 

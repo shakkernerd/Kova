@@ -40,7 +40,7 @@ Usage:
   kova plan [--scenario <id>] [--json]
   kova run --target <selector> [--from <selector>] [--scenario <id>] [--state <id>] [--report-dir <path>] [--health-samples <n>] [--readiness-interval-ms <n>] [--resource-sample-interval-ms <n>] [--node-profile] [--heap-snapshot] [--execute] [--keep-env] [--retain-on-failure] [--json]
   kova matrix plan --profile <id> --target <selector> [--from <selector>] [--include <filter>] [--exclude <filter>] [--parallel <n>] [--json]
-  kova matrix run --profile <id> --target <selector> [--from <selector>] [--include <filter>] [--exclude <filter>] [--parallel <n>] [--fail-fast] [--report-dir <path>] [--health-samples <n>] [--readiness-interval-ms <n>] [--resource-sample-interval-ms <n>] [--node-profile] [--heap-snapshot] [--execute] [--keep-env] [--retain-on-failure] [--json]
+  kova matrix run --profile <id> --target <selector> [--from <selector>] [--include <filter>] [--exclude <filter>] [--parallel <n>] [--fail-fast] [--gate] [--report-dir <path>] [--health-samples <n>] [--readiness-interval-ms <n>] [--resource-sample-interval-ms <n>] [--node-profile] [--heap-snapshot] [--execute] [--keep-env] [--retain-on-failure] [--json]
   kova report summarize <report.json> [--json]
   kova report paste <report.json>
   kova report compare <baseline.json> <current.json> [--thresholds <json>] [--fixer] [--json]

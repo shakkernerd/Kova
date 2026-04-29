@@ -4,6 +4,7 @@ import { bundleReport } from "./artifacts.mjs";
 import { quoteShell, runCommand } from "./commands.mjs";
 import { compareReports, renderCompareFixerSummary, renderCompareSummary } from "./compare.mjs";
 import { parseFlags, printHelp, required, resolveFromCwd } from "./cli.mjs";
+import { evaluateGate } from "./gate.mjs";
 import { platformInfo } from "./platform.mjs";
 import { loadProfile, loadProfiles } from "./profiles.mjs";
 import { repoRoot, reportsDir } from "./paths.mjs";
@@ -282,6 +283,12 @@ async function matrixRun(flags) {
     execute: flags.execute === true,
     timeoutMs: positiveIntegerFlag(flags, "timeout_ms", 120000)
   });
+  const gate = flags.gate === true
+    ? evaluateGate({
+      mode: flags.execute === true ? "execution" : "dry-run",
+      records
+    }, profile)
+    : null;
 
   await mkdir(reportRoot, { recursive: true });
   const report = {
@@ -296,6 +303,7 @@ async function matrixRun(flags) {
     state: null,
     platform: platformInfo(),
     targetCleanup,
+    gate,
     summary: summarizeRecords(records),
     records
   };
@@ -314,14 +322,20 @@ async function matrixRun(flags) {
       jsonPath,
       bundlePath: bundle.outputPath,
       checksumPath: bundle.checksumPath,
+      gate: summarizeGateReceipt(gate),
       summary: report.summary
     }, null, 2));
+    failGateIfNeeded(gate);
     return;
   }
 
   console.log(`Kova matrix ${report.mode} report written: ${relative(process.cwd(), reportPath)}`);
   console.log(`Kova matrix ${report.mode} data written: ${relative(process.cwd(), jsonPath)}`);
   console.log(`Kova matrix bundle written: ${relative(process.cwd(), bundle.outputPath)}`);
+  if (gate) {
+    console.log(`Kova gate verdict: ${gate.verdict}`);
+  }
+  failGateIfNeeded(gate);
 }
 
 async function expandProfile(profile) {
@@ -459,7 +473,31 @@ function matrixControlSummary(flags, targetPlan) {
     requestedParallel,
     parallel,
     parallelAdjusted: parallel !== requestedParallel,
+    gate: flags.gate === true,
     bundle: true
+  };
+}
+
+function failGateIfNeeded(gate) {
+  if (gate && gate.verdict !== "SHIP") {
+    throw new Error(`release gate verdict: ${gate.verdict}`);
+  }
+}
+
+function summarizeGateReceipt(gate) {
+  if (!gate) {
+    return null;
+  }
+  return {
+    schemaVersion: gate.schemaVersion,
+    enabled: gate.enabled,
+    profileId: gate.profileId,
+    policyId: gate.policyId,
+    verdict: gate.verdict,
+    ok: gate.ok,
+    blockingCount: gate.blockingCount,
+    warningCount: gate.warningCount,
+    infoCount: gate.infoCount
   };
 }
 
@@ -495,7 +533,12 @@ function profileSummary(profile) {
     id: profile.id,
     title: profile.title,
     objective: profile.objective,
-    entryCount: profile.entries.length
+    entryCount: profile.entries.length,
+    gate: profile.gate ? {
+      id: profile.gate.id ?? `${profile.id}-gate`,
+      blockingCount: Array.isArray(profile.gate.blocking) ? profile.gate.blocking.length : profile.entries.length,
+      warningCount: Array.isArray(profile.gate.warning) ? profile.gate.warning.length : 0
+    } : null
   };
 }
 
