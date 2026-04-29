@@ -18,13 +18,19 @@ export function renderMarkdownReport(report) {
     `Run ID: \`${report.runId}\``,
     `Mode: ${report.mode}`,
     `Platform: ${report.platform.os} ${report.platform.release} (${report.platform.arch}) · ${report.platform.node}`,
-    "",
+    ""
+  ];
+  if (report.gate) {
+    lines.push(...formatReleaseDecisionSection(report.gate, report.outputPaths));
+  }
+
+  lines.push(
     "## Summary",
     "",
     `- Total scenarios: ${report.summary.total}`,
     ...Object.entries(report.summary.statuses).map(([status, count]) => `- ${status}: ${count}`),
     ""
-  ];
+  );
   if (report.gate) {
     lines.push(...formatGateSection(report.gate));
   }
@@ -509,14 +515,19 @@ function formatGateSection(gate) {
     "## Release Gate",
     "",
     `- Verdict: ${gate.verdict}`,
+    `- Complete: ${gate.complete ? "yes" : "no"}`,
+    `- Partial: ${gate.partial ? "yes" : "no"}`,
+    `- Missing required scenarios: ${gate.missingRequiredCount ?? 0}`,
     `- Blocking: ${gate.blockingCount}`,
     `- Warnings: ${gate.warningCount}`,
+    `- Info: ${gate.infoCount ?? 0}`,
     ""
   ];
-  if ((gate.cards ?? []).length > 0) {
+  const visibleCards = (gate.cards ?? []).filter((card) => card.severity !== "info");
+  if (visibleCards.length > 0) {
     lines.push("### Failure Cards");
     lines.push("");
-    for (const card of gate.cards) {
+    for (const card of visibleCards) {
       lines.push(`- ${card.severity.toUpperCase()} ${card.scenario ?? "gate"}${card.state ? `/${card.state}` : ""}: ${card.summary}`);
       lines.push(`  - expected: ${card.expected}`);
       lines.push(`  - actual: ${card.actual}`);
@@ -528,6 +539,46 @@ function formatGateSection(gate) {
     }
     lines.push("");
   }
+  if ((gate.infoCount ?? 0) > 0) {
+    lines.push(`Info cards omitted from Markdown: ${gate.infoCount}. See JSON report for full gate coverage details.`);
+    lines.push("");
+  }
+  return lines;
+}
+
+function formatReleaseDecisionSection(gate, outputPaths) {
+  const lines = [
+    "## Release Decision",
+    "",
+    `- Verdict: ${gate.verdict}`,
+    `- Coverage: ${gate.complete ? "complete" : gate.partial ? "partial" : "incomplete"}`,
+    `- Blocking / warnings / info: ${gate.blockingCount} / ${gate.warningCount} / ${gate.infoCount ?? 0}`
+  ];
+
+  if (outputPaths?.markdown) {
+    lines.push(`- Markdown report: ${outputPaths.markdown}`);
+  }
+  if (outputPaths?.json) {
+    lines.push(`- JSON report: ${outputPaths.json}`);
+  }
+
+  const topCards = (gate.cards ?? [])
+    .filter((card) => card.severity === "blocking" || card.severity === "warning")
+    .slice(0, 3);
+  if (topCards.length > 0) {
+    lines.push("");
+    lines.push("Top findings:");
+    for (const card of topCards) {
+      lines.push(`- ${card.severity.toUpperCase()} ${card.scenario ?? "gate"}${card.state ? `/${card.state}` : ""}: ${card.summary}`);
+    }
+  }
+
+  if (!gate.complete && gate.partial) {
+    lines.push("");
+    lines.push("This is a filtered gate slice. It can reject a release from selected-scenario failures, but it cannot approve the full release gate.");
+  }
+
+  lines.push("");
   return lines;
 }
 

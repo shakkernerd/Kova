@@ -87,6 +87,10 @@ ship/no-ship verdict to the report. The verdict is `SHIP`, `DO_NOT_SHIP`, or
 `BLOCKED`. Non-ship verdicts exit non-zero after writing the Markdown/JSON
 report and artifact bundle.
 
+Filtered gate slices are reject-only. If a selected blocking scenario fails,
+the verdict is `DO_NOT_SHIP`; if the selected slice passes but required gate
+coverage is missing, the verdict is `BLOCKED` rather than `SHIP`.
+
 Gateway readiness is classified. Kova polls TCP listening and `/health` until a
 hard deadline, while separately enforcing the scenario readiness threshold.
 Reports distinguish hard failures, unhealthy gateways, slow startup, and ready

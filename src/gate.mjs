@@ -1,7 +1,20 @@
+export function preflightGateRun({ entries, flags }) {
+  if (flags?.gate !== true || flags?.execute !== true) {
+    return;
+  }
+
+  const selected = entries.filter((entry) => !entry.skipReason);
+  const needsSourceEnv = selected.some((entry) => entry.scenario?.id === "upgrade-existing-user");
+  if (needsSourceEnv && !flags.source_env) {
+    throw new Error("release gate preflight failed: --source-env <env> is required because selected gate scenario upgrade-existing-user clones existing user state");
+  }
+}
+
 export function evaluateGate(report, profile) {
   const policy = normalizeGatePolicy(profile);
   const records = report.records ?? [];
   const cards = [];
+  const partial = isPartialGate(report);
 
   if (report.mode !== "execution") {
     cards.push({
@@ -20,19 +33,25 @@ export function evaluateGate(report, profile) {
   }
 
   const recordKeys = new Set(records.map(recordKey));
+  const missingRequired = [];
   for (const required of policy.blocking) {
     if (!recordKeys.has(policyKey(required))) {
+      missingRequired.push(required);
       cards.push({
-        severity: "blocking",
-        kind: "missing-required-scenario",
+        severity: partial ? "info" : "blocking",
+        kind: partial ? "filtered-required-scenario" : "missing-required-scenario",
         scenario: required.scenario,
         state: required.state ?? null,
         status: "MISSING",
         title: "Required Scenario Missing",
-        summary: `Required release gate scenario ${formatPolicyEntry(required)} was not present in the report.`,
+        summary: partial
+          ? `Required release gate scenario ${formatPolicyEntry(required)} was not present because this was a filtered gate slice.`
+          : `Required release gate scenario ${formatPolicyEntry(required)} was not present in the report.`,
         expected: "scenario selected and executed",
-        actual: "missing",
-        impact: "The release gate is incomplete and cannot approve the OpenClaw build.",
+        actual: partial ? "filtered out" : "missing",
+        impact: partial
+          ? "This partial run can reject a release if selected scenarios fail, but it cannot approve the full release gate."
+          : "The release gate is incomplete and cannot approve the OpenClaw build.",
         likelyOwner: "Kova"
       });
     }
@@ -48,10 +67,21 @@ export function evaluateGate(report, profile) {
 
   const blockingCards = cards.filter((card) => card.severity === "blocking");
   const warningCards = cards.filter((card) => card.severity === "warning");
-  const blocked = blockingCards.some((card) =>
+  const infoCards = cards.filter((card) => card.severity === "info");
+  const blockedByHarness = blockingCards.some((card) =>
     ["not-executed", "missing-required-scenario", "blocked", "skipped", "dry-run"].includes(card.kind)
   );
-  const verdict = blocked ? "BLOCKED" : blockingCards.length > 0 ? "DO_NOT_SHIP" : "SHIP";
+  const openClawBlockingFailures = blockingCards.filter((card) => card.kind === "openclaw-failure");
+  const incomplete = missingRequired.length > 0;
+  const verdict = blockedByHarness
+    ? "BLOCKED"
+    : openClawBlockingFailures.length > 0
+      ? "DO_NOT_SHIP"
+      : blockingCards.length > 0
+        ? "DO_NOT_SHIP"
+        : incomplete
+          ? "BLOCKED"
+          : "SHIP";
 
   return {
     schemaVersion: "kova.gate.v1",
@@ -60,13 +90,21 @@ export function evaluateGate(report, profile) {
     policyId: policy.id,
     verdict,
     ok: verdict === "SHIP",
+    complete: !incomplete,
+    partial,
+    missingRequiredCount: missingRequired.length,
     blockingCount: blockingCards.length,
     warningCount: warningCards.length,
-    infoCount: cards.filter((card) => card.severity === "info").length,
+    infoCount: infoCards.length,
     required: policy.blocking,
     warning: policy.warning,
     cards
   };
+}
+
+function isPartialGate(report) {
+  const controls = report.controls;
+  return (controls?.include?.length ?? 0) > 0 || (controls?.exclude?.length ?? 0) > 0;
 }
 
 function normalizeGatePolicy(profile) {

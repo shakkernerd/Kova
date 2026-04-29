@@ -72,9 +72,13 @@ Use matrix filters to keep runs deliberate:
 ```sh
 node bin/kova.mjs matrix run --profile release --target runtime:stable --include scenario:fresh-install --execute --json
 node bin/kova.mjs matrix run --profile release --target runtime:stable --include tag:plugins --exclude state:broken-plugin-deps --parallel 2 --execute --json
+node bin/kova.mjs matrix run --profile release --target local-build:/path/to/openclaw --include scenario:release-runtime-startup --execute --gate --json
 ```
 
 Matrix runs automatically produce a bundle path in the JSON receipt.
+Filtered gate slices are reject-only: a selected blocking scenario failure means
+`DO_NOT_SHIP`, while a passing partial slice remains `BLOCKED` because it cannot
+approve the full release gate.
 
 5. Read the generated JSON report first. Use the Markdown report for the human
 summary.

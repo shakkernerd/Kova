@@ -16,6 +16,10 @@ kova.report.v1
   "schemaVersion": "kova.report.v1",
   "generatedAt": "2026-04-29T00:00:00.000Z",
   "runId": "kova-2026-04-29T000000Z",
+  "outputPaths": {
+    "markdown": "/path/to/report.md",
+    "json": "/path/to/report.json"
+  },
   "mode": "dry-run",
   "profile": null,
   "target": "runtime:stable",
@@ -46,6 +50,9 @@ kova.report.v1
 `targetCleanup` is normally `null`. For `local-build:<repo>` targets, it records
 whether Kova removed the generated temporary OCM runtime after execution, or why
 it retained that runtime.
+
+`outputPaths` records the Markdown and JSON paths for the report itself. The
+matrix receipt also includes bundle and checksum paths after bundling.
 
 `gate` is normally `null`. When `kova matrix run --gate` is used, it contains
 the release gate verdict, blocking/warning counts, required scenario policy, and
@@ -212,6 +219,9 @@ the existing matrix runner and adds:
   "policyId": "openclaw-release",
   "verdict": "DO_NOT_SHIP",
   "ok": false,
+  "complete": true,
+  "partial": false,
+  "missingRequiredCount": 0,
   "blockingCount": 1,
   "warningCount": 0,
   "infoCount": 0,
@@ -228,6 +238,10 @@ Verdicts:
 - `BLOCKED`: Kova cannot make a ship/no-ship decision, usually because the run
   was not executed, a required gate scenario was filtered out, skipped, or
   blocked by harness/provisioning behavior.
+
+Filtered gate slices are partial. They can produce `DO_NOT_SHIP` when a selected
+blocking scenario fails, but they cannot produce `SHIP` because required gate
+coverage is missing. A passing filtered slice remains `BLOCKED`.
 
 Gate cards are concise fixer records. They include severity, scenario/state,
 status, summary, expected/actual, impact, likely owner, failed command when

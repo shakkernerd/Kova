@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { quoteShell, runCommand } from "./commands.mjs";
 import { summarizeCpuProfiles } from "./cpuprofile.mjs";
 import { evaluateRecord } from "./evaluator.mjs";
+import { evaluateGate } from "./gate.mjs";
 import { parseTimelineText } from "./timeline.mjs";
 
 export async function runSelfCheck(flags = {}) {
@@ -108,6 +109,12 @@ export async function runSelfCheck(flags = {}) {
       }
     ));
     checks.push(await gateDryRunCheck(tmp));
+    checks.push(gatePartialFailureCheck());
+    checks.push(await failingCommandCheck(
+      "gate-preflight-source-env",
+      `node bin/kova.mjs matrix run --profile release --target runtime:stable --execute --gate --report-dir ${quoteShell(tmp)} --json`,
+      "release gate preflight failed: --source-env <env> is required"
+    ));
 
     if (receiptCheck.status === "PASS") {
       const report = JSON.parse(await readFile(receiptCheck.data.jsonPath, "utf8"));
@@ -154,6 +161,58 @@ export async function runSelfCheck(flags = {}) {
 
   if (!ok) {
     throw new Error("self-check failed");
+  }
+}
+
+function gatePartialFailureCheck() {
+  try {
+    const gate = evaluateGate({
+      mode: "execution",
+      controls: {
+        include: ["scenario:release-runtime-startup"],
+        exclude: []
+      },
+      records: [
+        {
+          scenario: "release-runtime-startup",
+          state: { id: "fresh" },
+          status: "FAIL",
+          title: "Release Runtime Startup",
+          likelyOwner: "OpenClaw",
+          violations: [{ message: "gateway became healthy after 47100ms, beyond the 30000ms threshold" }],
+          phases: []
+        }
+      ]
+    }, {
+      id: "release",
+      gate: {
+        id: "test-release-gate",
+        blocking: [
+          { scenario: "release-runtime-startup", state: "fresh" },
+          { scenario: "fresh-install", state: "fresh" }
+        ]
+      }
+    });
+
+    assertEqual(gate.verdict, "DO_NOT_SHIP", "partial gate failure verdict");
+    assertEqual(gate.partial, true, "partial gate marker");
+    assertEqual(gate.complete, false, "partial gate completeness");
+    assertEqual(gate.missingRequiredCount, 1, "partial gate missing count");
+    assertEqual(gate.cards.some((card) => card.kind === "filtered-required-scenario"), true, "filtered required card");
+    return {
+      id: "gate-partial-failure-do-not-ship",
+      status: "PASS",
+      command: "evaluate synthetic partial release gate failure",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "gate-partial-failure-do-not-ship",
+      status: "FAIL",
+      command: "evaluate synthetic partial release gate failure",
+      durationMs: 0,
+      message: error.message
+    };
   }
 }
 

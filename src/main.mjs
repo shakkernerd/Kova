@@ -4,7 +4,7 @@ import { bundleReport } from "./artifacts.mjs";
 import { quoteShell, runCommand } from "./commands.mjs";
 import { compareReports, renderCompareFixerSummary, renderCompareSummary } from "./compare.mjs";
 import { parseFlags, printHelp, required, resolveFromCwd } from "./cli.mjs";
-import { evaluateGate } from "./gate.mjs";
+import { evaluateGate, preflightGateRun } from "./gate.mjs";
 import { platformInfo } from "./platform.mjs";
 import { loadProfile, loadProfiles } from "./profiles.mjs";
 import { repoRoot, reportsDir } from "./paths.mjs";
@@ -235,6 +235,8 @@ async function matrixRun(flags) {
   const targetPlan = resolveTarget(target, "target");
   const fromPlan = flags.from ? resolveTarget(flags.from, "from") : null;
   const entries = applyMatrixControls(await expandProfile(profile), flags, platformInfo());
+  const controls = matrixControlSummary(flags, targetPlan);
+  preflightGateRun({ entries, flags });
   for (const entry of entries.filter((item) => !item.skipReason)) {
     validateScenarioRun(entry.scenario, flags);
   }
@@ -275,7 +277,6 @@ async function matrixRun(flags) {
     return buildDryRunRecord(entry.scenario, context);
   };
 
-  const controls = matrixControlSummary(flags, targetPlan);
   const records = flags.execute === true
     ? await runMatrixEntries(entries, runEntry, controls)
     : await Promise.all(entries.map((entry) => runEntry(entry)));
@@ -286,6 +287,7 @@ async function matrixRun(flags) {
   const gate = flags.gate === true
     ? evaluateGate({
       mode: flags.execute === true ? "execution" : "dry-run",
+      controls,
       records
     }, profile)
     : null;
@@ -295,6 +297,10 @@ async function matrixRun(flags) {
     schemaVersion: reportSchemaVersion,
     generatedAt: new Date().toISOString(),
     runId,
+    outputPaths: {
+      markdown: reportPath,
+      json: jsonPath
+    },
     mode: flags.execute === true ? "execution" : "dry-run",
     profile: profileSummary(profile),
     target,
@@ -495,6 +501,9 @@ function summarizeGateReceipt(gate) {
     policyId: gate.policyId,
     verdict: gate.verdict,
     ok: gate.ok,
+    complete: gate.complete,
+    partial: gate.partial,
+    missingRequiredCount: gate.missingRequiredCount,
     blockingCount: gate.blockingCount,
     warningCount: gate.warningCount,
     infoCount: gate.infoCount
