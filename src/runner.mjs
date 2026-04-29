@@ -2,6 +2,7 @@ import { runCommand } from "./commands.mjs";
 import { materializeCommands } from "./scenarios.mjs";
 import { quoteShell } from "./commands.mjs";
 import { collectEnvMetrics } from "./metrics.mjs";
+import { evaluateRecord } from "./evaluator.mjs";
 
 export function createRunId() {
   const stamp = new Date().toISOString().replaceAll(":", "").replace(/\.\d+Z$/, "Z");
@@ -95,6 +96,7 @@ export async function executeScenario(scenario, context) {
     record.finishedAt = new Date().toISOString();
     if (!context.keepEnv) {
       record.finalMetrics = await collectEnvMetrics(envName, { timeoutMs: context.timeoutMs });
+      evaluateRecord(record, scenario);
       const cleanup = await runCommand(`ocm env destroy ${envName} --yes`, { timeoutMs: context.timeoutMs });
       record.cleanup = cleanup.status === 0 ? "destroyed" : "destroy-failed";
       record.cleanupResult = cleanup;
@@ -102,6 +104,8 @@ export async function executeScenario(scenario, context) {
         record.status = "BLOCKED";
       }
     } else {
+      record.finalMetrics = await collectEnvMetrics(envName, { timeoutMs: context.timeoutMs });
+      evaluateRecord(record, scenario);
       record.cleanup = "retained";
     }
   }

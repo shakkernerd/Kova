@@ -38,7 +38,20 @@ export function renderMarkdownReport(report) {
     lines.push(`- Harness env: \`${record.envName}\``);
     lines.push(`- Likely owner on failure: ${record.likelyOwner}`);
     lines.push(`- Objective: ${record.objective}`);
+    if (record.measurements) {
+      lines.push(`- Peak RSS: ${record.measurements.peakRssMb ?? "unknown"} MB`);
+      lines.push(`- Missing dependency errors: ${record.measurements.missingDependencyErrors ?? "unknown"}`);
+      lines.push(`- Final gateway state: ${record.measurements.finalGatewayState ?? "unknown"}`);
+    }
     lines.push("");
+    if (record.violations?.length > 0) {
+      lines.push("### Violations");
+      lines.push("");
+      for (const violation of record.violations) {
+        lines.push(`- ${violation.message}`);
+      }
+      lines.push("");
+    }
     lines.push("### Phases");
     lines.push("");
 
@@ -157,7 +170,8 @@ export function renderReportSummary(report, options = {}) {
       title: record.title,
       status: record.status,
       cleanup: record.cleanup ?? "not-run",
-      failedCommand: firstFailedCommand(record)?.command ?? null
+      failedCommand: firstFailedCommand(record)?.command ?? null,
+      violations: record.violations ?? []
     }))
   };
 
@@ -180,6 +194,9 @@ export function renderReportSummary(report, options = {}) {
     lines.push(`- ${scenario.status} ${scenario.id} (${scenario.cleanup})`);
     if (scenario.failedCommand) {
       lines.push(`  failed command: ${scenario.failedCommand}`);
+    }
+    for (const violation of scenario.violations) {
+      lines.push(`  violation: ${violation.message}`);
     }
   }
 
@@ -205,6 +222,14 @@ export function renderPasteSummary(report) {
     lines.push(`Cleanup: ${record.cleanup ?? "not-run"}`);
     if (record.status === "PASS" || record.status === "DRY-RUN") {
       lines.push(`Evidence: ${record.phases?.length ?? 0} phases recorded.`);
+      if (record.measurements) {
+        lines.push(`Measurements: peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; final gateway ${record.measurements.finalGatewayState ?? "unknown"}.`);
+      }
+    } else if (record.violations?.length > 0) {
+      lines.push("Violations:");
+      for (const violation of record.violations) {
+        lines.push(`- ${violation.message}`);
+      }
     } else if (failed) {
       lines.push("Failure:");
       lines.push(`- Command: ${failed.command}`);

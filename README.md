@@ -139,6 +139,8 @@ The repo has the first production skeleton:
 - stdout/stderr capture
 - gateway service snapshots
 - gateway PID/RSS/CPU metrics on executed scenarios
+- threshold evaluation for command latency, peak RSS, missing dependency errors,
+  and final gateway state
 - Markdown and JSON reports
 - explicit execution mode
 - default cleanup of temporary envs
