@@ -322,6 +322,7 @@ export function renderReportSummary(report, options = {}) {
       cleanup: record.cleanup ?? "not-run",
       state: record.state ?? null,
       failedCommand: firstFailedCommand(record)?.command ?? null,
+      measurements: summarizeMeasurements(record.measurements),
       violations: record.violations ?? []
     }))
   };
@@ -352,6 +353,31 @@ export function renderReportSummary(report, options = {}) {
   }
 
   return lines.join("\n");
+}
+
+function summarizeMeasurements(measurements) {
+  if (!measurements) {
+    return null;
+  }
+
+  return {
+    peakRssMb: measurements.peakRssMb ?? null,
+    cpuPercentMax: measurements.cpuPercentMax ?? null,
+    timeToListeningMs: measurements.timeToListeningMs ?? null,
+    timeToHealthReadyMs: measurements.timeToHealthReadyMs ?? null,
+    healthFailures: measurements.healthFailures ?? null,
+    missingDependencyErrors: measurements.missingDependencyErrors ?? null,
+    pluginLoadFailures: measurements.pluginLoadFailures ?? null,
+    resourceSampleCount: measurements.resourceSampleCount ?? null,
+    openclawTimelineAvailable: measurements.openclawTimelineAvailable ?? null,
+    openclawSlowestSpanName: measurements.openclawSlowestSpanName ?? null,
+    openclawSlowestSpanMs: measurements.openclawSlowestSpanMs ?? null,
+    nodeCpuProfileCount: measurements.nodeCpuProfileCount ?? null,
+    nodeHeapProfileCount: measurements.nodeHeapProfileCount ?? null,
+    nodeTraceEventCount: measurements.nodeTraceEventCount ?? null,
+    nodeProfileTopFunction: measurements.nodeProfileTopFunction ?? null,
+    nodeProfileTopFunctionMs: measurements.nodeProfileTopFunctionMs ?? null
+  };
 }
 
 export function renderPasteSummary(report) {
