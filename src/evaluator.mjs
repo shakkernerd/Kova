@@ -24,6 +24,10 @@ export function evaluateRecord(record, scenario) {
   const diagnosticArtifactBytes = countDiagnosticMetric(record, "artifactBytes");
   const heapSnapshotBytes = countHeapSnapshotBytes(record);
   const openclawDiagnostics = collectOpenClawDiagnostics(record);
+  const timelineSummary = collectTimelineSummary(record);
+  const runtimeDepsStagingMs = maxNullable(openclawDiagnostics.runtimeDepsStagingMs, timelineSummary.runtimeDepsStageMaxMs);
+  const eventLoopDelayMs = maxNullable(openclawDiagnostics.eventLoopDelayMs, timelineSummary.eventLoopMaxMs);
+  const providerModelTimingMs = maxNullable(openclawDiagnostics.providerModelTimingMs, timelineSummary.providerRequestMaxMs);
   const agentTurnMs = maxDurationWhere(allResults, isAgentMessageCommand);
   const agentResponseOk = agentTurnMs === null ? null : allResults.filter((result) => isAgentMessageCommand(result.command)).every(agentResultHasUsableResponse);
   const finalGatewayState = record.finalMetrics?.service?.gatewayState ?? null;
@@ -191,23 +195,34 @@ export function evaluateRecord(record, scenario) {
     });
   }
 
-  if (typeof thresholds.eventLoopDelayMs === "number" && openclawDiagnostics.eventLoopDelayMs !== null && openclawDiagnostics.eventLoopDelayMs > thresholds.eventLoopDelayMs) {
+  if (typeof thresholds.eventLoopDelayMs === "number" && eventLoopDelayMs !== null && eventLoopDelayMs > thresholds.eventLoopDelayMs) {
     violations.push({
       kind: "performance",
       metric: "eventLoopDelayMs",
       expected: `<= ${thresholds.eventLoopDelayMs}`,
-      actual: openclawDiagnostics.eventLoopDelayMs,
-      message: `structured event-loop delay ${openclawDiagnostics.eventLoopDelayMs}ms exceeded threshold ${thresholds.eventLoopDelayMs}ms`
+      actual: eventLoopDelayMs,
+      message: `structured event-loop delay ${eventLoopDelayMs}ms exceeded threshold ${thresholds.eventLoopDelayMs}ms`
     });
   }
 
-  if (typeof thresholds.runtimeDepsStagingMs === "number" && openclawDiagnostics.runtimeDepsStagingMs !== null && openclawDiagnostics.runtimeDepsStagingMs > thresholds.runtimeDepsStagingMs) {
+  if (typeof thresholds.runtimeDepsStagingMs === "number" && runtimeDepsStagingMs !== null && runtimeDepsStagingMs > thresholds.runtimeDepsStagingMs) {
     violations.push({
       kind: "plugins",
       metric: "runtimeDepsStagingMs",
       expected: `<= ${thresholds.runtimeDepsStagingMs}`,
-      actual: openclawDiagnostics.runtimeDepsStagingMs,
-      message: `runtime dependency staging took ${openclawDiagnostics.runtimeDepsStagingMs}ms, over threshold ${thresholds.runtimeDepsStagingMs}ms`
+      actual: runtimeDepsStagingMs,
+      message: `runtime dependency staging took ${runtimeDepsStagingMs}ms, over threshold ${thresholds.runtimeDepsStagingMs}ms`
+    });
+  }
+
+  const allowedTimelineParseErrors = typeof thresholds.openclawTimelineParseErrors === "number" ? thresholds.openclawTimelineParseErrors : 0;
+  if (timelineSummary.available && timelineSummary.parseErrorCount > allowedTimelineParseErrors) {
+    violations.push({
+      kind: "diagnostics",
+      metric: "openclawTimelineParseErrors",
+      expected: `<= ${allowedTimelineParseErrors}`,
+      actual: timelineSummary.parseErrorCount,
+      message: `${timelineSummary.parseErrorCount} OpenClaw diagnostics timeline parse errors found`
     });
   }
 
@@ -260,11 +275,20 @@ export function evaluateRecord(record, scenario) {
     resourcePeakGatewayRssMb: resourceSummary.peakGatewayRssMb,
     resourceTopByRss: resourceSummary.topByRss,
     resourceTopByCpu: resourceSummary.topByCpu,
+    openclawTimelineAvailable: timelineSummary.available,
+    openclawTimelineEventCount: timelineSummary.eventCount,
+    openclawTimelineParseErrors: timelineSummary.parseErrorCount,
+    openclawSlowestSpanName: timelineSummary.slowestSpanName,
+    openclawSlowestSpanMs: timelineSummary.slowestSpanMs,
+    openclawRepeatedSpanCount: timelineSummary.repeatedSpanCount,
+    openclawEventLoopMaxMs: timelineSummary.eventLoopMaxMs,
+    openclawProviderRequestMaxMs: timelineSummary.providerRequestMaxMs,
+    openclawChildProcessFailedCount: timelineSummary.childProcessFailedCount,
     pluginMetadataScanCount: openclawDiagnostics.pluginMetadataScanCount,
     configNormalizationCount: openclawDiagnostics.configNormalizationCount,
-    runtimeDepsStagingMs: openclawDiagnostics.runtimeDepsStagingMs,
-    eventLoopDelayMs: openclawDiagnostics.eventLoopDelayMs,
-    providerModelTimingMs: openclawDiagnostics.providerModelTimingMs
+    runtimeDepsStagingMs,
+    eventLoopDelayMs,
+    providerModelTimingMs
   };
 
   if (violations.length > 0) {
@@ -495,6 +519,58 @@ function collectResourceSummary(results) {
     artifacts,
     topByRss: processes.toSorted((left, right) => right.peakRssMb - left.peakRssMb).slice(0, 5),
     topByCpu: processes.toSorted((left, right) => right.maxCpuPercent - left.maxCpuPercent).slice(0, 5)
+  };
+}
+
+function collectTimelineSummary(record) {
+  const timelines = [];
+  for (const phase of record.phases ?? []) {
+    if (phase.metrics?.timeline) {
+      timelines.push(phase.metrics.timeline);
+    }
+  }
+  if (record.finalMetrics?.timeline) {
+    timelines.push(record.finalMetrics.timeline);
+  }
+
+  const available = timelines.some((timeline) => timeline.available);
+  let eventCount = 0;
+  let parseErrorCount = 0;
+  let slowestSpan = null;
+  let eventLoopMaxMs = null;
+  let providerRequestMaxMs = null;
+  let childProcessFailedCount = 0;
+  let repeatedSpanCount = 0;
+  let runtimeDepsStageMaxMs = null;
+
+  for (const timeline of timelines) {
+    eventCount = Math.max(eventCount, timeline.eventCount ?? 0);
+    parseErrorCount = Math.max(parseErrorCount, timeline.parseErrorCount ?? 0);
+    childProcessFailedCount = Math.max(childProcessFailedCount, timeline.childProcesses?.failedCount ?? 0);
+    repeatedSpanCount = Math.max(repeatedSpanCount, timeline.repeatedSpans?.length ?? 0);
+    eventLoopMaxMs = maxNullable(eventLoopMaxMs, timeline.eventLoop?.maxMs);
+    providerRequestMaxMs = maxNullable(providerRequestMaxMs, timeline.providers?.maxDurationMs);
+    runtimeDepsStageMaxMs = maxNullable(runtimeDepsStageMaxMs, timeline.spanTotals?.["runtimeDeps.stage"]?.maxDurationMs);
+
+    const candidate = timeline.slowestSpans?.[0];
+    if (candidate && typeof candidate.durationMs === "number") {
+      if (!slowestSpan || candidate.durationMs > slowestSpan.durationMs) {
+        slowestSpan = candidate;
+      }
+    }
+  }
+
+  return {
+    available,
+    eventCount,
+    parseErrorCount,
+    slowestSpanName: slowestSpan?.name ?? null,
+    slowestSpanMs: slowestSpan?.durationMs ?? null,
+    repeatedSpanCount,
+    eventLoopMaxMs,
+    providerRequestMaxMs,
+    childProcessFailedCount,
+    runtimeDepsStageMaxMs
   };
 }
 

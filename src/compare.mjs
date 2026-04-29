@@ -29,7 +29,12 @@ const defaultThresholds = {
   diagnosticArtifactBytes: 25 * 1024 * 1024,
   heapSnapshotBytes: 50 * 1024 * 1024,
   resourcePeakCommandTreeRssMb: 100,
-  resourcePeakGatewayRssMb: 100
+  resourcePeakGatewayRssMb: 100,
+  openclawTimelineParseErrors: 0,
+  openclawSlowestSpanMs: 5000,
+  openclawEventLoopMaxMs: 250,
+  openclawProviderRequestMaxMs: 5000,
+  openclawChildProcessFailedCount: 0
 };
 
 export function compareReports(baseline, current, options = {}) {
@@ -262,6 +267,13 @@ function metricDeltas(baseline, current) {
     "resourceSampleCount",
     "resourcePeakCommandTreeRssMb",
     "resourcePeakGatewayRssMb",
+    "openclawTimelineEventCount",
+    "openclawTimelineParseErrors",
+    "openclawSlowestSpanMs",
+    "openclawRepeatedSpanCount",
+    "openclawEventLoopMaxMs",
+    "openclawProviderRequestMaxMs",
+    "openclawChildProcessFailedCount",
     "pluginMetadataScanCount",
     "configNormalizationCount",
     "runtimeDepsStagingMs",

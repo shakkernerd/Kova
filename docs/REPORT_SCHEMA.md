@@ -99,10 +99,14 @@ Current metrics include:
 - provider/model load and timeout signals
 - event-loop delay signals
 - V8 diagnostic report and heap snapshot file counts
+- OpenClaw diagnostics timeline availability, event count, parse errors,
+  slowest spans, repeated spans, event-loop max, provider request max, and child
+  process failures
 
-Future metrics will add runtime dependency staging timings, structured plugin
-metadata scan counts, and structured config normalization counts when OpenClaw
-exposes first-class diagnostics for them.
+When OpenClaw emits `OPENCLAW_DIAGNOSTICS_TIMELINE_PATH`, Kova stores the raw
+JSONL timeline under the run artifacts and summarizes it in `metrics.timeline`.
+If OpenClaw does not emit it, the collector reports `INFO` and the scenario can
+still complete.
 
 ## Run Receipt
 

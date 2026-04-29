@@ -63,6 +63,10 @@ export function renderMarkdownReport(report) {
       lines.push(`- Config normalization mentions: ${record.measurements.configNormalizationMentions ?? "unknown"}`);
       lines.push(`- Provider/model timeout mentions: ${record.measurements.providerTimeoutMentions ?? "unknown"}`);
       lines.push(`- Event-loop delay mentions: ${record.measurements.eventLoopDelayMentions ?? "unknown"}`);
+      lines.push(`- OpenClaw timeline: ${record.measurements.openclawTimelineAvailable ? "available" : "unavailable"} (${record.measurements.openclawTimelineEventCount ?? 0} events, ${record.measurements.openclawTimelineParseErrors ?? 0} parse errors)`);
+      lines.push(`- Slowest OpenClaw span: ${record.measurements.openclawSlowestSpanName ?? "unknown"} ${record.measurements.openclawSlowestSpanMs ?? "unknown"} ms`);
+      lines.push(`- OpenClaw event-loop max: ${record.measurements.openclawEventLoopMaxMs ?? "unknown"} ms`);
+      lines.push(`- OpenClaw provider request max: ${record.measurements.openclawProviderRequestMaxMs ?? "unknown"} ms`);
       lines.push(`- Structured event-loop delay: ${record.measurements.eventLoopDelayMs ?? "unknown"} ms`);
       lines.push(`- Runtime deps staging: ${record.measurements.runtimeDepsStagingMs ?? "unknown"} ms`);
       lines.push(`- Provider/model timing: ${record.measurements.providerModelTimingMs ?? "unknown"} ms`);
@@ -255,6 +259,23 @@ function formatMetrics(metrics) {
     lines.push(`- provider/model timing: ${metrics.openclawDiagnostics.providerModelTimingMs ?? "unknown"}ms`);
   }
 
+  if (metrics.timeline) {
+    lines.push(`- OpenClaw timeline: ${metrics.timeline.available ? "available" : "unavailable"}`);
+    lines.push(`- OpenClaw timeline events: ${metrics.timeline.eventCount ?? 0}`);
+    lines.push(`- OpenClaw timeline parse errors: ${metrics.timeline.parseErrorCount ?? 0}`);
+    if (metrics.timeline.slowestSpans?.length > 0) {
+      const span = metrics.timeline.slowestSpans[0];
+      lines.push(`- slowest OpenClaw span: ${span.name} ${span.durationMs}ms`);
+    }
+    if (metrics.timeline.repeatedSpans?.length > 0) {
+      const span = metrics.timeline.repeatedSpans[0];
+      lines.push(`- most expensive repeated span: ${span.name} ${span.count}x ${span.totalDurationMs}ms`);
+    }
+    lines.push(`- OpenClaw event-loop max: ${metrics.timeline.eventLoop?.maxMs ?? "unknown"}ms`);
+    lines.push(`- OpenClaw provider request max: ${metrics.timeline.providers?.maxDurationMs ?? "unknown"}ms`);
+    lines.push(`- OpenClaw child process failures: ${metrics.timeline.childProcesses?.failedCount ?? 0}`);
+  }
+
   if (metrics.collectors?.length > 0) {
     lines.push("- collectors:");
     for (const collector of metrics.collectors) {
@@ -338,7 +359,7 @@ export function renderPasteSummary(report) {
     if (record.status === "PASS" || record.status === "DRY-RUN") {
       lines.push(`Evidence: ${record.phases?.length ?? 0} phases recorded.`);
       if (record.measurements) {
-        lines.push(`Measurements: cold ready ${record.measurements.coldReadyMs ?? "unknown"}ms; warm ready ${record.measurements.warmReadyMs ?? "unknown"}ms; listening ${record.measurements.timeToListeningMs ?? "unknown"}ms; health ready ${record.measurements.timeToHealthReadyMs ?? "unknown"}ms; peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; max CPU ${record.measurements.cpuPercentMax ?? "unknown"}%; samples ${record.measurements.resourceSampleCount ?? "unknown"}; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}; restarts ${record.measurements.gatewayRestartCount ?? "unknown"}; agent turn ${record.measurements.agentTurnMs ?? "not-run"}ms; provider/model timeouts ${record.measurements.providerTimeoutMentions ?? "unknown"}; event-loop signals ${record.measurements.eventLoopDelayMentions ?? "unknown"}; runtime deps staging ${record.measurements.runtimeDepsStagingMs ?? "unknown"}ms.`);
+        lines.push(`Measurements: cold ready ${record.measurements.coldReadyMs ?? "unknown"}ms; warm ready ${record.measurements.warmReadyMs ?? "unknown"}ms; listening ${record.measurements.timeToListeningMs ?? "unknown"}ms; health ready ${record.measurements.timeToHealthReadyMs ?? "unknown"}ms; peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; max CPU ${record.measurements.cpuPercentMax ?? "unknown"}%; samples ${record.measurements.resourceSampleCount ?? "unknown"}; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}; restarts ${record.measurements.gatewayRestartCount ?? "unknown"}; agent turn ${record.measurements.agentTurnMs ?? "not-run"}ms; provider/model timeouts ${record.measurements.providerTimeoutMentions ?? "unknown"}; event-loop signals ${record.measurements.eventLoopDelayMentions ?? "unknown"}; timeline ${record.measurements.openclawTimelineAvailable ? "available" : "unavailable"}; slowest span ${record.measurements.openclawSlowestSpanName ?? "unknown"} ${record.measurements.openclawSlowestSpanMs ?? "unknown"}ms; runtime deps staging ${record.measurements.runtimeDepsStagingMs ?? "unknown"}ms.`);
       }
     } else if (record.violations?.length > 0) {
       lines.push("Violations:");

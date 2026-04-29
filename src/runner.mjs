@@ -59,6 +59,7 @@ export async function executeScenario(scenario, context) {
 
   try {
     await mkdir(artifactDir, { recursive: true });
+    await mkdir(join(artifactDir, "openclaw"), { recursive: true });
     const setupResults = await executeTargetSetup(context, envName);
     if (setupResults.length > 0) {
       record.phases.push({
@@ -278,12 +279,27 @@ async function executeTargetSetup(context, envName) {
 function runScenarioCommand(command, context, envName, artifactDir, phaseId, commandIndex) {
   return runCommand(command, {
     timeoutMs: context.timeoutMs,
+    env: diagnosticsEnv(context, envName, artifactDir),
     resourceSample: context.resourceSampling === false ? null : {
       envName,
       intervalMs: context.resourceSampleIntervalMs,
       artifactPath: join(artifactDir, "resource-samples", `${safeSegment(phaseId)}-${commandIndex + 1}.jsonl`)
     }
   });
+}
+
+function diagnosticsEnv(context, envName, artifactDir) {
+  if (context.openclawDiagnostics === false) {
+    return {};
+  }
+
+  return {
+    OPENCLAW_DIAGNOSTICS: "1",
+    OPENCLAW_DIAGNOSTICS_RUN_ID: context.runId,
+    OPENCLAW_DIAGNOSTICS_ENV: envName,
+    OPENCLAW_DIAGNOSTICS_TIMELINE_PATH: join(artifactDir, "openclaw", "timeline.jsonl"),
+    OPENCLAW_DIAGNOSTICS_EVENT_LOOP: "1"
+  };
 }
 
 function commandValues(context, envName, artifactDir = "") {

@@ -30,7 +30,7 @@ for (const path of ["README.md", "LICENSE", "package.json"]) {
 }
 
 await mkdir(join(appDir, "docs"), { recursive: true });
-for (const path of ["docs/AGENT_USAGE.md", "docs/OCM_OPERATOR_INTEGRATION.md", "docs/REPORT_SCHEMA.md"]) {
+for (const path of ["docs/AGENT_USAGE.md", "docs/DIAGNOSTICS_CONTRACT.md", "docs/OCM_OPERATOR_INTEGRATION.md", "docs/REPORT_SCHEMA.md"]) {
   await copyRequired(path);
 }
 

@@ -1,4 +1,5 @@
 import { runCommand } from "./commands.mjs";
+import { loadTimeline } from "./timeline.mjs";
 import { createConnection } from "node:net";
 import { cp, mkdir, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
@@ -35,6 +36,7 @@ export async function collectEnvMetrics(envName, options = {}) {
     diagnostics: null,
     heapSnapshot: null,
     openclawDiagnostics: null,
+    timeline: null,
     error: null
   };
   recordCollector(collectors, "service", service);
@@ -91,6 +93,8 @@ export async function collectEnvMetrics(envName, options = {}) {
       statusLabel: metrics.openclawDiagnostics.available ? "PASS" : "INFO",
       error: metrics.openclawDiagnostics.available ? null : "structured diagnostics unavailable; using log-pattern fallback"
     });
+    metrics.timeline = await collectTimelineMetrics(options.artifactDir);
+    recordCollector(collectors, "timeline", metrics.timeline, metrics.timeline.artifacts);
     metrics.diagnostics = await collectDiagnosticMetrics(envName, timeoutMs, options.artifactDir);
     recordCollector(collectors, "diagnostics", metrics.diagnostics, metrics.diagnostics.artifacts);
     return metrics;
@@ -130,6 +134,8 @@ export async function collectEnvMetrics(envName, options = {}) {
     statusLabel: metrics.openclawDiagnostics.available ? "PASS" : "INFO",
     error: metrics.openclawDiagnostics.available ? null : "structured diagnostics unavailable; using log-pattern fallback"
   });
+  metrics.timeline = await collectTimelineMetrics(options.artifactDir);
+  recordCollector(collectors, "timeline", metrics.timeline, metrics.timeline.artifacts);
   if (options.heapSnapshot === true && serviceJson.childPid) {
     metrics.heapSnapshot = await triggerHeapSnapshot(envName, serviceJson.childPid, timeoutMs, options.artifactDir);
     recordCollector(collectors, "heap-snapshot", metrics.heapSnapshot, metrics.heapSnapshot.artifacts);
@@ -137,6 +143,31 @@ export async function collectEnvMetrics(envName, options = {}) {
   metrics.diagnostics = await collectDiagnosticMetrics(envName, timeoutMs, options.artifactDir);
   recordCollector(collectors, "diagnostics", metrics.diagnostics, metrics.diagnostics.artifacts);
   return metrics;
+}
+
+async function collectTimelineMetrics(artifactDir) {
+  const startedAt = Date.now();
+  const timelinePath = artifactDir ? join(artifactDir, "openclaw", "timeline.jsonl") : null;
+  if (!timelinePath) {
+    return {
+      commandStatus: 0,
+      statusLabel: "INFO",
+      durationMs: 0,
+      available: false,
+      error: "artifact directory unavailable",
+      artifacts: []
+    };
+  }
+
+  const timeline = await loadTimeline(timelinePath);
+  return {
+    commandStatus: 0,
+    statusLabel: timeline.available ? "PASS" : "INFO",
+    durationMs: Date.now() - startedAt,
+    ...timeline,
+    artifacts: timeline.available ? [timelinePath] : [],
+    error: timeline.available ? null : (timeline.error ?? (timeline.missing ? "OpenClaw timeline not emitted" : null))
+  };
 }
 
 function recordCollector(collectors, id, result, artifacts = []) {
