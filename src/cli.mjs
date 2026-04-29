@@ -39,8 +39,8 @@ Usage:
   kova self-check [--json]
   kova plan [--scenario <id>] [--json]
   kova run --target <selector> [--from <selector>] [--scenario <id>] [--state <id>] [--report-dir <path>] [--health-samples <n>] [--execute] [--keep-env] [--retain-on-failure] [--json]
-  kova matrix plan --profile <id> --target <selector> [--from <selector>] [--json]
-  kova matrix run --profile <id> --target <selector> [--from <selector>] [--report-dir <path>] [--health-samples <n>] [--execute] [--keep-env] [--retain-on-failure] [--json]
+  kova matrix plan --profile <id> --target <selector> [--from <selector>] [--include <filter>] [--exclude <filter>] [--parallel <n>] [--json]
+  kova matrix run --profile <id> --target <selector> [--from <selector>] [--include <filter>] [--exclude <filter>] [--parallel <n>] [--fail-fast] [--report-dir <path>] [--health-samples <n>] [--execute] [--keep-env] [--retain-on-failure] [--json]
   kova report summarize <report.json> [--json]
   kova report paste <report.json>
   kova report compare <baseline.json> <current.json> [--json]
@@ -52,6 +52,9 @@ Selectors:
   channel:<name>             Published channel such as stable or beta
   runtime:<name>             Existing OCM runtime name
   local-build:<repo-path>    OpenClaw checkout to build as a release-shaped runtime
+
+Matrix filters:
+  scenario:<id>, state:<id>, tag:<tag>, or a bare scenario/state/tag value
 
 Notes:
   Kova uses OCM to create isolated OpenClaw envs and runtimes.

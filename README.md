@@ -49,6 +49,7 @@ node bin/kova.mjs plan
 node bin/kova.mjs plan --json
 node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --json
 node bin/kova.mjs matrix run --profile smoke --target runtime:stable --json
+node bin/kova.mjs matrix run --profile release --target channel:beta --include tag:plugins --parallel 2 --json
 node bin/kova.mjs report compare reports/baseline.json reports/current.json --json
 node bin/kova.mjs plan --scenario fresh-install
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install
@@ -65,7 +66,11 @@ Real execution is explicit:
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --execute
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --state stale-runtime-deps --execute
 node bin/kova.mjs matrix run --profile smoke --target npm:2026.4.27 --execute
+node bin/kova.mjs matrix run --profile release --target npm:2026.4.27 --include tag:plugins --exclude state:broken-plugin-deps --parallel 2 --execute
 ```
+
+Matrix filters accept `scenario:<id>`, `state:<id>`, `tag:<tag>`, or a bare
+scenario/state/tag value. Matrix runs bundle their report automatically.
 
 Kova destroys temporary envs by default after execution. Keep an env for
 debugging only when needed:

@@ -34,6 +34,15 @@ export function buildDryRunRecord(scenario, context) {
   };
 }
 
+export function buildSkippedRecord(scenario, context, reason) {
+  const record = buildDryRunRecord(scenario, context);
+  record.status = "SKIPPED";
+  record.skipReason = reason;
+  record.cleanup = "not-needed";
+  record.phases = [];
+  return record;
+}
+
 export async function executeScenario(scenario, context) {
   const envName = envNameFor(scenario.id, context.state?.id, context.runId);
   const record = buildDryRunRecord(scenario, context);

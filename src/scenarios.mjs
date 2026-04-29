@@ -35,6 +35,12 @@ export function validateScenarioShape(scenario, sourceName = "scenario") {
   requireArray(scenario, "tags", errors);
   requireObject(scenario, "thresholds", errors);
   requireArray(scenario, "phases", errors);
+  if (scenario.timeoutMs !== undefined && (!Number.isInteger(scenario.timeoutMs) || scenario.timeoutMs <= 0)) {
+    errors.push("timeoutMs must be a positive integer when set");
+  }
+  if (scenario.platforms !== undefined) {
+    validatePlatforms(scenario.platforms, "platforms", errors);
+  }
 
   if (typeof scenario.id === "string" && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(scenario.id)) {
     errors.push("id must be kebab-case lowercase alphanumeric");
@@ -92,6 +98,27 @@ export function validateScenarioShape(scenario, sourceName = "scenario") {
 
   if (errors.length > 0) {
     throw new Error(`${sourceName} is invalid:\n- ${errors.join("\n- ")}`);
+  }
+}
+
+function validatePlatforms(platforms, prefix, errors) {
+  if (!platforms || typeof platforms !== "object" || Array.isArray(platforms)) {
+    errors.push(`${prefix} must be an object`);
+    return;
+  }
+  for (const key of ["include", "exclude"]) {
+    if (platforms[key] === undefined) {
+      continue;
+    }
+    if (!Array.isArray(platforms[key])) {
+      errors.push(`${prefix}.${key} must be an array`);
+      continue;
+    }
+    for (const [index, value] of platforms[key].entries()) {
+      if (typeof value !== "string" || value.length === 0) {
+        errors.push(`${prefix}.${key}[${index}] must be a non-empty string`);
+      }
+    }
   }
 }
 

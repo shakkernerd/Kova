@@ -83,19 +83,25 @@ Current metrics include:
 - gateway state
 - desired/running flags
 - gateway port
+- TCP listening probe latency
 - runtime release version/channel
 - child PID
 - RSS in KB/MB
 - CPU percent
 - health URL/status/duration
 - health sample counts and p50/p95/max latency
+- cold start, warm restart, upgrade, status, plugin, and model command timing
+- gateway restart counts
 - gateway log diagnostic counts for missing dependency errors, plugin load
   failures, runtime dependency mentions, metadata scan mentions, and config
   normalization mentions
+- provider/model load and timeout signals
+- event-loop delay signals
+- V8 diagnostic report and heap snapshot file counts
 
-Future metrics will add event-loop delay, heap reports, runtime dependency
-staging timings, structured plugin metadata scan counts, and structured config
-normalization counts.
+Future metrics will add runtime dependency staging timings, structured plugin
+metadata scan counts, and structured config normalization counts when OpenClaw
+exposes first-class diagnostics for them.
 
 ## Run Receipt
 
@@ -141,6 +147,8 @@ and supports filtering with `--scenario`, `--state`, and `--profile`.
   },
   "reportPath": "/path/to/report.md",
   "jsonPath": "/path/to/report.json",
+  "bundlePath": "/path/to/bundle.tar.gz",
+  "checksumPath": "/path/to/bundle.tar.gz.sha256",
   "summary": {
     "total": 4,
     "statuses": {
@@ -152,6 +160,14 @@ and supports filtering with `--scenario`, `--state`, and `--profile`.
 
 Matrix reports use the same `kova.report.v1` record structure. Each record
 represents one scenario/state entry from the selected profile.
+
+Matrix reports include a `controls` object with include/exclude filters,
+fail-fast state, requested and actual parallelism, and whether parallelism was
+adjusted for safety.
+
+Matrix filters accept `scenario:<id>`, `state:<id>`, `tag:<tag>`, or a bare
+scenario/state/tag value. Entries can be skipped by platform eligibility and
+will appear as `SKIPPED` records with `skipReason`.
 
 ## Compare Report
 

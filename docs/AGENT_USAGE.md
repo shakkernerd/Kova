@@ -46,6 +46,7 @@ node bin/kova.mjs self-check --json
 node bin/kova.mjs plan --json
 node bin/kova.mjs plan --scenario fresh-install --state missing-plugin-index --json
 node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --json
+node bin/kova.mjs matrix plan --profile release --target runtime:stable --include tag:plugins --exclude state:broken-plugin-deps --json
 ```
 
 3. Dry-run the intended scenario:
@@ -65,6 +66,15 @@ For broader coverage, run a named matrix:
 ```sh
 node bin/kova.mjs matrix run --profile smoke --target runtime:stable --execute --json
 ```
+
+Use matrix filters to keep runs deliberate:
+
+```sh
+node bin/kova.mjs matrix run --profile release --target runtime:stable --include scenario:fresh-install --execute --json
+node bin/kova.mjs matrix run --profile release --target runtime:stable --include tag:plugins --exclude state:broken-plugin-deps --parallel 2 --execute --json
+```
+
+Matrix runs automatically produce a bundle path in the JSON receipt.
 
 5. Read the generated JSON report first. Use the Markdown report for the human
 summary.

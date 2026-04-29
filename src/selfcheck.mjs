@@ -27,10 +27,12 @@ export async function runSelfCheck(flags = {}) {
       assertArrayNotEmpty(data.states, "plan states");
       assertArrayNotEmpty(data.profiles, "profiles");
     }));
-    checks.push(await jsonCommandCheck("matrix-plan-json", "node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --json", (data) => {
+    checks.push(await jsonCommandCheck("matrix-plan-json", "node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --include scenario:fresh-install --parallel 2 --json", (data) => {
       assertEqual(data.schemaVersion, "kova.matrix.plan.v1", "matrix plan schema");
       assertEqual(data.profile?.id, "smoke", "matrix profile id");
       assertArrayNotEmpty(data.entries, "matrix entries");
+      assertEqual(data.entries.length, 1, "matrix include filter count");
+      assertEqual(data.controls?.requestedParallel, 2, "matrix requested parallel");
     }));
     checks.push(await jsonCommandCheck("cleanup-json", "node bin/kova.mjs cleanup envs --json", (data) => {
       assertEqual(data.schemaVersion, "kova.cleanup.envs.v1", "cleanup schema");
@@ -49,6 +51,18 @@ export async function runSelfCheck(flags = {}) {
       }
     );
     checks.push(receiptCheck);
+
+    checks.push(await jsonCommandCheck(
+      "matrix-dry-run-json",
+      `node bin/kova.mjs matrix run --profile smoke --target runtime:stable --include tag:plugins --exclude state:stale-runtime-deps --parallel 2 --report-dir ${quoteShell(tmp)} --json`,
+      (data) => {
+        assertEqual(data.schemaVersion, "kova.matrix.run.receipt.v1", "matrix run receipt schema");
+        assertEqual(data.mode, "dry-run", "matrix dry-run mode");
+        assertString(data.jsonPath, "matrix json report path");
+        assertString(data.bundlePath, "matrix bundle path");
+        assertEqual(data.summary?.statuses?.["DRY-RUN"], 3, "filtered matrix dry-run count");
+      }
+    ));
 
     if (receiptCheck.status === "PASS") {
       const report = JSON.parse(await readFile(receiptCheck.data.jsonPath, "utf8"));

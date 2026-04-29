@@ -52,11 +52,38 @@ export function validateProfileShape(profile, sourceName = "profile") {
       const prefix = `entries[${index}]`;
       requireString(entry, "scenario", errors, prefix);
       requireString(entry, "state", errors, prefix);
+      if (entry.timeoutMs !== undefined && (!Number.isInteger(entry.timeoutMs) || entry.timeoutMs <= 0)) {
+        errors.push(`${prefix}.timeoutMs must be a positive integer when set`);
+      }
+      if (entry.platforms !== undefined) {
+        validatePlatforms(entry.platforms, `${prefix}.platforms`, errors);
+      }
     }
   }
 
   if (errors.length > 0) {
     throw new Error(`${sourceName} is invalid:\n- ${errors.join("\n- ")}`);
+  }
+}
+
+function validatePlatforms(platforms, prefix, errors) {
+  if (!platforms || typeof platforms !== "object" || Array.isArray(platforms)) {
+    errors.push(`${prefix} must be an object`);
+    return;
+  }
+  for (const key of ["include", "exclude"]) {
+    if (platforms[key] === undefined) {
+      continue;
+    }
+    if (!Array.isArray(platforms[key])) {
+      errors.push(`${prefix}.${key} must be an array`);
+      continue;
+    }
+    for (const [index, value] of platforms[key].entries()) {
+      if (typeof value !== "string" || value.length === 0) {
+        errors.push(`${prefix}.${key}[${index}] must be a non-empty string`);
+      }
+    }
   }
 }
 
