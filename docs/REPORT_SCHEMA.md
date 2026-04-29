@@ -19,6 +19,11 @@ kova.report.v1
   "mode": "dry-run",
   "target": "runtime:stable",
   "from": null,
+  "state": {
+    "id": "fresh",
+    "title": "Fresh OpenClaw User",
+    "objective": "A new isolated OpenClaw home..."
+  },
   "platform": {
     "os": "darwin",
     "arch": "arm64",

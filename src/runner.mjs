@@ -18,6 +18,7 @@ export function buildDryRunRecord(scenario, context) {
     status: "DRY-RUN",
     target: context.target,
     from: context.from ?? null,
+    state: stateSummary(context.state),
     envName,
     likelyOwner: "OpenClaw",
     objective: scenario.objective,
@@ -87,6 +88,15 @@ export async function executeScenario(scenario, context) {
           metrics: await collectEnvMetrics(envName, { timeoutMs: context.timeoutMs })
         });
 
+        const statePhase = await executeStateSetupAfterPhase(context, envName, phase.id);
+        if (statePhase) {
+          record.phases.push(statePhase);
+          if (statePhase.results.some((result) => result.status !== 0)) {
+            scenarioFailed = true;
+            record.status = "FAIL";
+          }
+        }
+
         if (scenarioFailed) {
           break;
         }
@@ -112,6 +122,37 @@ export async function executeScenario(scenario, context) {
   }
 
   return record;
+}
+
+async function executeStateSetupAfterPhase(context, envName, phaseId) {
+  const steps = (context.state?.setup ?? []).filter((step) => step.afterPhase === phaseId);
+  if (steps.length === 0) {
+    return null;
+  }
+
+  const results = [];
+  const commands = [];
+  const evidence = [];
+
+  for (const step of steps) {
+    const stepCommands = materializeCommands(step.commands ?? [], commandValues(context, envName));
+    commands.push(...stepCommands);
+    evidence.push(...(step.evidence ?? []));
+
+    for (const command of stepCommands) {
+      results.push(await runCommand(command, { timeoutMs: context.timeoutMs }));
+    }
+  }
+
+  return {
+    id: `state-${phaseId}`,
+    title: `State Setup After ${phaseId}`,
+    intent: `Apply Kova state '${context.state.id}' setup after scenario phase '${phaseId}'.`,
+    commands,
+    evidence,
+    results,
+    metrics: await collectEnvMetrics(envName, { timeoutMs: context.timeoutMs })
+  };
 }
 
 async function executeTargetSetup(context, envName) {
@@ -141,6 +182,18 @@ function commandValues(context, envName) {
 
 function envNameFor(scenarioId, runId) {
   return `kova-${scenarioId}-${runId.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+}
+
+function stateSummary(state) {
+  if (!state) {
+    return null;
+  }
+
+  return {
+    id: state.id,
+    title: state.title,
+    objective: state.objective
+  };
 }
 
 function classifyCommandFailure(result) {

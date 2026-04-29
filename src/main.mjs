@@ -7,7 +7,7 @@ import { reportsDir } from "./paths.mjs";
 import { renderMarkdownReport, renderPasteSummary, renderReportSummary, summarizeRecords } from "./report.mjs";
 import { buildDryRunRecord, createRunId, executeScenario } from "./runner.mjs";
 import { loadScenarios, validateScenarioRun } from "./scenarios.mjs";
-import { loadStates } from "./states.mjs";
+import { loadState, loadStates } from "./states.mjs";
 import { resolveTarget } from "./targets.mjs";
 
 const reportSchemaVersion = "kova.report.v1";
@@ -251,6 +251,7 @@ async function run(flags) {
 
   const targetPlan = resolveTarget(target, "target");
   const fromPlan = flags.from ? resolveTarget(flags.from, "from") : null;
+  const state = await loadState(flags.state ?? "fresh");
   const scenarios = await loadScenarios(flags.scenario);
   for (const scenario of scenarios) {
     validateScenarioRun(scenario, flags);
@@ -265,6 +266,7 @@ async function run(flags) {
     targetPlan,
     from: flags.from,
     fromPlan,
+    state,
     sourceEnv: flags.source_env,
     runId,
     execute: flags.execute === true,
@@ -290,6 +292,11 @@ async function run(flags) {
     mode: context.execute ? "execution" : "dry-run",
     target,
     from: flags.from ?? null,
+    state: {
+      id: state.id,
+      title: state.title,
+      objective: state.objective
+    },
     platform: platformInfo(),
     summary: summarizeRecords(records),
     records

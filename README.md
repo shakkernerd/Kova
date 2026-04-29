@@ -51,7 +51,7 @@ node bin/kova.mjs states list
 node bin/kova.mjs states show missing-plugin-index --json
 node bin/kova.mjs plan --scenario fresh-install
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install
-node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --json
+node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --state missing-plugin-index --json
 ```
 
 `run` is dry-run by default. It writes Markdown and JSON reports showing the
@@ -61,6 +61,7 @@ Real execution is explicit:
 
 ```sh
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --execute
+node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --state stale-runtime-deps --execute
 ```
 
 Kova destroys temporary envs by default after execution. Keep an env for

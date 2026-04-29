@@ -52,13 +52,13 @@ node bin/kova.mjs states show missing-plugin-index --json
 3. Dry-run the intended scenario:
 
 ```sh
-node bin/kova.mjs run --target runtime:stable --scenario fresh-install --json
+node bin/kova.mjs run --target runtime:stable --scenario fresh-install --state fresh --json
 ```
 
 4. Execute one scenario explicitly:
 
 ```sh
-node bin/kova.mjs run --target runtime:stable --scenario fresh-install --execute --json
+node bin/kova.mjs run --target runtime:stable --scenario fresh-install --state missing-plugin-index --execute --json
 ```
 
 5. Read the generated JSON report first. Use the Markdown report for the human

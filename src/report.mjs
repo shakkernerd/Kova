@@ -35,6 +35,9 @@ export function renderMarkdownReport(report) {
     if (record.from) {
       lines.push(`- OpenClaw source: \`${record.from}\``);
     }
+    if (record.state) {
+      lines.push(`- State: \`${record.state.id}\` (${record.state.title})`);
+    }
     lines.push(`- Harness env: \`${record.envName}\``);
     lines.push(`- Likely owner on failure: ${record.likelyOwner}`);
     lines.push(`- Objective: ${record.objective}`);
@@ -177,6 +180,7 @@ export function renderReportSummary(report, options = {}) {
       title: record.title,
       status: record.status,
       cleanup: record.cleanup ?? "not-run",
+      state: record.state ?? null,
       failedCommand: firstFailedCommand(record)?.command ?? null,
       violations: record.violations ?? []
     }))
