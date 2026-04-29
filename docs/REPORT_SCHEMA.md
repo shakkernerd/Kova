@@ -146,3 +146,32 @@ Agents should use `jsonPath` to read detailed evidence.
 
 Matrix reports use the same `kova.report.v1` record structure. Each record
 represents one scenario/state entry from the selected profile.
+
+## Compare Report
+
+`kova compare <baseline.json> <current.json> --json` prints:
+
+```json
+{
+  "schemaVersion": "kova.compare.v1",
+  "ok": false,
+  "regressionCount": 1,
+  "scenarios": [
+    {
+      "key": "fresh-install:fresh",
+      "status": "REGRESSED",
+      "regressions": [
+        {
+          "metric": "peakRssMb",
+          "message": "peakRssMb increased by 120..."
+        }
+      ]
+    }
+  ]
+}
+```
+
+Comparison currently detects status regressions, missing scenario/state entries,
+and increases in peak RSS, health failures, health p95, missing dependency
+errors, plugin load failures, metadata scan mentions, and config normalization
+mentions.

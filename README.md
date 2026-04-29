@@ -53,6 +53,7 @@ node bin/kova.mjs states show missing-plugin-index --json
 node bin/kova.mjs profiles list
 node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --json
 node bin/kova.mjs matrix run --profile smoke --target runtime:stable --json
+node bin/kova.mjs compare reports/baseline.json reports/current.json --json
 node bin/kova.mjs plan --scenario fresh-install
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --state missing-plugin-index --json
@@ -137,9 +138,11 @@ Summarize generated reports:
 node bin/kova.mjs report summarize reports/<run>.json
 node bin/kova.mjs report summarize reports/<run>.json --json
 node bin/kova.mjs report paste reports/<run>.json
+node bin/kova.mjs compare reports/<baseline>.json reports/<current>.json
 ```
 
 `report paste` produces a short handoff summary for another agent or fixer.
+`compare` flags status and metric regressions between two Kova JSON reports.
 
 ## Current Status
 

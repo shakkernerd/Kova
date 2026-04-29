@@ -48,6 +48,7 @@ Usage:
   kova cleanup envs [--execute] [--json]
   kova report summarize <report.json> [--json]
   kova report paste <report.json>
+  kova compare <baseline.json> <current.json> [--json]
 
 Selectors:
   npm:<version>              Published OpenClaw release

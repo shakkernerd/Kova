@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { checkCommand, runCommand } from "./commands.mjs";
+import { compareReports, renderCompareSummary } from "./compare.mjs";
 import { parseFlags, printHelp, required, resolveFromCwd } from "./cli.mjs";
 import { platformInfo } from "./platform.mjs";
 import { loadProfile, loadProfiles } from "./profiles.mjs";
@@ -65,6 +66,11 @@ export async function main(argv) {
 
   if (command === "report") {
     await reportCommand(flags);
+    return;
+  }
+
+  if (command === "compare") {
+    await compareCommand(flags);
     return;
   }
 
@@ -356,6 +362,23 @@ async function reportCommand(flags) {
   }
 
   throw new Error(`unknown report command: ${subcommand ?? ""}`);
+}
+
+async function compareCommand(flags) {
+  const [baselinePath, currentPath] = flags._;
+  const baseline = JSON.parse(await readFile(resolveFromCwd(required(baselinePath, "baseline report path")), "utf8"));
+  const current = JSON.parse(await readFile(resolveFromCwd(required(currentPath, "current report path")), "utf8"));
+  const comparison = compareReports(baseline, current);
+
+  if (flags.json) {
+    console.log(JSON.stringify(comparison, null, 2));
+    return;
+  }
+
+  console.log(renderCompareSummary(comparison));
+  if (!comparison.ok) {
+    throw new Error("comparison found regressions");
+  }
 }
 
 async function matrixRun(flags) {

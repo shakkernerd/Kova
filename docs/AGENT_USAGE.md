@@ -78,6 +78,7 @@ summary.
 ```sh
 node bin/kova.mjs report summarize reports/<run>.json --json
 node bin/kova.mjs report paste reports/<run>.json
+node bin/kova.mjs compare reports/<baseline>.json reports/<current>.json --json
 ```
 
 ## Target Selection

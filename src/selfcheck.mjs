@@ -58,6 +58,15 @@ export async function runSelfCheck(flags = {}) {
     if (receiptCheck.status === "PASS") {
       const report = JSON.parse(await readFile(receiptCheck.data.jsonPath, "utf8"));
       checks.push(validateReport(report));
+      checks.push(await jsonCommandCheck(
+        "compare-json",
+        `node bin/kova.mjs compare ${quoteShell(receiptCheck.data.jsonPath)} ${quoteShell(receiptCheck.data.jsonPath)} --json`,
+        (data) => {
+          assertEqual(data.schemaVersion, "kova.compare.v1", "compare schema");
+          assertEqual(data.ok, true, "compare ok");
+          assertEqual(data.regressionCount, 0, "compare regression count");
+        }
+      ));
     }
   } finally {
     await rm(tmp, { recursive: true, force: true });
