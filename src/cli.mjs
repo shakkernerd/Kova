@@ -34,6 +34,7 @@ export function printHelp() {
 
 Usage:
   kova doctor
+  kova self-check [--json]
   kova plan [--scenario <id>] [--json]
   kova scenarios list [--json]
   kova scenarios show <id> [--json]

@@ -37,6 +37,7 @@ performed with the right safety model.
 
 ```sh
 node bin/kova.mjs doctor --json
+node bin/kova.mjs self-check --json
 ```
 
 2. Inspect scenarios:

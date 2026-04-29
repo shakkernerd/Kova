@@ -7,6 +7,7 @@ import { reportsDir } from "./paths.mjs";
 import { renderMarkdownReport, renderPasteSummary, renderReportSummary, summarizeRecords } from "./report.mjs";
 import { buildDryRunRecord, createRunId, executeScenario } from "./runner.mjs";
 import { loadScenarios, validateScenarioRun } from "./scenarios.mjs";
+import { runSelfCheck } from "./selfcheck.mjs";
 import { loadState, loadStates } from "./states.mjs";
 import { resolveTarget } from "./targets.mjs";
 
@@ -23,6 +24,11 @@ export async function main(argv) {
 
   if (command === "doctor") {
     await doctor(flags);
+    return;
+  }
+
+  if (command === "self-check") {
+    await runSelfCheck(flags);
     return;
   }
 

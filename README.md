@@ -43,6 +43,7 @@ codex skills install https://github.com/shakkernerd/ocm/tree/main/skills/ocm-ope
 ```sh
 node bin/kova.mjs doctor
 node bin/kova.mjs doctor --json
+node bin/kova.mjs self-check
 node bin/kova.mjs plan
 node bin/kova.mjs plan --json
 node bin/kova.mjs scenarios list
