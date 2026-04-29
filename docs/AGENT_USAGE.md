@@ -36,6 +36,7 @@ If available, first load/read the `ocm-operator` skill so OCM operations are
 performed with the right safety model.
 
 ```sh
+node bin/kova.mjs setup --json
 node bin/kova.mjs doctor --json
 node bin/kova.mjs self-check --json
 ```

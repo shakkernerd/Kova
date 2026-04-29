@@ -33,6 +33,7 @@ export function printHelp() {
   console.log(`Kova - OpenClaw runtime validation lab
 
 Usage:
+  kova setup [--ci] [--json]
   kova doctor
   kova self-check [--json]
   kova plan [--scenario <id>] [--json]

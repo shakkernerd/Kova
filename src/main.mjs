@@ -10,6 +10,7 @@ import { renderMarkdownReport, renderPasteSummary, renderReportSummary, summariz
 import { buildDryRunRecord, createRunId, executeScenario } from "./runner.mjs";
 import { loadScenarios, validateScenarioRun } from "./scenarios.mjs";
 import { runSelfCheck } from "./selfcheck.mjs";
+import { runSetup } from "./setup.mjs";
 import { loadState, loadStates } from "./states.mjs";
 import { resolveTarget } from "./targets.mjs";
 
@@ -26,6 +27,11 @@ export async function main(argv) {
 
   if (command === "doctor") {
     await doctor(flags);
+    return;
+  }
+
+  if (command === "setup") {
+    await runSetup(flags);
     return;
   }
 

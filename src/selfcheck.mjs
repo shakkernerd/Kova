@@ -16,6 +16,11 @@ export async function runSelfCheck(flags = {}) {
       assertEqual(data.schemaVersion, "kova.doctor.v1", "doctor schema");
       assertEqual(data.ok, true, "doctor ok");
     }));
+    checks.push(await jsonCommandCheck("setup-json", "node bin/kova.mjs setup --json", (data) => {
+      assertEqual(data.schemaVersion, "kova.setup.v1", "setup schema");
+      assertEqual(data.ok, true, "setup ok");
+      assertArrayNotEmpty(data.checks, "setup checks");
+    }));
     checks.push(await jsonCommandCheck("plan-json", "node bin/kova.mjs plan --json", (data) => {
       assertEqual(data.schemaVersion, "kova.plan.v1", "plan schema");
       assertArrayNotEmpty(data.scenarios, "plan scenarios");
