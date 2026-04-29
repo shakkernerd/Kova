@@ -21,7 +21,7 @@ const latestChecksumPath = `${latestArchivePath}.sha256`;
 await rm(stageRoot, { recursive: true, force: true });
 await mkdir(appDir, { recursive: true });
 
-for (const path of ["bin", "src", "scenarios", "states", "profiles", "support"]) {
+for (const path of ["bin", "src", "scenarios", "states", "profiles", "support", "fixtures"]) {
   await copyRequired(path);
 }
 

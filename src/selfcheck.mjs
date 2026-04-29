@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { quoteShell, runCommand } from "./commands.mjs";
+import { parseTimelineText } from "./timeline.mjs";
 
 export async function runSelfCheck(flags = {}) {
   const checks = [];
@@ -39,6 +40,7 @@ export async function runSelfCheck(flags = {}) {
       assertEqual(data.execute, false, "cleanup execute flag");
       assertArray(data.envs, "cleanup envs");
     }));
+    checks.push(await diagnosticsTimelineCheck());
 
     const receiptCheck = await jsonCommandCheck(
       "dry-run-report-json",
@@ -109,6 +111,34 @@ export async function runSelfCheck(flags = {}) {
 
   if (!ok) {
     throw new Error("self-check failed");
+  }
+}
+
+async function diagnosticsTimelineCheck() {
+  try {
+    const text = await readFile("fixtures/diagnostics/timeline.jsonl", "utf8");
+    const timeline = parseTimelineText(text);
+    assertEqual(timeline.available, true, "timeline available");
+    assertEqual(timeline.eventCount, 7, "timeline event count");
+    assertEqual(timeline.parseErrorCount, 0, "timeline parse errors");
+    assertEqual(timeline.repeatedSpans[0]?.name, "plugins.metadata.scan", "repeated span");
+    assertEqual(timeline.eventLoop.maxMs, 214, "event loop max");
+    assertEqual(timeline.providers.maxDurationMs, 1220, "provider duration");
+    assertEqual(timeline.childProcesses.failedCount, 1, "child process failures");
+    return {
+      id: "diagnostics-timeline-parser",
+      status: "PASS",
+      command: "parse fixtures/diagnostics/timeline.jsonl",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "diagnostics-timeline-parser",
+      status: "FAIL",
+      command: "parse fixtures/diagnostics/timeline.jsonl",
+      durationMs: 0,
+      message: error.message
+    };
   }
 }
 
