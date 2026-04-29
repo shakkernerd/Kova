@@ -3,6 +3,7 @@ import { join, relative } from "node:path";
 import { checkCommand, runCommand } from "./commands.mjs";
 import { parseFlags, printHelp, required, resolveFromCwd } from "./cli.mjs";
 import { platformInfo } from "./platform.mjs";
+import { loadProfile, loadProfiles } from "./profiles.mjs";
 import { reportsDir } from "./paths.mjs";
 import { renderMarkdownReport, renderPasteSummary, renderReportSummary, summarizeRecords } from "./report.mjs";
 import { buildDryRunRecord, createRunId, executeScenario } from "./runner.mjs";
@@ -44,6 +45,16 @@ export async function main(argv) {
 
   if (command === "states") {
     await statesCommand(flags);
+    return;
+  }
+
+  if (command === "profiles") {
+    await profilesCommand(flags);
+    return;
+  }
+
+  if (command === "matrix") {
+    await matrixCommand(flags);
     return;
   }
 
@@ -227,6 +238,99 @@ async function statesCommand(flags) {
   throw new Error(`unknown states command: ${subcommand}`);
 }
 
+async function profilesCommand(flags) {
+  const [subcommand = "list", id] = flags._;
+
+  if (subcommand === "list") {
+    const profiles = await loadProfiles();
+    if (flags.json) {
+      console.log(JSON.stringify({
+        schemaVersion: "kova.profiles.list.v1",
+        generatedAt: new Date().toISOString(),
+        profiles: profiles.map((profile) => ({
+          id: profile.id,
+          title: profile.title,
+          objective: profile.objective,
+          entryCount: profile.entries.length
+        }))
+      }, null, 2));
+      return;
+    }
+
+    for (const profile of profiles) {
+      console.log(`${profile.id}: ${profile.title}`);
+    }
+    return;
+  }
+
+  if (subcommand === "show") {
+    const profileId = required(id, "profile id");
+    const profile = await loadProfile(profileId);
+    if (flags.json) {
+      console.log(JSON.stringify({
+        schemaVersion: "kova.profiles.show.v1",
+        generatedAt: new Date().toISOString(),
+        profile
+      }, null, 2));
+      return;
+    }
+
+    console.log(`${profile.id}: ${profile.title}`);
+    console.log(`Objective: ${profile.objective}`);
+    console.log("Entries:");
+    for (const entry of profile.entries) {
+      console.log(`- ${entry.scenario} / ${entry.state}`);
+    }
+    return;
+  }
+
+  throw new Error(`unknown profiles command: ${subcommand}`);
+}
+
+async function matrixCommand(flags) {
+  const [subcommand = "plan"] = flags._;
+
+  if (subcommand === "plan") {
+    const profile = await loadProfile(required(flags.profile, "--profile"));
+    const target = required(flags.target, "--target");
+    resolveTarget(target, "target");
+    if (flags.from) {
+      resolveTarget(flags.from, "from");
+    }
+    const entries = await expandProfile(profile);
+    const response = {
+      schemaVersion: "kova.matrix.plan.v1",
+      generatedAt: new Date().toISOString(),
+      profile: profileSummary(profile),
+      target,
+      from: flags.from ?? null,
+      entries: entries.map((entry) => entry.plan)
+    };
+
+    if (flags.json) {
+      console.log(JSON.stringify(response, null, 2));
+      return;
+    }
+
+    console.log(`${profile.id}: ${profile.title}`);
+    console.log(`Target: ${target}`);
+    if (flags.from) {
+      console.log(`From: ${flags.from}`);
+    }
+    for (const entry of entries) {
+      console.log(`- ${entry.scenario.id} / ${entry.state.id}: ${entry.scenario.title}`);
+    }
+    return;
+  }
+
+  if (subcommand === "run") {
+    await matrixRun(flags);
+    return;
+  }
+
+  throw new Error(`unknown matrix command: ${subcommand}`);
+}
+
 async function reportCommand(flags) {
   const [subcommand, reportPath] = flags._;
   const path = required(reportPath, "report path");
@@ -252,6 +356,120 @@ async function reportCommand(flags) {
   }
 
   throw new Error(`unknown report command: ${subcommand ?? ""}`);
+}
+
+async function matrixRun(flags) {
+  const profile = await loadProfile(required(flags.profile, "--profile"));
+  const target = required(flags.target, "--target");
+  const targetPlan = resolveTarget(target, "target");
+  const fromPlan = flags.from ? resolveTarget(flags.from, "from") : null;
+  const entries = await expandProfile(profile);
+  const reportRoot = flags.report_dir ? resolveFromCwd(flags.report_dir) : reportsDir;
+  const runId = createRunId();
+  const reportPath = join(reportRoot, `${runId}-${profile.id}.md`);
+  const jsonPath = join(reportRoot, `${runId}-${profile.id}.json`);
+  const targetSetup = { completed: false };
+  const records = [];
+
+  for (const entry of entries) {
+    validateScenarioRun(entry.scenario, flags);
+    const context = {
+      target,
+      targetPlan,
+      from: flags.from,
+      fromPlan,
+      state: entry.state,
+      sourceEnv: flags.source_env,
+      runId,
+      execute: flags.execute === true,
+      keepEnv: flags.keep_env === true,
+      retainOnFailure: flags.retain_on_failure === true,
+      timeoutMs: Number(flags.timeout_ms ?? 120000),
+      targetSetup
+    };
+
+    if (context.execute) {
+      records.push(await executeScenario(entry.scenario, context));
+    } else {
+      records.push(buildDryRunRecord(entry.scenario, context));
+    }
+  }
+
+  await mkdir(reportRoot, { recursive: true });
+  const report = {
+    schemaVersion: reportSchemaVersion,
+    generatedAt: new Date().toISOString(),
+    runId,
+    mode: flags.execute === true ? "execution" : "dry-run",
+    profile: profileSummary(profile),
+    target,
+    from: flags.from ?? null,
+    state: null,
+    platform: platformInfo(),
+    summary: summarizeRecords(records),
+    records
+  };
+  await writeFile(reportPath, renderMarkdownReport(report), "utf8");
+  await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+
+  if (flags.json) {
+    console.log(JSON.stringify({
+      schemaVersion: "kova.matrix.run.receipt.v1",
+      generatedAt: new Date().toISOString(),
+      mode: report.mode,
+      runId,
+      profile: profileSummary(profile),
+      reportPath,
+      jsonPath,
+      summary: report.summary
+    }, null, 2));
+    return;
+  }
+
+  console.log(`Kova matrix ${report.mode} report written: ${relative(process.cwd(), reportPath)}`);
+  console.log(`Kova matrix ${report.mode} data written: ${relative(process.cwd(), jsonPath)}`);
+}
+
+async function expandProfile(profile) {
+  const entries = [];
+  for (const entry of profile.entries) {
+    const [scenario] = await loadScenarios(entry.scenario);
+    const state = await loadState(entry.state);
+    entries.push({
+      scenario: {
+        id: scenario.id,
+        title: scenario.title,
+        objective: scenario.objective,
+        tags: scenario.tags
+      },
+      state: {
+        id: state.id,
+        title: state.title,
+        objective: state.objective,
+        tags: state.tags
+      },
+      fullScenario: scenario,
+      fullState: state
+    });
+  }
+
+  return entries.map((entry) => ({
+    scenario: entry.fullScenario,
+    state: entry.fullState,
+    plan: {
+      scenario: entry.scenario,
+      state: entry.state
+    }
+  }));
+}
+
+function profileSummary(profile) {
+  return {
+    id: profile.id,
+    title: profile.title,
+    objective: profile.objective,
+    entryCount: profile.entries.length
+  };
 }
 
 async function cleanupCommand(flags) {
@@ -345,7 +563,8 @@ async function run(flags) {
     execute: flags.execute === true,
     keepEnv: flags.keep_env === true,
     retainOnFailure: flags.retain_on_failure === true,
-    timeoutMs: Number(flags.timeout_ms ?? 120000)
+    timeoutMs: Number(flags.timeout_ms ?? 120000),
+    targetSetup: { completed: false }
   };
   const records = [];
 

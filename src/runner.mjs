@@ -10,7 +10,7 @@ export function createRunId() {
 }
 
 export function buildDryRunRecord(scenario, context) {
-  const envName = envNameFor(scenario.id, context.runId);
+  const envName = envNameFor(scenario.id, context.state?.id, context.runId);
 
   return {
     scenario: scenario.id,
@@ -35,7 +35,7 @@ export function buildDryRunRecord(scenario, context) {
 }
 
 export async function executeScenario(scenario, context) {
-  const envName = envNameFor(scenario.id, context.runId);
+  const envName = envNameFor(scenario.id, context.state?.id, context.runId);
   const record = buildDryRunRecord(scenario, context);
   record.status = "PASS";
   record.startedAt = new Date().toISOString();
@@ -159,13 +159,20 @@ async function executeTargetSetup(context, envName) {
   if (context.targetPlan.kind !== "local-build") {
     return [];
   }
+  if (context.targetSetup?.completed) {
+    return [];
+  }
 
-  return [
+  const results = [
     await runCommand(`ocm runtime build-local ${context.targetPlan.runtimeName} --repo ${quoteShell(context.targetPlan.repoPath)} --force`, {
       timeoutMs: context.timeoutMs,
       env: { KOVA_ENV_NAME: envName }
     })
   ];
+  if (results.every((result) => result.status === 0) && context.targetSetup) {
+    context.targetSetup.completed = true;
+  }
+  return results;
 }
 
 function commandValues(context, envName) {
@@ -180,8 +187,9 @@ function commandValues(context, envName) {
   };
 }
 
-function envNameFor(scenarioId, runId) {
-  return `kova-${scenarioId}-${runId.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+function envNameFor(scenarioId, stateId, runId) {
+  const stateSegment = stateId ? `${stateId}-` : "";
+  return `kova-${scenarioId}-${stateSegment}${runId.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
 }
 
 function stateSummary(state) {

@@ -28,6 +28,15 @@ export async function runSelfCheck(flags = {}) {
       assertEqual(data.schemaVersion, "kova.states.list.v1", "states list schema");
       assertArrayNotEmpty(data.states, "states");
     }));
+    checks.push(await jsonCommandCheck("profiles-list-json", "node bin/kova.mjs profiles list --json", (data) => {
+      assertEqual(data.schemaVersion, "kova.profiles.list.v1", "profiles list schema");
+      assertArrayNotEmpty(data.profiles, "profiles");
+    }));
+    checks.push(await jsonCommandCheck("matrix-plan-json", "node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --json", (data) => {
+      assertEqual(data.schemaVersion, "kova.matrix.plan.v1", "matrix plan schema");
+      assertEqual(data.profile?.id, "smoke", "matrix profile id");
+      assertArrayNotEmpty(data.entries, "matrix entries");
+    }));
     checks.push(await jsonCommandCheck("cleanup-json", "node bin/kova.mjs cleanup envs --json", (data) => {
       assertEqual(data.schemaVersion, "kova.cleanup.envs.v1", "cleanup schema");
       assertEqual(data.execute, false, "cleanup execute flag");

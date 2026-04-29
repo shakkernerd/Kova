@@ -17,6 +17,7 @@ kova.report.v1
   "generatedAt": "2026-04-29T00:00:00.000Z",
   "runId": "kova-2026-04-29T000000Z",
   "mode": "dry-run",
+  "profile": null,
   "target": "runtime:stable",
   "from": null,
   "state": {
@@ -113,3 +114,31 @@ normalization counts.
 ```
 
 Agents should use `jsonPath` to read detailed evidence.
+
+## Matrix Receipt
+
+`kova matrix run --json` prints a receipt for one combined profile report:
+
+```json
+{
+  "schemaVersion": "kova.matrix.run.receipt.v1",
+  "mode": "dry-run",
+  "runId": "kova-2026-04-29T000000Z",
+  "profile": {
+    "id": "smoke",
+    "title": "Smoke Matrix",
+    "entryCount": 4
+  },
+  "reportPath": "/path/to/report.md",
+  "jsonPath": "/path/to/report.json",
+  "summary": {
+    "total": 4,
+    "statuses": {
+      "DRY-RUN": 4
+    }
+  }
+}
+```
+
+Matrix reports use the same `kova.report.v1` record structure. Each record
+represents one scenario/state entry from the selected profile.

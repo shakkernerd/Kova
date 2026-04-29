@@ -1,0 +1,23 @@
+{
+  "id": "smoke",
+  "title": "Smoke Matrix",
+  "objective": "Fast OpenClaw coverage across fresh install, plugin dependency, plugin lifecycle, and gateway performance states.",
+  "entries": [
+    {
+      "scenario": "fresh-install",
+      "state": "fresh"
+    },
+    {
+      "scenario": "bundled-runtime-deps",
+      "state": "missing-plugin-index"
+    },
+    {
+      "scenario": "plugin-lifecycle",
+      "state": "stale-runtime-deps"
+    },
+    {
+      "scenario": "gateway-performance",
+      "state": "many-bundled-plugins"
+    }
+  ]
+}

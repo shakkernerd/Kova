@@ -48,6 +48,8 @@ node bin/kova.mjs scenarios list --json
 node bin/kova.mjs scenarios show fresh-install --json
 node bin/kova.mjs states list --json
 node bin/kova.mjs states show missing-plugin-index --json
+node bin/kova.mjs profiles list --json
+node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --json
 ```
 
 3. Dry-run the intended scenario:
@@ -60,6 +62,12 @@ node bin/kova.mjs run --target runtime:stable --scenario fresh-install --state f
 
 ```sh
 node bin/kova.mjs run --target runtime:stable --scenario fresh-install --state missing-plugin-index --execute --json
+```
+
+For broader coverage, run a named matrix:
+
+```sh
+node bin/kova.mjs matrix run --profile smoke --target runtime:stable --execute --json
 ```
 
 5. Read the generated JSON report first. Use the Markdown report for the human

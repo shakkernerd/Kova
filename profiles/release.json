@@ -1,0 +1,47 @@
+{
+  "id": "release",
+  "title": "Release Matrix",
+  "objective": "Broad OpenClaw release confidence across install, upgrade, bundled plugins, model/provider, UI, failure, soak, and platform smoke scenarios.",
+  "entries": [
+    {
+      "scenario": "fresh-install",
+      "state": "fresh"
+    },
+    {
+      "scenario": "upgrade-existing-user",
+      "state": "missing-plugin-index"
+    },
+    {
+      "scenario": "bundled-runtime-deps",
+      "state": "missing-plugin-index"
+    },
+    {
+      "scenario": "plugin-lifecycle",
+      "state": "stale-runtime-deps"
+    },
+    {
+      "scenario": "provider-models",
+      "state": "fresh"
+    },
+    {
+      "scenario": "dashboard-tui",
+      "state": "fresh"
+    },
+    {
+      "scenario": "gateway-performance",
+      "state": "many-bundled-plugins"
+    },
+    {
+      "scenario": "failure-injection",
+      "state": "stale-runtime-deps"
+    },
+    {
+      "scenario": "soak",
+      "state": "many-bundled-plugins"
+    },
+    {
+      "scenario": "cross-platform-smoke",
+      "state": "fresh"
+    }
+  ]
+}
