@@ -146,6 +146,9 @@ function metricRegressions(baseline, current) {
   addIncreaseRegression(regressions, baseline, current, "pluginsListMs", 1000);
   addIncreaseRegression(regressions, baseline, current, "modelsListMs", 3000);
   addIncreaseRegression(regressions, baseline, current, "tcpConnectMaxMs", 250);
+  addIncreaseRegression(regressions, baseline, current, "timeToListeningMs", 3000);
+  addIncreaseRegression(regressions, baseline, current, "timeToHealthReadyMs", 5000);
+  addIncreaseRegression(regressions, baseline, current, "readinessFailures", 0);
   addIncreaseRegression(regressions, baseline, current, "healthP95Ms", 1000);
   addIncreaseRegression(regressions, baseline, current, "gatewayRestartCount", 0);
   addIncreaseRegression(regressions, baseline, current, "providerTimeoutMentions", 0);
@@ -189,8 +192,11 @@ function metricDeltas(baseline, current) {
     "pluginsListMs",
     "modelsListMs",
     "tcpConnectMaxMs",
+    "timeToListeningMs",
+    "timeToHealthReadyMs",
     "healthP95Ms",
     "healthFailures",
+    "readinessFailures",
     "missingDependencyErrors",
     "pluginLoadFailures",
     "gatewayRestartCount",

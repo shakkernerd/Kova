@@ -5,6 +5,11 @@ export async function collectEnvMetrics(envName, options = {}) {
   const timeoutMs = Math.min(options.timeoutMs ?? 10000, 10000);
   const healthSampleCount = Math.max(1, Number(options.healthSamples ?? 3));
   const healthIntervalMs = Math.max(0, Number(options.healthIntervalMs ?? 250));
+  const readinessTimeoutMs = Math.min(
+    Math.max(0, Number(options.readinessTimeoutMs ?? 0)),
+    Math.max(timeoutMs, Number(options.timeoutMs ?? timeoutMs))
+  );
+  const readinessIntervalMs = Math.max(50, Number(options.readinessIntervalMs ?? 250));
   const service = await runCommand(`ocm service status ${envName} --json`, { timeoutMs });
   const metrics = {
     collectedAt: new Date().toISOString(),
@@ -15,6 +20,7 @@ export async function collectEnvMetrics(envName, options = {}) {
     },
     service: null,
     process: null,
+    readiness: null,
     listening: null,
     health: null,
     healthSamples: [],
@@ -50,9 +56,14 @@ export async function collectEnvMetrics(envName, options = {}) {
 
   if (!serviceJson.childPid) {
     if (serviceJson.gatewayPort) {
-      metrics.listening = await collectListeningMetrics(serviceJson.gatewayPort, timeoutMs);
-      metrics.health = await collectHealthMetrics(serviceJson.gatewayPort, timeoutMs);
-      metrics.healthSamples = [metrics.health];
+      metrics.readiness = await collectReadinessMetrics(serviceJson.gatewayPort, {
+        timeoutMs: readinessTimeoutMs,
+        intervalMs: readinessIntervalMs,
+        probeTimeoutMs: timeoutMs
+      });
+      metrics.listening = metrics.readiness.listening;
+      metrics.health = metrics.readiness.health;
+      metrics.healthSamples = metrics.readiness.healthAttempts;
       metrics.healthSummary = summarizeHealthSamples(metrics.healthSamples);
     }
     metrics.logs = await collectLogMetrics(envName, timeoutMs);
@@ -63,7 +74,12 @@ export async function collectEnvMetrics(envName, options = {}) {
   const process = await collectProcessMetrics(serviceJson.childPid, timeoutMs);
   metrics.process = process;
   if (serviceJson.gatewayPort) {
-    metrics.listening = await collectListeningMetrics(serviceJson.gatewayPort, timeoutMs);
+    metrics.readiness = await collectReadinessMetrics(serviceJson.gatewayPort, {
+      timeoutMs: readinessTimeoutMs,
+      intervalMs: readinessIntervalMs,
+      probeTimeoutMs: timeoutMs
+    });
+    metrics.listening = metrics.readiness.listening;
     metrics.healthSamples = await collectHealthSamples(serviceJson.gatewayPort, {
       count: healthSampleCount,
       intervalMs: healthIntervalMs,
@@ -75,6 +91,54 @@ export async function collectEnvMetrics(envName, options = {}) {
   metrics.logs = await collectLogMetrics(envName, timeoutMs);
   metrics.diagnostics = await collectDiagnosticMetrics(envName, timeoutMs);
   return metrics;
+}
+
+async function collectReadinessMetrics(port, options) {
+  const startedAt = Date.now();
+  const deadline = startedAt + options.timeoutMs;
+  const listeningAttempts = [];
+  const healthAttempts = [];
+  let listeningReadyAtMs = null;
+  let healthReadyAtMs = null;
+  let lastListening = null;
+  let lastHealth = null;
+
+  do {
+    lastListening = await collectListeningMetrics(port, options.probeTimeoutMs);
+    lastListening.elapsedMs = Date.now() - startedAt;
+    listeningAttempts.push(lastListening);
+    if (lastListening.ok && listeningReadyAtMs === null) {
+      listeningReadyAtMs = lastListening.elapsedMs;
+    }
+
+    lastHealth = await collectHealthMetrics(port, options.probeTimeoutMs);
+    lastHealth.elapsedMs = Date.now() - startedAt;
+    healthAttempts.push(lastHealth);
+    if (lastHealth.ok) {
+      healthReadyAtMs = lastHealth.elapsedMs;
+      break;
+    }
+
+    if (options.timeoutMs === 0 || Date.now() >= deadline) {
+      break;
+    }
+
+    await sleep(Math.min(options.intervalMs, Math.max(0, deadline - Date.now())));
+  } while (Date.now() <= deadline);
+
+  return {
+    deadlineMs: options.timeoutMs,
+    intervalMs: options.intervalMs,
+    attempts: Math.max(listeningAttempts.length, healthAttempts.length),
+    ready: healthReadyAtMs !== null,
+    listeningReady: listeningReadyAtMs !== null,
+    listeningReadyAtMs,
+    healthReadyAtMs,
+    listening: lastListening,
+    health: lastHealth,
+    listeningAttempts,
+    healthAttempts
+  };
 }
 
 function collectListeningMetrics(port, timeoutMs) {

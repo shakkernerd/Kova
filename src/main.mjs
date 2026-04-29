@@ -256,6 +256,7 @@ async function matrixRun(flags) {
       timeoutMs: resolveEntryTimeout(entry, flags),
       healthSamples: Number(flags.health_samples ?? 3),
       healthIntervalMs: Number(flags.health_interval_ms ?? 250),
+      readinessIntervalMs: Number(flags.readiness_interval_ms ?? 250),
       targetSetup
     };
 
@@ -583,6 +584,7 @@ async function run(flags) {
     timeoutMs: Number(flags.timeout_ms ?? 120000),
     healthSamples: Number(flags.health_samples ?? 3),
     healthIntervalMs: Number(flags.health_interval_ms ?? 250),
+    readinessIntervalMs: Number(flags.readiness_interval_ms ?? 250),
     targetSetup: { completed: false }
   };
   const records = [];

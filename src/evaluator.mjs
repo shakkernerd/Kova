@@ -24,6 +24,9 @@ export function evaluateRecord(record, scenario) {
   const healthP95Ms = collectHealthP95(record);
   const listeningFailures = countListeningFailures(record);
   const tcpConnectMaxMs = collectTcpConnectMax(record);
+  const timeToListeningMs = collectTimeToListening(record);
+  const timeToHealthReadyMs = collectTimeToHealthReady(record);
+  const readinessFailures = countReadinessFailures(record);
   const coldReadyMs = maxDurationWhere(allResults, (command) => command.startsWith("ocm start "));
   const warmReadyMs = maxDurationWhere(allResults, (command) => command.startsWith("ocm service restart "));
   const upgradeMs = maxDurationWhere(allResults, (command) => command.startsWith("ocm upgrade "));
@@ -117,6 +120,27 @@ export function evaluateRecord(record, scenario) {
     });
   }
 
+  if (readinessFailures > 0) {
+    violations.push({
+      kind: "gateway",
+      metric: "readinessFailures",
+      expected: "0",
+      actual: readinessFailures,
+      message: `${readinessFailures} gateway readiness windows expired before health was ready`
+    });
+  }
+
+  const gatewayReadyThreshold = thresholds.gatewayReadyMs ?? thresholds.coldReadyMs;
+  if (typeof gatewayReadyThreshold === "number" && timeToHealthReadyMs !== null && timeToHealthReadyMs > gatewayReadyThreshold) {
+    violations.push({
+      kind: "gateway",
+      metric: "timeToHealthReadyMs",
+      expected: `<= ${gatewayReadyThreshold}`,
+      actual: timeToHealthReadyMs,
+      message: `gateway health ready took ${timeToHealthReadyMs}ms, over threshold ${gatewayReadyThreshold}ms`
+    });
+  }
+
   if (typeof thresholds.gatewayRestarts === "number" && gatewayRestartCount > thresholds.gatewayRestarts) {
     violations.push({
       kind: "gateway",
@@ -158,11 +182,14 @@ export function evaluateRecord(record, scenario) {
     pluginsListMs,
     modelsListMs,
     tcpConnectMaxMs,
+    timeToListeningMs,
+    timeToHealthReadyMs,
     missingDependencyErrors,
     finalGatewayState,
     healthFailures,
     healthP95Ms,
     listeningFailures,
+    readinessFailures,
     gatewayRestartCount,
     pluginLoadFailures,
     metadataScanMentions,
@@ -205,11 +232,24 @@ function countHealthFailures(record) {
 function countListeningFailures(record) {
   let count = 0;
   for (const phase of record.phases ?? []) {
-    if (phase.metrics?.listening && !phase.metrics.listening.ok) {
+    if (phase.metrics?.readiness && phase.metrics.readiness.listeningReady === false && phase.metrics.readiness.deadlineMs > 0) {
       count += 1;
     }
   }
-  if (record.finalMetrics?.listening && !record.finalMetrics.listening.ok) {
+  if (record.finalMetrics?.readiness && record.finalMetrics.readiness.listeningReady === false && record.finalMetrics.readiness.deadlineMs > 0) {
+    count += 1;
+  }
+  return count;
+}
+
+function countReadinessFailures(record) {
+  let count = 0;
+  for (const phase of record.phases ?? []) {
+    if (phase.metrics?.readiness && phase.metrics.readiness.ready === false && phase.metrics.readiness.deadlineMs > 0) {
+      count += 1;
+    }
+  }
+  if (record.finalMetrics?.readiness && record.finalMetrics.readiness.ready === false && record.finalMetrics.readiness.deadlineMs > 0) {
     count += 1;
   }
   return count;
@@ -228,6 +268,36 @@ function collectTcpConnectMax(record) {
     durations.push(finalDuration);
   }
   return durations.length === 0 ? null : Math.max(...durations);
+}
+
+function collectTimeToListening(record) {
+  const values = [];
+  for (const phase of record.phases ?? []) {
+    const value = phase.metrics?.readiness?.listeningReadyAtMs;
+    if (typeof value === "number") {
+      values.push(value);
+    }
+  }
+  const finalValue = record.finalMetrics?.readiness?.listeningReadyAtMs;
+  if (typeof finalValue === "number") {
+    values.push(finalValue);
+  }
+  return values.length === 0 ? null : Math.max(...values);
+}
+
+function collectTimeToHealthReady(record) {
+  const values = [];
+  for (const phase of record.phases ?? []) {
+    const value = phase.metrics?.readiness?.healthReadyAtMs;
+    if (typeof value === "number") {
+      values.push(value);
+    }
+  }
+  const finalValue = record.finalMetrics?.readiness?.healthReadyAtMs;
+  if (typeof finalValue === "number") {
+    values.push(finalValue);
+  }
+  return values.length === 0 ? null : Math.max(...values);
 }
 
 function countGatewayRestarts(record) {

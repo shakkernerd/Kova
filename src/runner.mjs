@@ -94,10 +94,10 @@ export async function executeScenario(scenario, context) {
           commands,
           evidence: phase.evidence ?? [],
           results,
-          metrics: await collectEnvMetrics(envName, metricOptions(context))
+          metrics: await collectEnvMetrics(envName, metricOptions(context, scenario, phase))
         });
 
-        const statePhase = await executeStateSetupAfterPhase(context, envName, phase.id);
+        const statePhase = await executeStateSetupAfterPhase(context, envName, phase.id, scenario);
         if (statePhase) {
           record.phases.push(statePhase);
           if (statePhase.results.some((result) => result.status !== 0)) {
@@ -113,7 +113,7 @@ export async function executeScenario(scenario, context) {
     }
   } finally {
     record.finishedAt = new Date().toISOString();
-    record.finalMetrics = await collectEnvMetrics(envName, metricOptions(context));
+    record.finalMetrics = await collectEnvMetrics(envName, metricOptions(context, scenario, null));
     evaluateRecord(record, scenario);
 
     const shouldRetain = context.keepEnv || (context.retainOnFailure && record.status !== "PASS");
@@ -133,7 +133,7 @@ export async function executeScenario(scenario, context) {
   return record;
 }
 
-async function executeStateSetupAfterPhase(context, envName, phaseId) {
+async function executeStateSetupAfterPhase(context, envName, phaseId, scenario) {
   const steps = (context.state?.setup ?? []).filter((step) => stateStepMatchesPhase(step, phaseId));
   if (steps.length === 0) {
     return null;
@@ -160,7 +160,7 @@ async function executeStateSetupAfterPhase(context, envName, phaseId) {
     commands,
     evidence,
     results,
-    metrics: await collectEnvMetrics(envName, metricOptions(context))
+    metrics: await collectEnvMetrics(envName, metricOptions(context, scenario, { id: phaseId }))
   };
 }
 
@@ -171,12 +171,32 @@ function stateStepMatchesPhase(step, phaseId) {
   return step.afterPhase === phaseId;
 }
 
-function metricOptions(context) {
+function metricOptions(context, scenario, phase) {
   return {
     timeoutMs: context.timeoutMs,
     healthSamples: context.healthSamples,
-    healthIntervalMs: context.healthIntervalMs
+    healthIntervalMs: context.healthIntervalMs,
+    readinessTimeoutMs: readinessTimeoutForPhase(scenario, phase),
+    readinessIntervalMs: context.readinessIntervalMs
   };
+}
+
+function readinessTimeoutForPhase(scenario, phase) {
+  const thresholds = scenario?.thresholds ?? {};
+  const defaultMs = thresholds.gatewayReadyMs ?? 30000;
+  if (!phase) {
+    return 0;
+  }
+  if (phase.id === "cold-start" || phase.id === "provision" || phase.id === "baseline" || phase.id === "gateway" || phase.id === "start") {
+    return thresholds.coldReadyMs ?? thresholds.gatewayReadyMs ?? defaultMs;
+  }
+  if (phase.id === "warm-restart" || phase.id === "restart") {
+    return thresholds.warmReadyMs ?? thresholds.restartReadyMs ?? thresholds.gatewayReadyMs ?? defaultMs;
+  }
+  if (phase.id === "upgrade" || phase.id === "post-upgrade" || phase.id === "source-runtime") {
+    return thresholds.gatewayReadyMs ?? defaultMs;
+  }
+  return 0;
 }
 
 async function executeTargetSetup(context, envName) {

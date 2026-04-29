@@ -84,6 +84,7 @@ Current metrics include:
 - desired/running flags
 - gateway port
 - TCP listening probe latency
+- readiness polling attempts, time to TCP listening, and time to health ready
 - runtime release version/channel
 - child PID
 - RSS in KB/MB

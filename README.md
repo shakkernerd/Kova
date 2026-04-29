@@ -72,6 +72,10 @@ node bin/kova.mjs matrix run --profile release --target npm:2026.4.27 --include 
 Matrix filters accept `scenario:<id>`, `state:<id>`, `tag:<tag>`, or a bare
 scenario/state/tag value. Matrix runs bundle their report automatically.
 
+Gateway readiness is deadline-based. Kova polls TCP listening and `/health`
+until the scenario readiness threshold expires, records every failed attempt in
+JSON, and reports time-to-listening plus time-to-health-ready.
+
 Kova destroys temporary envs by default after execution. Keep an env for
 debugging only when needed:
 
