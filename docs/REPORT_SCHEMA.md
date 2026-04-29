@@ -148,9 +148,10 @@ and supports filtering with `--scenario`, `--state`, and `--profile`.
 ## Summary Output
 
 `kova report summarize <report.json> --json` returns a compact agent-facing
-view of each scenario with status, cleanup, failed command, violations, and a
-small measurement summary. Agents should use this before reading the full report
-when they only need pass/fail and high-signal performance evidence.
+view of each scenario with status, cleanup, failed command, concise failure
+reason, violations, and a small measurement summary. Agents should use this
+before reading the full report when they only need pass/fail and high-signal
+performance evidence.
 
 ## Matrix Receipt
 

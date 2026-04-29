@@ -342,16 +342,20 @@ export function renderReportSummary(report, options = {}) {
     from: report.from ?? null,
     platform: report.platform,
     statuses: report.summary?.statuses ?? summarizeRecords(records).statuses,
-    scenarios: records.map((record) => ({
-      id: record.scenario,
-      title: record.title,
-      status: record.status,
-      cleanup: record.cleanup ?? "not-run",
-      state: record.state ?? null,
-      failedCommand: firstFailedCommand(record)?.command ?? null,
-      measurements: summarizeMeasurements(record.measurements),
-      violations: record.violations ?? []
-    }))
+    scenarios: records.map((record) => {
+      const failed = firstFailedCommand(record);
+      return {
+        id: record.scenario,
+        title: record.title,
+        status: record.status,
+        cleanup: record.cleanup ?? "not-run",
+        state: record.state ?? null,
+        failedCommand: failed?.command ?? null,
+        failureReason: failed ? summarizeFailureReason(failed) : null,
+        measurements: summarizeMeasurements(record.measurements),
+        violations: record.violations ?? []
+      };
+    })
   };
 
   if (options.structured) {
@@ -373,6 +377,9 @@ export function renderReportSummary(report, options = {}) {
     lines.push(`- ${scenario.status} ${scenario.id} (${scenario.cleanup})`);
     if (scenario.failedCommand) {
       lines.push(`  failed command: ${scenario.failedCommand}`);
+    }
+    if (scenario.failureReason) {
+      lines.push(`  reason: ${scenario.failureReason}`);
     }
     for (const violation of scenario.violations) {
       lines.push(`  violation: ${violation.message}`);
@@ -467,10 +474,34 @@ function firstFailedCommand(record) {
       }
     }
   }
-  if (record.cleanupResult && record.cleanupResult.status !== 0) {
+  if (record.cleanup === "destroy-failed" && record.cleanupResult && record.cleanupResult.status !== 0) {
     return record.cleanupResult;
   }
   return null;
+}
+
+function summarizeFailureReason(result) {
+  const output = (result.stderr?.trim() || result.stdout?.trim() || "").trim();
+  if (!output) {
+    return result.timedOut ? "command timed out" : `command exited with status ${result.status}`;
+  }
+
+  const lines = output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^Run "ocm help"/.test(line));
+  const priorityPatterns = [
+    /Cannot find module/i,
+    /Error \[/i,
+    /ECONNREFUSED/i,
+    /timed out|timeout/i,
+    /missing/i,
+    /failed/i
+  ];
+  const important = priorityPatterns.map((pattern) => lines.find((line) => pattern.test(line))).find(Boolean);
+  const line = important ?? lines[0] ?? output;
+  return line.length <= 260 ? line : `${line.slice(0, 257)}...`;
 }
 
 function fencedSnippet(value) {

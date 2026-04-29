@@ -260,10 +260,19 @@ exit 2
     }
     const receipt = JSON.parse(result.stdout);
     const report = JSON.parse(await readFile(receipt.jsonPath, "utf8"));
+    const summaryResult = await runCommand(`node bin/kova.mjs report summarize ${quoteShell(receipt.jsonPath)} --json`, {
+      timeoutMs: 30000,
+      maxOutputChars: 1000000
+    });
+    if (summaryResult.status !== 0) {
+      throw new Error(summaryResult.stderr.trim() || summaryResult.stdout.trim() || `summary exit ${summaryResult.status}`);
+    }
+    const summary = JSON.parse(summaryResult.stdout);
     const log = await readFile(ocmLog, "utf8");
     assertEqual(report.summary?.statuses?.BLOCKED, 1, "failed local-build scenario status");
     assertEqual(report.records?.[0]?.cleanup, "already-absent", "already absent env cleanup status");
     assertEqual(report.targetCleanup?.status, "already-absent", "already absent local-build target cleanup status");
+    assertEqual(summary.summary?.scenarios?.[0]?.failureReason, "dependency install failed", "summary failure reason");
     if (!/runtime remove kova-local-\d+ --json/.test(log)) {
       throw new Error(`runtime remove was not called after failed build; log:\n${log}`);
     }
