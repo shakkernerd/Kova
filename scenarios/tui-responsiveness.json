@@ -1,0 +1,38 @@
+{
+  "id": "tui-responsiveness",
+  "title": "TUI Responsiveness",
+  "objective": "Verify OpenClaw's terminal UI can attach to a running gateway, render a connected screen promptly, and shut down cleanly.",
+  "tags": ["tui", "terminal", "gateway", "input"],
+  "timeoutMs": 120000,
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "gatewayReadyHardTimeoutMs": 120000,
+    "statusMs": 10000,
+    "tuiSmokeMs": 15000,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "gateway",
+      "title": "Gateway Start",
+      "intent": "Start the gateway and confirm it is healthy before opening TUI.",
+      "commands": ["ocm start {env} {startSelector} --json", "ocm @{env} -- status"],
+      "evidence": ["gateway status", "readiness classification"]
+    },
+    {
+      "id": "tui-smoke",
+      "title": "TUI Attach Smoke",
+      "intent": "Spawn the real TUI, wait for a recognizable connected screen, then interrupt it cleanly.",
+      "commands": ["node {kovaRoot}/support/tui-smoke.mjs {env} 15000"],
+      "evidence": ["TUI render time", "connected screen", "clean interrupt"]
+    },
+    {
+      "id": "post-tui-health",
+      "title": "Post-TUI Health",
+      "intent": "Verify the gateway remains responsive after a terminal UI session starts and exits.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["status after TUI", "TUI disconnect logs", "gateway errors"]
+    }
+  ]
+}

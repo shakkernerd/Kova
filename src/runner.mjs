@@ -4,6 +4,7 @@ import { quoteShell } from "./commands.mjs";
 import { collectEnvMetrics } from "./metrics.mjs";
 import { evaluateRecord } from "./evaluator.mjs";
 import { artifactsDir } from "./paths.mjs";
+import { repoRoot } from "./paths.mjs";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
@@ -456,6 +457,7 @@ function commandValues(context, envName, artifactDir = "") {
     from: context.from ?? "",
     sourceEnv: quoteShell(context.sourceEnv ?? ""),
     artifactDir,
+    kovaRoot: quoteShell(repoRoot),
     startSelector: context.targetPlan.startSelector,
     upgradeSelector: context.targetPlan.upgradeSelector,
     fromUpgradeSelector: context.fromPlan?.upgradeSelector ?? ""

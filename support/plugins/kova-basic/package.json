@@ -1,0 +1,26 @@
+{
+  "name": "kova-basic-plugin",
+  "version": "1.0.0",
+  "description": "Kova external plugin lifecycle fixture",
+  "type": "module",
+  "exports": {
+    ".": "./index.js"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.4.25"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
+  },
+  "openclaw": {
+    "extensions": [
+      "./index.js"
+    ],
+    "install": {
+      "defaultChoice": "local",
+      "minHostVersion": ">=2026.4.25"
+    }
+  }
+}

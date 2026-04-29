@@ -158,6 +158,7 @@ export function materializeCommands(commands, values) {
       .replaceAll("{from}", values.from)
       .replaceAll("{sourceEnv}", values.sourceEnv)
       .replaceAll("{artifactDir}", values.artifactDir ?? "")
+      .replaceAll("{kovaRoot}", values.kovaRoot ?? "")
       .replaceAll("{startSelector}", values.startSelector)
       .replaceAll("{upgradeSelector}", values.upgradeSelector)
       .replaceAll("{fromUpgradeSelector}", values.fromUpgradeSelector)

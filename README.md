@@ -14,7 +14,7 @@ but Kova reports on OpenClaw behavior.
 - bundled plugin/runtime dependency behavior
 - plugin lifecycle paths
 - model/provider discovery paths
-- dashboard/TUI/API responsiveness
+- dashboard, TUI, and API responsiveness
 - memory, CPU, latency, and startup regressions
 
 Kova is not a unit test runner. It should exercise OpenClaw the way users and
@@ -66,6 +66,8 @@ Real execution is explicit:
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --execute
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --state stale-runtime-deps --execute
 node bin/kova.mjs run --target npm:2026.4.27 --scenario gateway-performance --execute --node-profile
+node bin/kova.mjs run --target local-build:/path/to/openclaw --scenario release-runtime-startup --execute
+node bin/kova.mjs run --target npm:2026.4.27 --scenario plugin-external-install --execute
 node bin/kova.mjs matrix run --profile smoke --target npm:2026.4.27 --execute
 node bin/kova.mjs matrix run --profile release --target npm:2026.4.27 --include tag:plugins --exclude state:broken-plugin-deps --parallel 2 --execute
 ```
@@ -73,9 +75,10 @@ node bin/kova.mjs matrix run --profile release --target npm:2026.4.27 --include 
 Matrix filters accept `scenario:<id>`, `state:<id>`, `tag:<tag>`, or a bare
 scenario/state/tag value. Matrix runs bundle their report automatically.
 
-Gateway readiness is deadline-based. Kova polls TCP listening and `/health`
-until the scenario readiness threshold expires, records every failed attempt in
-JSON, and reports time-to-listening plus time-to-health-ready.
+Gateway readiness is classified. Kova polls TCP listening and `/health` until a
+hard deadline, while separately enforcing the scenario readiness threshold.
+Reports distinguish hard failures, unhealthy gateways, slow startup, and ready
+gateways, with time-to-listening and time-to-health-ready evidence.
 
 Kova destroys temporary envs by default after execution. Keep an env for
 debugging only when needed:
@@ -164,6 +167,7 @@ The repo has the first production skeleton:
 - gateway service snapshots
 - gateway health snapshots
 - gateway health latency samples
+- readiness classification for hard failure, unhealthy, slow startup, and ready
 - gateway log diagnostic counts
 - gateway PID/RSS/CPU metrics on executed scenarios
 - continuous resource sampling during commands

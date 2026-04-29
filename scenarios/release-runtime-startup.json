@@ -1,0 +1,40 @@
+{
+  "id": "release-runtime-startup",
+  "title": "Release Runtime Startup",
+  "objective": "Start a release-shaped OpenClaw runtime, measure cold readiness and bundled runtime dependency staging, and fail on degraded plugin startup.",
+  "tags": ["release-runtime", "local-build", "gateway", "plugins", "runtime-deps", "startup"],
+  "timeoutMs": 180000,
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "gatewayReadyHardTimeoutMs": 120000,
+    "statusMs": 10000,
+    "pluginsListMs": 10000,
+    "peakRssMb": 900,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0,
+    "runtimeDepsStagingMs": 30000
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision Release Runtime Env",
+      "intent": "Start OpenClaw from the selected release-shaped runtime and keep probing beyond the expected threshold so slow startups are classified.",
+      "commands": ["ocm start {env} {startSelector} --json"],
+      "evidence": ["runtime binding", "gateway port", "time to listening", "time to health ready", "readiness classification"]
+    },
+    {
+      "id": "post-start",
+      "title": "Post-Start Runtime Checks",
+      "intent": "Verify the gateway is usable after cold startup and capture plugin registry behavior.",
+      "commands": ["ocm service status {env} --json", "ocm @{env} -- status", "ocm @{env} -- plugins list"],
+      "evidence": ["gateway state", "status command latency", "plugin list", "plugin startup health"]
+    },
+    {
+      "id": "startup-logs",
+      "title": "Startup Logs And Runtime Deps",
+      "intent": "Capture dependency staging, missing package/module errors, plugin service failures, and startup timing logs.",
+      "commands": ["ocm logs {env} --tail 400 --raw"],
+      "evidence": ["runtime dependency staging duration", "missing dependency errors", "plugin service failures", "startup phase logs"]
+    }
+  ]
+}

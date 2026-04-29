@@ -1,0 +1,37 @@
+{
+  "id": "plugin-missing-runtime-deps",
+  "title": "Plugin Missing Runtime Deps",
+  "objective": "Install a plugin that imports an undeclared runtime dependency and verify OpenClaw reports the dependency failure without taking down the gateway.",
+  "tags": ["plugins", "runtime-deps", "failure", "lifecycle"],
+  "timeoutMs": 180000,
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "gatewayReadyHardTimeoutMs": 120000,
+    "statusMs": 10000,
+    "missingDependencyErrors": 1,
+    "pluginLoadFailures": 1
+  },
+  "phases": [
+    {
+      "id": "install",
+      "title": "Install Missing-Dependency Plugin",
+      "intent": "Install a fixture whose runtime entry imports a package it does not declare.",
+      "commands": ["ocm start {env} {startSelector} --json", "ocm @{env} -- plugins install {kovaRoot}/support/plugins/kova-missing-runtime-dep --force", "ocm @{env} -- plugins list"],
+      "evidence": ["install result", "plugin entry registered", "gateway readiness before load"]
+    },
+    {
+      "id": "restart",
+      "title": "Restart And Capture Failure",
+      "intent": "Restart so OpenClaw attempts to load the plugin and emits missing dependency diagnostics.",
+      "commands": ["ocm service restart {env}", "ocm service status {env} --json", "ocm logs {env} --tail 400 --raw"],
+      "evidence": ["missing dependency diagnostic", "plugin load failure", "gateway remains supervised"]
+    },
+    {
+      "id": "survival",
+      "title": "Gateway Survival Check",
+      "intent": "Confirm one bad plugin does not make the user-facing gateway unusable.",
+      "commands": ["ocm @{env} -- status", "ocm @{env} -- plugins list"],
+      "evidence": ["status after plugin failure", "plugin list after failure"]
+    }
+  ]
+}

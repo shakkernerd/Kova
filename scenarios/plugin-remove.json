@@ -1,0 +1,37 @@
+{
+  "id": "plugin-remove",
+  "title": "Plugin Remove",
+  "objective": "Install and uninstall a local external plugin, then verify OpenClaw removes plugin install records cleanly and survives restart.",
+  "tags": ["plugins", "external-plugin", "remove", "uninstall", "lifecycle"],
+  "timeoutMs": 180000,
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "gatewayReadyHardTimeoutMs": 120000,
+    "pluginsListMs": 10000,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "install",
+      "title": "Install Plugin To Remove",
+      "intent": "Install the local fixture so uninstall exercises a real managed plugin record.",
+      "commands": ["ocm start {env} {startSelector} --json", "ocm @{env} -- plugins install {kovaRoot}/support/plugins/kova-basic --force", "ocm @{env} -- plugins list"],
+      "evidence": ["install record", "plugin appears before uninstall"]
+    },
+    {
+      "id": "remove",
+      "title": "Uninstall Plugin",
+      "intent": "Use OpenClaw's real uninstall path and force promptless removal for automation.",
+      "commands": ["ocm @{env} -- plugins uninstall kova-basic --force", "ocm @{env} -- plugins list", "ocm @{env} -- plugins registry --refresh --json"],
+      "evidence": ["uninstall output", "install index cleanup", "registry after removal"]
+    },
+    {
+      "id": "restart",
+      "title": "Restart After Removal",
+      "intent": "Restart after uninstall to verify removed plugin state does not break gateway startup.",
+      "commands": ["ocm service restart {env}", "ocm service status {env} --json", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["restart readiness", "removed plugin not loaded", "missing dependency scan"]
+    }
+  ]
+}

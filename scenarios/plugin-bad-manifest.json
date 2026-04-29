@@ -1,0 +1,36 @@
+{
+  "id": "plugin-bad-manifest",
+  "title": "Bad Plugin Manifest",
+  "objective": "Attempt to install an invalid plugin fixture, require OpenClaw to reject it cleanly, and verify the gateway remains healthy.",
+  "tags": ["plugins", "manifest", "failure", "lifecycle"],
+  "timeoutMs": 180000,
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "gatewayReadyHardTimeoutMs": 120000,
+    "statusMs": 10000,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision Plugin Env",
+      "intent": "Start a clean gateway before attempting the invalid plugin install.",
+      "commands": ["ocm start {env} {startSelector} --json", "ocm @{env} -- status"],
+      "evidence": ["baseline gateway status", "readiness classification"]
+    },
+    {
+      "id": "reject-invalid-plugin",
+      "title": "Reject Invalid Plugin",
+      "intent": "Run the real install command and require it to fail without corrupting plugin state.",
+      "commands": ["node {kovaRoot}/support/expect-command-fails.mjs -- ocm @{env} -- plugins install {kovaRoot}/support/plugins/kova-bad-manifest"],
+      "evidence": ["install command rejected", "validation error", "no install record committed"]
+    },
+    {
+      "id": "post-failure-health",
+      "title": "Post-Failure Health",
+      "intent": "Verify OpenClaw still answers status and plugin list after rejecting the bad manifest.",
+      "commands": ["ocm @{env} -- status", "ocm @{env} -- plugins list", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["gateway status", "plugin list", "logs after invalid install"]
+    }
+  ]
+}

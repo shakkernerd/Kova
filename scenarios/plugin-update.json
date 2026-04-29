@@ -1,0 +1,38 @@
+{
+  "id": "plugin-update",
+  "title": "Plugin Update",
+  "objective": "Install a managed external plugin and run OpenClaw plugin update paths to verify tracked plugin metadata and dry-run update diagnostics.",
+  "tags": ["plugins", "external-plugin", "update", "lifecycle"],
+  "timeoutMs": 180000,
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "gatewayReadyHardTimeoutMs": 120000,
+    "pluginsListMs": 10000,
+    "pluginUpdateDryRunMs": 20000,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "install",
+      "title": "Install Managed Plugin",
+      "intent": "Create a tracked plugin install record for update checks.",
+      "commands": ["ocm start {env} {startSelector} --json", "ocm @{env} -- plugins install {kovaRoot}/support/plugins/kova-basic --force", "ocm @{env} -- plugins list"],
+      "evidence": ["plugin install record", "plugin appears in list"]
+    },
+    {
+      "id": "update",
+      "title": "Update Plugin Metadata",
+      "intent": "Run individual and all-plugin update dry-runs so OpenClaw reports update plans without mutating the fixture.",
+      "commands": ["ocm @{env} -- plugins update kova-basic --dry-run", "ocm @{env} -- plugins update --all --dry-run", "ocm @{env} -- plugins registry --refresh --json"],
+      "evidence": ["plugin update dry-run output", "tracked plugin metadata", "registry refresh"]
+    },
+    {
+      "id": "post-update-health",
+      "title": "Post-Update Health",
+      "intent": "Verify the gateway is still usable after update planning.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["status after update", "plugin lifecycle logs", "dependency errors"]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "kova-bad-manifest-plugin",
+  "version": "1.0.0",
+  "description": "Invalid Kova plugin fixture used to verify manifest validation",
+  "type": "module",
+  "openclaw": {
+    "extensions": []
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "id": "bundled-plugin-startup",
+  "title": "Bundled Plugin Startup",
+  "objective": "Validate that OpenClaw's bundled plugins load during gateway startup without missing package/module errors or degraded plugin services.",
+  "tags": ["plugins", "bundled", "runtime-deps", "startup"],
+  "timeoutMs": 180000,
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "gatewayReadyHardTimeoutMs": 120000,
+    "pluginsListMs": 10000,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0,
+    "runtimeDepsStagingMs": 30000
+  },
+  "phases": [
+    {
+      "id": "startup",
+      "title": "Start Bundled Plugin Gateway",
+      "intent": "Start OpenClaw and let bundled plugin bootstrap run in the same shape users get from the target runtime.",
+      "commands": ["ocm start {env} {startSelector} --json"],
+      "evidence": ["bundled plugin count", "readiness classification", "dependency staging"]
+    },
+    {
+      "id": "inspect",
+      "title": "Inspect Bundled Plugins",
+      "intent": "List and inspect plugin registry state after startup.",
+      "commands": ["ocm @{env} -- plugins list", "ocm @{env} -- plugins registry --refresh --json", "ocm logs {env} --tail 400 --raw"],
+      "evidence": ["plugin list", "registry refresh", "missing package/module errors", "plugin service failures"]
+    },
+    {
+      "id": "restart",
+      "title": "Warm Restart Bundled Plugins",
+      "intent": "Restart after dependency staging should be warm and verify bundled plugin services remain healthy.",
+      "commands": ["ocm service restart {env}", "ocm service status {env} --json", "ocm logs {env} --tail 400 --raw"],
+      "evidence": ["warm readiness", "bundled plugin reload", "runtime dependency reuse"]
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "id": "plugin-external-install",
+  "title": "External Plugin Install",
+  "objective": "Install a real local external plugin fixture, refresh OpenClaw plugin state, and verify the gateway remains healthy without dependency or registry errors.",
+  "tags": ["plugins", "external-plugin", "install", "lifecycle"],
+  "timeoutMs": 180000,
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "gatewayReadyHardTimeoutMs": 120000,
+    "pluginsListMs": 10000,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision Plugin Env",
+      "intent": "Start a clean OpenClaw env before installing an external plugin.",
+      "commands": ["ocm start {env} {startSelector} --json", "ocm @{env} -- plugins list"],
+      "evidence": ["baseline plugin list", "gateway readiness"]
+    },
+    {
+      "id": "install",
+      "title": "Install Local Plugin",
+      "intent": "Use OpenClaw's real plugin install command against a local external plugin fixture.",
+      "commands": ["ocm @{env} -- plugins install {kovaRoot}/support/plugins/kova-basic --force", "ocm @{env} -- plugins list", "ocm @{env} -- plugins registry --refresh --json"],
+      "evidence": ["install output", "plugin index update", "registry refresh", "plugin appears in list"]
+    },
+    {
+      "id": "restart",
+      "title": "Restart After Install",
+      "intent": "Restart the gateway so OpenClaw loads the installed external plugin from persisted state.",
+      "commands": ["ocm service restart {env}", "ocm service status {env} --json", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["restart readiness", "plugin load logs", "missing dependency scan"]
+    }
+  ]
+}

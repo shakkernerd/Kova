@@ -4,6 +4,10 @@
   "objective": "Fast OpenClaw coverage across fresh install, plugin dependency, plugin lifecycle, and gateway performance states.",
   "entries": [
     {
+      "scenario": "release-runtime-startup",
+      "state": "fresh"
+    },
+    {
       "scenario": "fresh-install",
       "state": "fresh"
     },
@@ -14,6 +18,10 @@
     {
       "scenario": "plugin-lifecycle",
       "state": "stale-runtime-deps"
+    },
+    {
+      "scenario": "bundled-plugin-startup",
+      "state": "fresh"
     },
     {
       "scenario": "gateway-performance",
