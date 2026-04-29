@@ -3,5 +3,5 @@ reports/*
 !reports/.gitkeep
 artifacts/*
 !artifacts/.gitkeep
+dist/
 .DS_Store
-

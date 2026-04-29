@@ -62,6 +62,18 @@ node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --state mi
 node bin/kova.mjs cleanup envs
 ```
 
+## Release Packaging
+
+Create a release-shaped Kova app archive:
+
+```sh
+npm run pack:release
+```
+
+The archive is written to `dist/kova-<version>.tar.gz` with a matching
+`.sha256` file. It contains only the app files needed by the installer and
+excludes local reports, artifacts, ignored planning docs, and git state.
+
 `run` is dry-run by default. It writes Markdown and JSON reports showing the
 planned OpenClaw scenario.
 
