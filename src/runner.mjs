@@ -144,9 +144,9 @@ export async function executeScenario(scenario, context) {
     }
     if (!shouldRetain) {
       const cleanup = await runCommand(`ocm env destroy ${envName} --yes`, { timeoutMs: context.timeoutMs });
-      record.cleanup = cleanup.status === 0 ? "destroyed" : "destroy-failed";
+      record.cleanup = classifyEnvDestroyCleanup(cleanup);
       record.cleanupResult = cleanup;
-      if (cleanup.status !== 0 && record.status === "PASS") {
+      if (record.cleanup === "destroy-failed" && record.status === "PASS") {
         record.status = "BLOCKED";
       }
     } else {
@@ -156,6 +156,19 @@ export async function executeScenario(scenario, context) {
   }
 
   return record;
+}
+
+function classifyEnvDestroyCleanup(result) {
+  if (result.status === 0) {
+    return "destroyed";
+  }
+
+  const output = `${result.stdout}\n${result.stderr}`;
+  if (/\benvironment\b[\s\S]*\bdoes not exist\b/i.test(output) || /\bnot found\b/i.test(output)) {
+    return "already-absent";
+  }
+
+  return "destroy-failed";
 }
 
 async function executeStateSetupAfterPhase(context, envName, phaseId, scenario, artifactDir) {

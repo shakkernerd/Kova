@@ -234,7 +234,7 @@ case "$1:$2" in
   runtime:build-local) echo 'dependency install failed' >&2; exit 1 ;;
   runtime:remove) echo 'ocm: runtime "kova-local-mock" does not exist' >&2; exit 1 ;;
   service:status) echo '{"running":false,"desiredRunning":false,"childPid":null,"gatewayPort":null,"gatewayState":"stopped"}'; exit 0 ;;
-  env:destroy) echo '{"destroyed":true}'; exit 0 ;;
+  env:destroy) echo 'ocm: environment "kova-mock" does not exist' >&2; exit 1 ;;
 esac
 case "$1" in
   --version) echo 'mock-ocm'; exit 0 ;;
@@ -262,6 +262,7 @@ exit 2
     const report = JSON.parse(await readFile(receipt.jsonPath, "utf8"));
     const log = await readFile(ocmLog, "utf8");
     assertEqual(report.summary?.statuses?.BLOCKED, 1, "failed local-build scenario status");
+    assertEqual(report.records?.[0]?.cleanup, "already-absent", "already absent env cleanup status");
     assertEqual(report.targetCleanup?.status, "already-absent", "already absent local-build target cleanup status");
     if (!/runtime remove kova-local-\d+ --json/.test(log)) {
       throw new Error(`runtime remove was not called after failed build; log:\n${log}`);
