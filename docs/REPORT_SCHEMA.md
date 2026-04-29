@@ -184,6 +184,9 @@ Matrix reports include a `controls` object with include/exclude filters,
 fail-fast state, requested and actual parallelism, and whether parallelism was
 adjusted for safety.
 
+When `--report-dir` is provided, the automatic matrix bundle is written under
+that same directory with the Markdown and JSON reports.
+
 Matrix filters accept `scenario:<id>`, `state:<id>`, `tag:<tag>`, or a bare
 scenario/state/tag value. Entries can be skipped by platform eligibility and
 will appear as `SKIPPED` records with `skipReason`.

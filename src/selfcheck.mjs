@@ -98,6 +98,9 @@ export async function runSelfCheck(flags = {}) {
         assertEqual(data.mode, "dry-run", "matrix dry-run mode");
         assertString(data.jsonPath, "matrix json report path");
         assertString(data.bundlePath, "matrix bundle path");
+        if (!data.bundlePath.startsWith(tmp)) {
+          throw new Error(`matrix bundle path should use report dir: ${data.bundlePath}`);
+        }
         assertEqual(data.summary?.statuses?.["DRY-RUN"], 3, "filtered matrix dry-run count");
       }
     ));

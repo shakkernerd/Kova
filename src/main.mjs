@@ -301,7 +301,7 @@ async function matrixRun(flags) {
   };
   await writeFile(reportPath, renderMarkdownReport(report), "utf8");
   await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
-  const bundle = await bundleReport(jsonPath);
+  const bundle = await bundleReport(jsonPath, { outputDir: reportRoot });
 
   if (flags.json) {
     console.log(JSON.stringify({
