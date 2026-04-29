@@ -228,6 +228,7 @@ case ":${PATH}:" in
 esac
 echo ""
 echo "Next:"
+echo "  kova version"
 echo "  kova setup"
 echo "  kova self-check"
 echo "  kova matrix plan --profile smoke --target runtime:stable"

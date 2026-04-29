@@ -5,7 +5,7 @@ import { compareReports, renderCompareSummary } from "./compare.mjs";
 import { parseFlags, printHelp, required, resolveFromCwd } from "./cli.mjs";
 import { platformInfo } from "./platform.mjs";
 import { loadProfile, loadProfiles } from "./profiles.mjs";
-import { reportsDir } from "./paths.mjs";
+import { repoRoot, reportsDir } from "./paths.mjs";
 import { renderMarkdownReport, renderPasteSummary, renderReportSummary, summarizeRecords } from "./report.mjs";
 import { buildDryRunRecord, createRunId, executeScenario } from "./runner.mjs";
 import { loadScenarios, validateScenarioRun } from "./scenarios.mjs";
@@ -22,6 +22,11 @@ export async function main(argv) {
 
   if (command === "help" || flags.help) {
     printHelp();
+    return;
+  }
+
+  if (command === "version" || command === "--version") {
+    await versionCommand(flags);
     return;
   }
 
@@ -117,6 +122,20 @@ async function doctor(flags = {}) {
   if (!ok) {
     throw new Error("doctor found missing prerequisites");
   }
+}
+
+async function versionCommand(flags = {}) {
+  const packageJson = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8"));
+  if (flags.json) {
+    console.log(JSON.stringify({
+      schemaVersion: "kova.version.v1",
+      name: packageJson.name,
+      version: packageJson.version
+    }, null, 2));
+    return;
+  }
+
+  console.log(packageJson.version);
 }
 
 async function plan(flags) {

@@ -12,6 +12,10 @@ export async function runSelfCheck(flags = {}) {
       "syntax",
       "for f in src/*.mjs bin/kova.mjs; do node --check \"$f\" || exit 1; done"
     ));
+    checks.push(await jsonCommandCheck("version-json", "node bin/kova.mjs version --json", (data) => {
+      assertEqual(data.schemaVersion, "kova.version.v1", "version schema");
+      assertString(data.version, "version");
+    }));
     checks.push(await jsonCommandCheck("doctor-json", "node bin/kova.mjs doctor --json", (data) => {
       assertEqual(data.schemaVersion, "kova.doctor.v1", "doctor schema");
       assertEqual(data.ok, true, "doctor ok");

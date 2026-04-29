@@ -41,6 +41,7 @@ codex skills install https://github.com/shakkernerd/ocm/tree/main/skills/ocm-ope
 ## Commands
 
 ```sh
+node bin/kova.mjs version
 node bin/kova.mjs setup
 node bin/kova.mjs setup --json
 node bin/kova.mjs doctor
