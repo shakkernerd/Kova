@@ -65,6 +65,7 @@ Real execution is explicit:
 ```sh
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --execute
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --state stale-runtime-deps --execute
+node bin/kova.mjs run --target npm:2026.4.27 --scenario gateway-performance --execute --node-profile
 node bin/kova.mjs matrix run --profile smoke --target npm:2026.4.27 --execute
 node bin/kova.mjs matrix run --profile release --target npm:2026.4.27 --include tag:plugins --exclude state:broken-plugin-deps --parallel 2 --execute
 ```
@@ -165,16 +166,15 @@ The repo has the first production skeleton:
 - gateway health latency samples
 - gateway log diagnostic counts
 - gateway PID/RSS/CPU metrics on executed scenarios
+- continuous resource sampling during commands
+- optional Node CPU, heap, and trace profile artifacts with `--node-profile`
+- optional OpenClaw diagnostics timeline ingestion
 - threshold evaluation for command latency, peak RSS, missing dependency errors,
   and final gateway state
 - Markdown and JSON reports
 - explicit execution mode
 - default cleanup of temporary envs
 
-Next work should add deeper OpenClaw metrics collection:
-
-- health latency polling
-- V8 diagnostic reports
-- event-loop delay when OpenClaw exposes it
-- repeated plugin metadata scan counters
-- platform matrix execution
+Next work should make OpenClaw emit the diagnostics timeline contract so Kova can
+attribute slow spans, repeated plugin metadata scans, runtime dependency staging,
+provider/model loading, and event-loop delay to concrete OpenClaw phases.

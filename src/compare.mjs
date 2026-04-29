@@ -34,7 +34,8 @@ const defaultThresholds = {
   openclawSlowestSpanMs: 5000,
   openclawEventLoopMaxMs: 250,
   openclawProviderRequestMaxMs: 5000,
-  openclawChildProcessFailedCount: 0
+  openclawChildProcessFailedCount: 0,
+  nodeProfileArtifactBytes: 100 * 1024 * 1024
 };
 
 export function compareReports(baseline, current, options = {}) {
@@ -263,6 +264,10 @@ function metricDeltas(baseline, current) {
     "v8ReportCount",
     "heapSnapshotCount",
     "diagnosticArtifactBytes",
+    "nodeCpuProfileCount",
+    "nodeHeapProfileCount",
+    "nodeTraceEventCount",
+    "nodeProfileArtifactBytes",
     "heapSnapshotBytes",
     "resourceSampleCount",
     "resourcePeakCommandTreeRssMb",

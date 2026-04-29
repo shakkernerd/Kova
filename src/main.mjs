@@ -259,6 +259,7 @@ async function matrixRun(flags) {
       healthIntervalMs: Number(flags.health_interval_ms ?? 250),
       readinessIntervalMs: Number(flags.readiness_interval_ms ?? 250),
       heapSnapshot: flags.heap_snapshot === true,
+      nodeProfile: flags.node_profile === true,
       resourceSampleIntervalMs: Number(flags.resource_sample_interval_ms ?? 1000),
       targetSetup
     };
@@ -589,6 +590,7 @@ async function run(flags) {
     healthIntervalMs: Number(flags.health_interval_ms ?? 250),
     readinessIntervalMs: Number(flags.readiness_interval_ms ?? 250),
     heapSnapshot: flags.heap_snapshot === true,
+    nodeProfile: flags.node_profile === true,
     resourceSampleIntervalMs: Number(flags.resource_sample_interval_ms ?? 1000),
     targetSetup: { completed: false }
   };

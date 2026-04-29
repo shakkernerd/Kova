@@ -60,6 +60,9 @@ export async function executeScenario(scenario, context) {
   try {
     await mkdir(artifactDir, { recursive: true });
     await mkdir(join(artifactDir, "openclaw"), { recursive: true });
+    if (context.nodeProfile === true) {
+      await mkdir(join(artifactDir, "node-profiles"), { recursive: true });
+    }
     const setupResults = await executeTargetSetup(context, envName);
     if (setupResults.length > 0) {
       record.phases.push({
@@ -293,13 +296,40 @@ function diagnosticsEnv(context, envName, artifactDir) {
     return {};
   }
 
-  return {
+  const env = {
     OPENCLAW_DIAGNOSTICS: "1",
     OPENCLAW_DIAGNOSTICS_RUN_ID: context.runId,
     OPENCLAW_DIAGNOSTICS_ENV: envName,
     OPENCLAW_DIAGNOSTICS_TIMELINE_PATH: join(artifactDir, "openclaw", "timeline.jsonl"),
     OPENCLAW_DIAGNOSTICS_EVENT_LOOP: "1"
   };
+
+  if (context.nodeProfile === true) {
+    const profileDir = join(artifactDir, "node-profiles");
+    env.KOVA_NODE_PROFILE_DIR = profileDir;
+    env.NODE_OPTIONS = mergeNodeOptions(process.env.NODE_OPTIONS, [
+      "--cpu-prof",
+      `--cpu-prof-dir=${quoteNodeOptionValue(profileDir)}`,
+      "--heap-prof",
+      `--heap-prof-dir=${quoteNodeOptionValue(profileDir)}`,
+      "--trace-event-categories=node.perf,node.async_hooks,v8",
+      `--trace-event-file-pattern=${quoteNodeOptionValue(join(profileDir, "node-trace-${pid}.json"))}`
+    ]);
+  }
+
+  return env;
+}
+
+function mergeNodeOptions(existing, additions) {
+  return [existing, ...additions].filter(Boolean).join(" ");
+}
+
+function quoteNodeOptionValue(value) {
+  const string = String(value);
+  if (!/\s|"/.test(string)) {
+    return string;
+  }
+  return `"${string.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
 function commandValues(context, envName, artifactDir = "") {

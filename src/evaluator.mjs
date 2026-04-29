@@ -22,6 +22,10 @@ export function evaluateRecord(record, scenario) {
   const v8ReportCount = countDiagnosticMetric(record, "v8ReportCount");
   const heapSnapshotCount = countDiagnosticMetric(record, "heapSnapshotCount");
   const diagnosticArtifactBytes = countDiagnosticMetric(record, "artifactBytes");
+  const nodeCpuProfileCount = countNodeProfileMetric(record, "cpuProfileCount");
+  const nodeHeapProfileCount = countNodeProfileMetric(record, "heapProfileCount");
+  const nodeTraceEventCount = countNodeProfileMetric(record, "traceEventCount");
+  const nodeProfileArtifactBytes = countNodeProfileMetric(record, "artifactBytes");
   const heapSnapshotBytes = countHeapSnapshotBytes(record);
   const openclawDiagnostics = collectOpenClawDiagnostics(record);
   const timelineSummary = collectTimelineSummary(record);
@@ -268,6 +272,10 @@ export function evaluateRecord(record, scenario) {
     v8ReportCount,
     heapSnapshotCount,
     diagnosticArtifactBytes,
+    nodeCpuProfileCount,
+    nodeHeapProfileCount,
+    nodeTraceEventCount,
+    nodeProfileArtifactBytes,
     heapSnapshotBytes,
     resourceSampleCount: resourceSummary.sampleCount,
     resourceSampleArtifacts: resourceSummary.artifacts,
@@ -629,6 +637,22 @@ function countHeapSnapshotBytes(record) {
   }
 
   const finalValue = record.finalMetrics?.heapSnapshot?.artifactBytes;
+  if (typeof finalValue === "number") {
+    count = Math.max(count, finalValue);
+  }
+  return count;
+}
+
+function countNodeProfileMetric(record, key) {
+  let count = 0;
+  for (const phase of record.phases ?? []) {
+    const value = phase.metrics?.nodeProfiles?.[key];
+    if (typeof value === "number") {
+      count = Math.max(count, value);
+    }
+  }
+
+  const finalValue = record.finalMetrics?.nodeProfiles?.[key];
   if (typeof finalValue === "number") {
     count = Math.max(count, finalValue);
   }

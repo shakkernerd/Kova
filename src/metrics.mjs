@@ -1,7 +1,7 @@
 import { runCommand } from "./commands.mjs";
 import { loadTimeline } from "./timeline.mjs";
 import { createConnection } from "node:net";
-import { cp, mkdir, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { existsSync } from "node:fs";
 
@@ -35,6 +35,7 @@ export async function collectEnvMetrics(envName, options = {}) {
     logs: null,
     diagnostics: null,
     heapSnapshot: null,
+    nodeProfiles: null,
     openclawDiagnostics: null,
     timeline: null,
     error: null
@@ -97,6 +98,8 @@ export async function collectEnvMetrics(envName, options = {}) {
     recordCollector(collectors, "timeline", metrics.timeline, metrics.timeline.artifacts);
     metrics.diagnostics = await collectDiagnosticMetrics(envName, timeoutMs, options.artifactDir);
     recordCollector(collectors, "diagnostics", metrics.diagnostics, metrics.diagnostics.artifacts);
+    metrics.nodeProfiles = await collectNodeProfileMetrics(options.artifactDir);
+    recordCollector(collectors, "node-profiles", metrics.nodeProfiles, metrics.nodeProfiles.artifacts);
     return metrics;
   }
 
@@ -142,6 +145,8 @@ export async function collectEnvMetrics(envName, options = {}) {
   }
   metrics.diagnostics = await collectDiagnosticMetrics(envName, timeoutMs, options.artifactDir);
   recordCollector(collectors, "diagnostics", metrics.diagnostics, metrics.diagnostics.artifacts);
+  metrics.nodeProfiles = await collectNodeProfileMetrics(options.artifactDir);
+  recordCollector(collectors, "node-profiles", metrics.nodeProfiles, metrics.nodeProfiles.artifacts);
   return metrics;
 }
 
@@ -466,6 +471,69 @@ async function collectDiagnosticMetrics(envName, timeoutMs, artifactDir) {
     files: files.slice(0, 25),
     artifacts,
     error: result.status === 0 ? null : firstOutputLine(result.stderr) || firstOutputLine(result.stdout) || "diagnostic artifact scan unavailable"
+  };
+}
+
+async function collectNodeProfileMetrics(artifactDir) {
+  const startedAt = Date.now();
+  const profileDir = artifactDir ? join(artifactDir, "node-profiles") : null;
+  if (!profileDir) {
+    return {
+      commandStatus: 0,
+      statusLabel: "INFO",
+      durationMs: 0,
+      fileCount: 0,
+      cpuProfileCount: 0,
+      heapProfileCount: 0,
+      traceEventCount: 0,
+      artifactBytes: 0,
+      artifacts: [],
+      error: "artifact directory unavailable"
+    };
+  }
+
+  let entries = [];
+  try {
+    entries = await readdir(profileDir, { withFileTypes: true });
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      return {
+        commandStatus: 0,
+        statusLabel: "WARN",
+        durationMs: Date.now() - startedAt,
+        fileCount: 0,
+        cpuProfileCount: 0,
+        heapProfileCount: 0,
+        traceEventCount: 0,
+        artifactBytes: 0,
+        artifacts: [],
+        error: error.message
+      };
+    }
+  }
+
+  const artifacts = entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => join(profileDir, entry.name))
+    .filter((path) => /\.(cpuprofile|heapprofile)$|node-trace.*\.(json|log)$/i.test(path))
+    .slice(0, 100);
+
+  let artifactBytes = 0;
+  for (const artifact of artifacts) {
+    artifactBytes += await fileSize(artifact);
+  }
+
+  return {
+    commandStatus: 0,
+    statusLabel: artifacts.length > 0 ? "PASS" : "INFO",
+    durationMs: Date.now() - startedAt,
+    fileCount: artifacts.length,
+    cpuProfileCount: artifacts.filter((path) => /\.cpuprofile$/i.test(path)).length,
+    heapProfileCount: artifacts.filter((path) => /\.heapprofile$/i.test(path)).length,
+    traceEventCount: artifacts.filter((path) => /node-trace.*\.(json|log)$/i.test(path)).length,
+    artifactBytes,
+    artifacts,
+    error: artifacts.length > 0 ? null : "node profile artifacts not emitted"
   };
 }
 
