@@ -43,13 +43,20 @@ export function renderMarkdownReport(report) {
     lines.push(`- Objective: ${record.objective}`);
     if (record.measurements) {
       lines.push(`- Peak RSS: ${record.measurements.peakRssMb ?? "unknown"} MB`);
+      lines.push(`- Cold ready: ${record.measurements.coldReadyMs ?? "unknown"} ms`);
+      lines.push(`- Warm ready: ${record.measurements.warmReadyMs ?? "unknown"} ms`);
+      lines.push(`- TCP connect max: ${record.measurements.tcpConnectMaxMs ?? "unknown"} ms`);
       lines.push(`- Missing dependency errors: ${record.measurements.missingDependencyErrors ?? "unknown"}`);
       lines.push(`- Final gateway state: ${record.measurements.finalGatewayState ?? "unknown"}`);
       lines.push(`- Health failures: ${record.measurements.healthFailures ?? "unknown"}`);
       lines.push(`- Health p95: ${record.measurements.healthP95Ms ?? "unknown"} ms`);
+      lines.push(`- Gateway restarts: ${record.measurements.gatewayRestartCount ?? "unknown"}`);
       lines.push(`- Plugin load failures: ${record.measurements.pluginLoadFailures ?? "unknown"}`);
       lines.push(`- Metadata scan mentions: ${record.measurements.metadataScanMentions ?? "unknown"}`);
       lines.push(`- Config normalization mentions: ${record.measurements.configNormalizationMentions ?? "unknown"}`);
+      lines.push(`- Provider/model timeout mentions: ${record.measurements.providerTimeoutMentions ?? "unknown"}`);
+      lines.push(`- Event-loop delay mentions: ${record.measurements.eventLoopDelayMentions ?? "unknown"}`);
+      lines.push(`- V8 reports / heap snapshots: ${record.measurements.v8ReportCount ?? "unknown"} / ${record.measurements.heapSnapshotCount ?? "unknown"}`);
     }
     lines.push("");
     if (record.violations?.length > 0) {
@@ -157,6 +164,13 @@ function formatMetrics(metrics) {
     }
   }
 
+  if (metrics.listening) {
+    lines.push(`- tcp listening: ${metrics.listening.ok ? "ok" : "not-ok"} in ${metrics.listening.durationMs}ms`);
+    if (metrics.listening.error) {
+      lines.push(`- tcp error: ${metrics.listening.error}`);
+    }
+  }
+
   if (metrics.health) {
     lines.push(`- health: ${metrics.health.ok ? "ok" : "not-ok"}${metrics.health.status ? ` (${metrics.health.status})` : ""} in ${metrics.health.durationMs}ms`);
     if (metrics.health.error) {
@@ -174,6 +188,18 @@ function formatMetrics(metrics) {
     lines.push(`- log plugin load failures: ${metrics.logs.pluginLoadFailures}`);
     lines.push(`- log metadata scan mentions: ${metrics.logs.metadataScanMentions}`);
     lines.push(`- log config normalization mentions: ${metrics.logs.configNormalizationMentions}`);
+    lines.push(`- log gateway restart mentions: ${metrics.logs.gatewayRestartMentions}`);
+    lines.push(`- log provider/model timeout mentions: ${metrics.logs.providerTimeoutMentions}`);
+    lines.push(`- log event-loop delay mentions: ${metrics.logs.eventLoopDelayMentions}`);
+    if (metrics.logs.observedWindowMs !== null) {
+      lines.push(`- log observed window: ${metrics.logs.observedWindowMs}ms`);
+    }
+  }
+
+  if (metrics.diagnostics) {
+    lines.push(`- diagnostic files: ${metrics.diagnostics.fileCount}`);
+    lines.push(`- V8 reports: ${metrics.diagnostics.v8ReportCount}`);
+    lines.push(`- heap snapshots: ${metrics.diagnostics.heapSnapshotCount}`);
   }
 
   return lines.length > 0 ? lines : ["- unavailable"];
@@ -251,7 +277,7 @@ export function renderPasteSummary(report) {
     if (record.status === "PASS" || record.status === "DRY-RUN") {
       lines.push(`Evidence: ${record.phases?.length ?? 0} phases recorded.`);
       if (record.measurements) {
-        lines.push(`Measurements: peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}.`);
+        lines.push(`Measurements: cold ready ${record.measurements.coldReadyMs ?? "unknown"}ms; warm ready ${record.measurements.warmReadyMs ?? "unknown"}ms; peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}; restarts ${record.measurements.gatewayRestartCount ?? "unknown"}; provider/model timeouts ${record.measurements.providerTimeoutMentions ?? "unknown"}; event-loop signals ${record.measurements.eventLoopDelayMentions ?? "unknown"}.`);
       }
     } else if (record.violations?.length > 0) {
       lines.push("Violations:");

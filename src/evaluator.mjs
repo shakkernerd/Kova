@@ -11,9 +11,25 @@ export function evaluateRecord(record, scenario) {
   const pluginLoadFailures = countLogMetric(record, "pluginLoadFailures");
   const metadataScanMentions = countLogMetric(record, "metadataScanMentions");
   const configNormalizationMentions = countLogMetric(record, "configNormalizationMentions");
+  const gatewayRestartCount = countGatewayRestarts(record);
+  const providerLoadMentions = countLogMetric(record, "providerLoadMentions");
+  const modelCatalogMentions = countLogMetric(record, "modelCatalogMentions");
+  const providerTimeoutMentions = countLogMetric(record, "providerTimeoutMentions");
+  const eventLoopDelayMentions = countLogMetric(record, "eventLoopDelayMentions");
+  const v8DiagnosticMentions = countLogMetric(record, "v8DiagnosticMentions");
+  const v8ReportCount = countDiagnosticMetric(record, "v8ReportCount");
+  const heapSnapshotCount = countDiagnosticMetric(record, "heapSnapshotCount");
   const finalGatewayState = record.finalMetrics?.service?.gatewayState ?? null;
   const healthFailures = countHealthFailures(record);
   const healthP95Ms = collectHealthP95(record);
+  const listeningFailures = countListeningFailures(record);
+  const tcpConnectMaxMs = collectTcpConnectMax(record);
+  const coldReadyMs = maxDurationWhere(allResults, (command) => command.startsWith("ocm start "));
+  const warmReadyMs = maxDurationWhere(allResults, (command) => command.startsWith("ocm service restart "));
+  const upgradeMs = maxDurationWhere(allResults, (command) => command.startsWith("ocm upgrade "));
+  const statusMs = maxDurationWhere(allResults, (command) => command.includes(" -- status"));
+  const pluginsListMs = maxDurationWhere(allResults, (command) => command.includes(" -- plugins list"));
+  const modelsListMs = maxDurationWhere(allResults, (command) => command.includes(" -- models list"));
 
   checkDuration(violations, allResults, "statusMs", thresholds.statusMs, (command) => command.includes(" -- status"));
   checkDuration(violations, allResults, "pluginsListMs", thresholds.pluginsListMs, (command) => command.includes(" -- plugins list"));
@@ -21,6 +37,13 @@ export function evaluateRecord(record, scenario) {
     command.includes(" -- plugins update") && command.includes("--dry-run")
   );
   checkDuration(violations, allResults, "modelsListMs", thresholds.modelsListMs, (command) => command.includes(" -- models list"));
+  checkDuration(violations, allResults, "coldReadyMs", thresholds.coldReadyMs ?? thresholds.gatewayReadyMs, (command) =>
+    command.startsWith("ocm start ")
+  );
+  checkDuration(violations, allResults, "warmReadyMs", thresholds.warmReadyMs ?? thresholds.restartReadyMs, (command) =>
+    command.startsWith("ocm service restart ")
+  );
+  checkDuration(violations, allResults, "upgradeMs", thresholds.upgradeMs, (command) => command.startsWith("ocm upgrade "));
 
   if (typeof thresholds.peakRssMb === "number" && peakRssMb !== null && peakRssMb > thresholds.peakRssMb) {
     violations.push({
@@ -84,15 +107,73 @@ export function evaluateRecord(record, scenario) {
     });
   }
 
+  if (listeningFailures > 0) {
+    violations.push({
+      kind: "gateway",
+      metric: "listeningFailures",
+      expected: "0",
+      actual: listeningFailures,
+      message: `${listeningFailures} gateway TCP listening probes failed`
+    });
+  }
+
+  if (typeof thresholds.gatewayRestarts === "number" && gatewayRestartCount > thresholds.gatewayRestarts) {
+    violations.push({
+      kind: "gateway",
+      metric: "gatewayRestartCount",
+      expected: `<= ${thresholds.gatewayRestarts}`,
+      actual: gatewayRestartCount,
+      message: `${gatewayRestartCount} gateway restart signals found`
+    });
+  }
+
+  const allowedProviderTimeouts = typeof thresholds.providerTimeoutMentions === "number" ? thresholds.providerTimeoutMentions : 0;
+  if (providerTimeoutMentions > allowedProviderTimeouts) {
+    violations.push({
+      kind: "provider",
+      metric: "providerTimeoutMentions",
+      expected: `<= ${allowedProviderTimeouts}`,
+      actual: providerTimeoutMentions,
+      message: `${providerTimeoutMentions} provider/model timeout signals found`
+    });
+  }
+
+  const allowedEventLoopMentions = typeof thresholds.eventLoopDelayMentions === "number" ? thresholds.eventLoopDelayMentions : 0;
+  if (eventLoopDelayMentions > allowedEventLoopMentions) {
+    violations.push({
+      kind: "performance",
+      metric: "eventLoopDelayMentions",
+      expected: `<= ${allowedEventLoopMentions}`,
+      actual: eventLoopDelayMentions,
+      message: `${eventLoopDelayMentions} event-loop delay signals found`
+    });
+  }
+
   record.measurements = {
     peakRssMb,
+    coldReadyMs,
+    warmReadyMs,
+    upgradeMs,
+    statusMs,
+    pluginsListMs,
+    modelsListMs,
+    tcpConnectMaxMs,
     missingDependencyErrors,
     finalGatewayState,
     healthFailures,
     healthP95Ms,
+    listeningFailures,
+    gatewayRestartCount,
     pluginLoadFailures,
     metadataScanMentions,
-    configNormalizationMentions
+    configNormalizationMentions,
+    providerLoadMentions,
+    modelCatalogMentions,
+    providerTimeoutMentions,
+    eventLoopDelayMentions,
+    v8DiagnosticMentions,
+    v8ReportCount,
+    heapSnapshotCount
   };
 
   if (violations.length > 0) {
@@ -103,6 +184,14 @@ export function evaluateRecord(record, scenario) {
   return record;
 }
 
+function maxDurationWhere(results, predicate) {
+  const durations = results
+    .filter((result) => predicate(result.command))
+    .map((result) => result.durationMs)
+    .filter((duration) => typeof duration === "number");
+  return durations.length === 0 ? null : Math.max(...durations);
+}
+
 function countHealthFailures(record) {
   let count = 0;
   for (const phase of record.phases ?? []) {
@@ -111,6 +200,40 @@ function countHealthFailures(record) {
 
   count += record.finalMetrics?.healthSummary?.failureCount ?? healthFailureCount([record.finalMetrics?.health]);
   return count;
+}
+
+function countListeningFailures(record) {
+  let count = 0;
+  for (const phase of record.phases ?? []) {
+    if (phase.metrics?.listening && !phase.metrics.listening.ok) {
+      count += 1;
+    }
+  }
+  if (record.finalMetrics?.listening && !record.finalMetrics.listening.ok) {
+    count += 1;
+  }
+  return count;
+}
+
+function collectTcpConnectMax(record) {
+  const durations = [];
+  for (const phase of record.phases ?? []) {
+    const duration = phase.metrics?.listening?.durationMs;
+    if (typeof duration === "number") {
+      durations.push(duration);
+    }
+  }
+  const finalDuration = record.finalMetrics?.listening?.durationMs;
+  if (typeof finalDuration === "number") {
+    durations.push(finalDuration);
+  }
+  return durations.length === 0 ? null : Math.max(...durations);
+}
+
+function countGatewayRestarts(record) {
+  const results = collectResults(record);
+  const commandRestarts = results.filter((result) => result.command.startsWith("ocm service restart ")).length;
+  return commandRestarts + countLogMetric(record, "gatewayRestartMentions");
 }
 
 function collectHealthP95(record) {
@@ -196,6 +319,22 @@ function countLogMetric(record, key) {
   }
 
   const finalValue = record.finalMetrics?.logs?.[key];
+  if (typeof finalValue === "number") {
+    count = Math.max(count, finalValue);
+  }
+  return count;
+}
+
+function countDiagnosticMetric(record, key) {
+  let count = 0;
+  for (const phase of record.phases ?? []) {
+    const value = phase.metrics?.diagnostics?.[key];
+    if (typeof value === "number") {
+      count = Math.max(count, value);
+    }
+  }
+
+  const finalValue = record.finalMetrics?.diagnostics?.[key];
   if (typeof finalValue === "number") {
     count = Math.max(count, finalValue);
   }

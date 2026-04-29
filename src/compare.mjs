@@ -139,7 +139,17 @@ function metricRegressions(baseline, current) {
   addIncreaseRegression(regressions, baseline, current, "pluginLoadFailures", 0);
   addIncreaseRegression(regressions, baseline, current, "healthFailures", 0);
   addIncreaseRegression(regressions, baseline, current, "peakRssMb", 100);
+  addIncreaseRegression(regressions, baseline, current, "coldReadyMs", 5000);
+  addIncreaseRegression(regressions, baseline, current, "warmReadyMs", 3000);
+  addIncreaseRegression(regressions, baseline, current, "upgradeMs", 10000);
+  addIncreaseRegression(regressions, baseline, current, "statusMs", 1000);
+  addIncreaseRegression(regressions, baseline, current, "pluginsListMs", 1000);
+  addIncreaseRegression(regressions, baseline, current, "modelsListMs", 3000);
+  addIncreaseRegression(regressions, baseline, current, "tcpConnectMaxMs", 250);
   addIncreaseRegression(regressions, baseline, current, "healthP95Ms", 1000);
+  addIncreaseRegression(regressions, baseline, current, "gatewayRestartCount", 0);
+  addIncreaseRegression(regressions, baseline, current, "providerTimeoutMentions", 0);
+  addIncreaseRegression(regressions, baseline, current, "eventLoopDelayMentions", 0);
   addIncreaseRegression(regressions, baseline, current, "metadataScanMentions", 10);
   addIncreaseRegression(regressions, baseline, current, "configNormalizationMentions", 10);
   return regressions;
@@ -172,12 +182,26 @@ function metricDeltas(baseline, current) {
   const metrics = {};
   for (const metric of [
     "peakRssMb",
+    "coldReadyMs",
+    "warmReadyMs",
+    "upgradeMs",
+    "statusMs",
+    "pluginsListMs",
+    "modelsListMs",
+    "tcpConnectMaxMs",
     "healthP95Ms",
     "healthFailures",
     "missingDependencyErrors",
     "pluginLoadFailures",
+    "gatewayRestartCount",
     "metadataScanMentions",
-    "configNormalizationMentions"
+    "configNormalizationMentions",
+    "providerLoadMentions",
+    "modelCatalogMentions",
+    "providerTimeoutMentions",
+    "eventLoopDelayMentions",
+    "v8ReportCount",
+    "heapSnapshotCount"
   ]) {
     const currentValue = current?.[metric] ?? null;
     const baselineValue = baseline?.[metric] ?? null;

@@ -1,4 +1,5 @@
 import { runCommand } from "./commands.mjs";
+import { createConnection } from "node:net";
 
 export async function collectEnvMetrics(envName, options = {}) {
   const timeoutMs = Math.min(options.timeoutMs ?? 10000, 10000);
@@ -14,10 +15,12 @@ export async function collectEnvMetrics(envName, options = {}) {
     },
     service: null,
     process: null,
+    listening: null,
     health: null,
     healthSamples: [],
     healthSummary: null,
     logs: null,
+    diagnostics: null,
     error: null
   };
 
@@ -47,17 +50,20 @@ export async function collectEnvMetrics(envName, options = {}) {
 
   if (!serviceJson.childPid) {
     if (serviceJson.gatewayPort) {
+      metrics.listening = await collectListeningMetrics(serviceJson.gatewayPort, timeoutMs);
       metrics.health = await collectHealthMetrics(serviceJson.gatewayPort, timeoutMs);
       metrics.healthSamples = [metrics.health];
       metrics.healthSummary = summarizeHealthSamples(metrics.healthSamples);
     }
     metrics.logs = await collectLogMetrics(envName, timeoutMs);
+    metrics.diagnostics = await collectDiagnosticMetrics(envName, timeoutMs);
     return metrics;
   }
 
   const process = await collectProcessMetrics(serviceJson.childPid, timeoutMs);
   metrics.process = process;
   if (serviceJson.gatewayPort) {
+    metrics.listening = await collectListeningMetrics(serviceJson.gatewayPort, timeoutMs);
     metrics.healthSamples = await collectHealthSamples(serviceJson.gatewayPort, {
       count: healthSampleCount,
       intervalMs: healthIntervalMs,
@@ -67,7 +73,47 @@ export async function collectEnvMetrics(envName, options = {}) {
     metrics.healthSummary = summarizeHealthSamples(metrics.healthSamples);
   }
   metrics.logs = await collectLogMetrics(envName, timeoutMs);
+  metrics.diagnostics = await collectDiagnosticMetrics(envName, timeoutMs);
   return metrics;
+}
+
+function collectListeningMetrics(port, timeoutMs) {
+  const startedAt = Date.now();
+  return new Promise((resolve) => {
+    const socket = createConnection({ host: "127.0.0.1", port: Number(port) });
+    const timer = setTimeout(() => {
+      socket.destroy();
+      resolve({
+        host: "127.0.0.1",
+        port: Number(port),
+        ok: false,
+        durationMs: Date.now() - startedAt,
+        error: "tcp connect timed out"
+      });
+    }, Math.min(timeoutMs, 5000));
+
+    socket.once("connect", () => {
+      clearTimeout(timer);
+      socket.end();
+      resolve({
+        host: "127.0.0.1",
+        port: Number(port),
+        ok: true,
+        durationMs: Date.now() - startedAt
+      });
+    });
+
+    socket.once("error", (error) => {
+      clearTimeout(timer);
+      resolve({
+        host: "127.0.0.1",
+        port: Number(port),
+        ok: false,
+        durationMs: Date.now() - startedAt,
+        error: error.message
+      });
+    });
+  });
 }
 
 async function collectProcessMetrics(pid, timeoutMs) {
@@ -182,18 +228,74 @@ function sleep(ms) {
 async function collectLogMetrics(envName, timeoutMs) {
   const result = await runCommand(`ocm logs ${envName} --tail 200`, { timeoutMs });
   const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  const timestamps = collectTimestamps(text);
   return {
     commandStatus: result.status,
     durationMs: result.durationMs,
     timedOut: result.timedOut,
+    firstTimestamp: timestamps.first,
+    lastTimestamp: timestamps.last,
+    observedWindowMs: timestamps.windowMs,
     missingDependencyErrors: countPattern(text, /cannot find module|missing dependenc|missing runtime dep/i),
     pluginLoadFailures: countPattern(text, /\[plugins\].*failed to load|plugin.*failed to load/i),
     runtimeDependencyMentions: countPattern(text, /runtime dep|runtime dependency|runtime-deps/i),
     metadataScanMentions: countPattern(text, /collectBundledPluginMetadata|bundled plugin metadata|manifest read|readdirSync/i),
     configNormalizationMentions: countPattern(text, /config normal/i),
+    gatewayRestartMentions: countPattern(text, /gateway.*restart|restart.*gateway|service restart|restarting/i),
+    listeningMentions: countPattern(text, /listening|server started|gateway ready|ready on|websocket/i),
+    providerLoadMentions: countPattern(text, /provider.*load|load.*provider|provider registry|auth provider/i),
+    modelCatalogMentions: countPattern(text, /model catalog|models list|loading models|available models/i),
+    providerTimeoutMentions: countPattern(text, /provider.*timeout|model.*timeout|timeout.*provider|timeout.*model/i),
+    eventLoopDelayMentions: countPattern(text, /event loop|event-loop|blocked loop|loop delay/i),
+    v8DiagnosticMentions: countPattern(text, /v8|diagnostic report|heapsnapshot|heap snapshot/i),
     errorMentions: countPattern(text, /\berror\b|exception|unhandled/i),
     stdoutSnippet: result.stdout.slice(-4000),
     stderrSnippet: result.stderr.slice(-4000)
+  };
+}
+
+async function collectDiagnosticMetrics(envName, timeoutMs) {
+  const command = "ocm env exec " + envName + " -- sh -lc 'find \"$OPENCLAW_HOME\" -maxdepth 6 -type f \\( -name \"report.*.json\" -o -name \"*.heapsnapshot\" -o -name \"*heap*.json\" -o -name \"*diagnostic*.json\" \\) -print 2>/dev/null | head -100'";
+  const result = await runCommand(command, { timeoutMs, maxOutputChars: 100000 });
+  const files = result.status === 0
+    ? result.stdout.split("\n").map((line) => line.trim()).filter(Boolean)
+    : [];
+
+  return {
+    commandStatus: result.status,
+    durationMs: result.durationMs,
+    timedOut: result.timedOut,
+    fileCount: files.length,
+    v8ReportCount: files.filter((file) => /report\..*\.json$|diagnostic.*\.json$/i.test(file)).length,
+    heapSnapshotCount: files.filter((file) => /\.heapsnapshot$|heap.*\.json$/i.test(file)).length,
+    files: files.slice(0, 25),
+    error: result.status === 0 ? null : firstOutputLine(result.stderr) || firstOutputLine(result.stdout) || "diagnostic artifact scan unavailable"
+  };
+}
+
+function collectTimestamps(text) {
+  const values = [];
+  const patterns = [
+    /\b(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\b/g,
+    /\b(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)\b/g
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const time = Date.parse(match[1].replace(" ", "T"));
+      if (!Number.isNaN(time)) {
+        values.push(time);
+      }
+    }
+  }
+
+  values.sort((a, b) => a - b);
+  const first = values.at(0) ?? null;
+  const last = values.at(-1) ?? null;
+  return {
+    first: first === null ? null : new Date(first).toISOString(),
+    last: last === null ? null : new Date(last).toISOString(),
+    windowMs: first !== null && last !== null ? last - first : null
   };
 }
 
