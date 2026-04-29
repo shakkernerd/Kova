@@ -52,6 +52,7 @@ node bin/kova.mjs states show missing-plugin-index --json
 node bin/kova.mjs plan --scenario fresh-install
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --state missing-plugin-index --json
+node bin/kova.mjs cleanup envs
 ```
 
 `run` is dry-run by default. It writes Markdown and JSON reports showing the

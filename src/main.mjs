@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { checkCommand } from "./commands.mjs";
+import { checkCommand, runCommand } from "./commands.mjs";
 import { parseFlags, printHelp, required, resolveFromCwd } from "./cli.mjs";
 import { platformInfo } from "./platform.mjs";
 import { reportsDir } from "./paths.mjs";
@@ -48,6 +48,11 @@ export async function main(argv) {
 
   if (command === "report") {
     await reportCommand(flags);
+    return;
+  }
+
+  if (command === "cleanup") {
+    await cleanupCommand(flags);
     return;
   }
 
@@ -241,6 +246,68 @@ async function reportCommand(flags) {
   }
 
   throw new Error(`unknown report command: ${subcommand ?? ""}`);
+}
+
+async function cleanupCommand(flags) {
+  const [subcommand] = flags._;
+  if (subcommand !== "envs") {
+    throw new Error(`unknown cleanup command: ${subcommand ?? ""}`);
+  }
+
+  const envList = await runCommand("ocm env list --json", { timeoutMs: 30000 });
+  if (envList.status !== 0) {
+    throw new Error(`failed to list OCM envs: ${envList.stderr.trim() || envList.stdout.trim()}`);
+  }
+
+  const summaries = JSON.parse(envList.stdout);
+  if (!Array.isArray(summaries)) {
+    throw new Error("ocm env list --json returned unexpected data");
+  }
+
+  const envs = summaries
+    .map((summary) => summary.name)
+    .filter((name) => /^kova-[a-z0-9-]+$/.test(name));
+  const results = [];
+
+  if (flags.execute) {
+    for (const env of envs) {
+      results.push(await runCommand(`ocm env destroy ${env} --yes`, { timeoutMs: 120000 }));
+    }
+  }
+
+  if (flags.json) {
+    console.log(JSON.stringify({
+      schemaVersion: "kova.cleanup.envs.v1",
+      generatedAt: new Date().toISOString(),
+      execute: flags.execute === true,
+      envs,
+      results: results.map((result) => ({
+        command: result.command,
+        status: result.status,
+        durationMs: result.durationMs,
+        timedOut: result.timedOut
+      }))
+    }, null, 2));
+    return;
+  }
+
+  if (envs.length === 0) {
+    console.log("No stale Kova envs found.");
+    return;
+  }
+
+  if (!flags.execute) {
+    console.log("Stale Kova envs:");
+    for (const env of envs) {
+      console.log(`- ${env}`);
+    }
+    console.log("Run with --execute to destroy them.");
+    return;
+  }
+
+  for (const result of results) {
+    console.log(`${result.status === 0 ? "PASS" : "FAIL"} ${result.command}`);
+  }
 }
 
 async function run(flags) {

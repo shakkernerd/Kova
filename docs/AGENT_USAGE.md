@@ -109,6 +109,17 @@ node bin/kova.mjs run --target runtime:stable --scenario fresh-install --execute
 ```
 
 Otherwise, Kova should clean up temporary envs automatically.
+If cleanup is interrupted, inspect stale Kova envs with:
+
+```sh
+node bin/kova.mjs cleanup envs --json
+```
+
+Destroy only Kova-owned envs with:
+
+```sh
+node bin/kova.mjs cleanup envs --execute
+```
 
 Agents should never mutate durable envs like `Shaks` or `Violet` directly for
 Kova tests unless a human explicitly asks for that exact env to be changed.

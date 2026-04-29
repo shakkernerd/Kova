@@ -40,6 +40,7 @@ Usage:
   kova states list [--json]
   kova states show <id> [--json]
   kova run --target <selector> [--from <selector>] [--scenario <id>] [--state <id>] [--report-dir <path>] [--execute] [--keep-env] [--retain-on-failure] [--json]
+  kova cleanup envs [--execute] [--json]
   kova report summarize <report.json> [--json]
   kova report paste <report.json>
 
