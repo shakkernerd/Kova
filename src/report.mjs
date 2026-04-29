@@ -66,6 +66,10 @@ export function renderMarkdownReport(report) {
       lines.push(`- Warm ready: ${record.measurements.warmReadyMs ?? "unknown"} ms`);
       lines.push(`- Time to listening: ${record.measurements.timeToListeningMs ?? "unknown"} ms`);
       lines.push(`- Time to health ready: ${record.measurements.timeToHealthReadyMs ?? "unknown"} ms`);
+      lines.push(`- Readiness classification: ${record.measurements.readinessClassification ?? "unknown"}`);
+      if (record.measurements.readinessClassificationReason) {
+        lines.push(`- Readiness reason: ${record.measurements.readinessClassificationReason}`);
+      }
       lines.push(`- TCP connect max: ${record.measurements.tcpConnectMaxMs ?? "unknown"} ms`);
       lines.push(`- Missing dependency errors: ${record.measurements.missingDependencyErrors ?? "unknown"}`);
       lines.push(`- Final gateway state: ${record.measurements.finalGatewayState ?? "unknown"}`);
@@ -220,6 +224,11 @@ function formatMetrics(metrics) {
 
   if (metrics.readiness) {
     lines.push(`- readiness: ${metrics.readiness.ready ? "ready" : "not-ready"} after ${metrics.readiness.attempts} attempt(s)`);
+    lines.push(`- readiness classification: ${metrics.readiness.classification?.state ?? "unknown"}`);
+    if (metrics.readiness.classification?.reason) {
+      lines.push(`- readiness reason: ${metrics.readiness.classification.reason}`);
+    }
+    lines.push(`- readiness threshold/deadline: ${metrics.readiness.thresholdMs ?? "unknown"}ms / ${metrics.readiness.deadlineMs ?? "unknown"}ms`);
     lines.push(`- time to listening: ${metrics.readiness.listeningReadyAtMs ?? "not-ready"}ms`);
     lines.push(`- time to health ready: ${metrics.readiness.healthReadyAtMs ?? "not-ready"}ms`);
   }
@@ -399,6 +408,8 @@ function summarizeMeasurements(measurements) {
     cpuPercentMax: measurements.cpuPercentMax ?? null,
     timeToListeningMs: measurements.timeToListeningMs ?? null,
     timeToHealthReadyMs: measurements.timeToHealthReadyMs ?? null,
+    readinessClassification: measurements.readinessClassification ?? null,
+    readinessClassificationReason: measurements.readinessClassificationReason ?? null,
     healthFailures: measurements.healthFailures ?? null,
     missingDependencyErrors: measurements.missingDependencyErrors ?? null,
     pluginLoadFailures: measurements.pluginLoadFailures ?? null,
@@ -435,7 +446,7 @@ export function renderPasteSummary(report) {
       lines.push(`Evidence: ${record.phases?.length ?? 0} phases recorded.`);
       if (record.measurements) {
         const runtimeDepsPlugin = record.measurements.runtimeDepsStagingPluginId ? ` (${record.measurements.runtimeDepsStagingPluginId})` : "";
-        lines.push(`Measurements: cold ready ${record.measurements.coldReadyMs ?? "unknown"}ms; warm ready ${record.measurements.warmReadyMs ?? "unknown"}ms; listening ${record.measurements.timeToListeningMs ?? "unknown"}ms; health ready ${record.measurements.timeToHealthReadyMs ?? "unknown"}ms; peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; max CPU ${record.measurements.cpuPercentMax ?? "unknown"}%; samples ${record.measurements.resourceSampleCount ?? "unknown"}; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}; restarts ${record.measurements.gatewayRestartCount ?? "unknown"}; agent turn ${record.measurements.agentTurnMs ?? "not-run"}ms; provider/model timeouts ${record.measurements.providerTimeoutMentions ?? "unknown"}; event-loop signals ${record.measurements.eventLoopDelayMentions ?? "unknown"}; timeline ${record.measurements.openclawTimelineAvailable ? "available" : "unavailable"}; slowest span ${record.measurements.openclawSlowestSpanName ?? "unknown"} ${record.measurements.openclawSlowestSpanMs ?? "unknown"}ms; node profiles ${record.measurements.nodeCpuProfileCount ?? "unknown"}/${record.measurements.nodeHeapProfileCount ?? "unknown"}/${record.measurements.nodeTraceEventCount ?? "unknown"}; top CPU ${record.measurements.nodeProfileTopFunction ?? "unknown"} ${record.measurements.nodeProfileTopFunctionMs ?? "unknown"}ms; runtime deps staging ${record.measurements.runtimeDepsStagingMs ?? "unknown"}ms${runtimeDepsPlugin}.`);
+        lines.push(`Measurements: cold ready ${record.measurements.coldReadyMs ?? "unknown"}ms; warm ready ${record.measurements.warmReadyMs ?? "unknown"}ms; listening ${record.measurements.timeToListeningMs ?? "unknown"}ms; health ready ${record.measurements.timeToHealthReadyMs ?? "unknown"}ms; readiness ${record.measurements.readinessClassification ?? "unknown"}; peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; max CPU ${record.measurements.cpuPercentMax ?? "unknown"}%; samples ${record.measurements.resourceSampleCount ?? "unknown"}; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}; restarts ${record.measurements.gatewayRestartCount ?? "unknown"}; agent turn ${record.measurements.agentTurnMs ?? "not-run"}ms; provider/model timeouts ${record.measurements.providerTimeoutMentions ?? "unknown"}; event-loop signals ${record.measurements.eventLoopDelayMentions ?? "unknown"}; timeline ${record.measurements.openclawTimelineAvailable ? "available" : "unavailable"}; slowest span ${record.measurements.openclawSlowestSpanName ?? "unknown"} ${record.measurements.openclawSlowestSpanMs ?? "unknown"}ms; node profiles ${record.measurements.nodeCpuProfileCount ?? "unknown"}/${record.measurements.nodeHeapProfileCount ?? "unknown"}/${record.measurements.nodeTraceEventCount ?? "unknown"}; top CPU ${record.measurements.nodeProfileTopFunction ?? "unknown"} ${record.measurements.nodeProfileTopFunctionMs ?? "unknown"}ms; runtime deps staging ${record.measurements.runtimeDepsStagingMs ?? "unknown"}ms${runtimeDepsPlugin}.`);
       }
     } else if (record.violations?.length > 0) {
       lines.push("Violations:");

@@ -72,6 +72,7 @@ export async function collectEnvMetrics(envName, options = {}) {
       const readinessStarted = Date.now();
       metrics.readiness = await collectReadinessMetrics(serviceJson.gatewayPort, {
         timeoutMs: readinessTimeoutMs,
+        thresholdMs: options.readinessThresholdMs,
         intervalMs: readinessIntervalMs,
         probeTimeoutMs: timeoutMs
       });
@@ -111,6 +112,7 @@ export async function collectEnvMetrics(envName, options = {}) {
     const readinessStarted = Date.now();
     metrics.readiness = await collectReadinessMetrics(serviceJson.gatewayPort, {
       timeoutMs: readinessTimeoutMs,
+      thresholdMs: options.readinessThresholdMs,
       intervalMs: readinessIntervalMs,
       probeTimeoutMs: timeoutMs
     });
@@ -207,6 +209,7 @@ function collectorStatus(result) {
 async function collectReadinessMetrics(port, options) {
   const startedAt = Date.now();
   const deadline = startedAt + options.timeoutMs;
+  const thresholdMs = Math.max(0, Number(options.thresholdMs ?? options.timeoutMs ?? 0));
   const listeningAttempts = [];
   const healthAttempts = [];
   let listeningReadyAtMs = null;
@@ -239,16 +242,51 @@ async function collectReadinessMetrics(port, options) {
 
   return {
     deadlineMs: options.timeoutMs,
+    thresholdMs,
     intervalMs: options.intervalMs,
     attempts: Math.max(listeningAttempts.length, healthAttempts.length),
     ready: healthReadyAtMs !== null,
     listeningReady: listeningReadyAtMs !== null,
     listeningReadyAtMs,
     healthReadyAtMs,
+    classification: classifyReadiness({
+      thresholdMs,
+      listeningReadyAtMs,
+      healthReadyAtMs
+    }),
     listening: lastListening,
     health: lastHealth,
     listeningAttempts,
     healthAttempts
+  };
+}
+
+function classifyReadiness({ thresholdMs, listeningReadyAtMs, healthReadyAtMs }) {
+  if (listeningReadyAtMs === null) {
+    return {
+      state: "hard-failure",
+      severity: "fail",
+      reason: "gateway TCP socket never accepted connections before the hard deadline"
+    };
+  }
+  if (healthReadyAtMs === null) {
+    return {
+      state: "unhealthy",
+      severity: "fail",
+      reason: "gateway TCP socket opened but health never became ready before the hard deadline"
+    };
+  }
+  if (thresholdMs > 0 && healthReadyAtMs > thresholdMs) {
+    return {
+      state: "slow-startup",
+      severity: "fail",
+      reason: `gateway became healthy after ${healthReadyAtMs}ms, beyond the ${thresholdMs}ms threshold`
+    };
+  }
+  return {
+    state: "ready",
+    severity: "pass",
+    reason: "gateway became healthy within the readiness threshold"
   };
 }
 
@@ -418,8 +456,8 @@ async function collectLogMetrics(envName, timeoutMs, artifactDir) {
     firstTimestamp: timestamps.first,
     lastTimestamp: timestamps.last,
     observedWindowMs: timestamps.windowMs,
-    missingDependencyErrors: countPattern(text, /cannot find module|missing dependenc|missing runtime dep/i),
-    pluginLoadFailures: countPattern(text, /\[plugins\].*failed to load|plugin.*failed to load/i),
+    missingDependencyErrors: countPattern(text, /cannot find (module|package)|missing dependenc|missing runtime dep/i),
+    pluginLoadFailures: countPattern(text, /\[plugins\].*failed to load|plugin.*failed to load|\[plugins\].*plugin service failed|plugin service failed/i),
     runtimeDependencyMentions: countPattern(text, /runtime dep|runtime dependency|runtime-deps/i),
     metadataScanMentions: countPattern(text, /collectBundledPluginMetadata|bundled plugin metadata|manifest read|readdirSync/i),
     configNormalizationMentions: countPattern(text, /config normal/i),

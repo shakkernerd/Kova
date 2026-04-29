@@ -329,18 +329,20 @@ function stateStepMatchesPhase(step, phaseId) {
 }
 
 function metricOptions(context, scenario, phase, artifactDir) {
+  const readinessThresholdMs = readinessThresholdForPhase(scenario, phase);
   return {
     timeoutMs: context.timeoutMs,
     healthSamples: context.healthSamples,
     healthIntervalMs: context.healthIntervalMs,
-    readinessTimeoutMs: readinessTimeoutForPhase(scenario, phase),
+    readinessThresholdMs,
+    readinessTimeoutMs: readinessHardTimeoutForPhase(scenario, phase, readinessThresholdMs),
     readinessIntervalMs: context.readinessIntervalMs,
     heapSnapshot: context.heapSnapshot,
     artifactDir
   };
 }
 
-function readinessTimeoutForPhase(scenario, phase) {
+function readinessThresholdForPhase(scenario, phase) {
   const thresholds = scenario?.thresholds ?? {};
   const defaultMs = thresholds.gatewayReadyMs ?? 30000;
   if (!phase) {
@@ -356,6 +358,18 @@ function readinessTimeoutForPhase(scenario, phase) {
     return thresholds.gatewayReadyMs ?? defaultMs;
   }
   return 0;
+}
+
+function readinessHardTimeoutForPhase(scenario, phase, thresholdMs) {
+  if (!phase || thresholdMs <= 0) {
+    return 0;
+  }
+  const thresholds = scenario?.thresholds ?? {};
+  const explicit = thresholds.gatewayReadyHardTimeoutMs ?? thresholds.readinessHardTimeoutMs;
+  if (typeof explicit === "number") {
+    return Math.max(explicit, thresholdMs);
+  }
+  return Math.max(thresholdMs * 3, thresholdMs + 30000);
 }
 
 async function executeTargetSetup(context, envName) {

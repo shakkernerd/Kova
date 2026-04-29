@@ -43,6 +43,7 @@ export function evaluateRecord(record, scenario) {
   const timeToListeningMs = collectTimeToListening(record);
   const timeToHealthReadyMs = collectTimeToHealthReady(record);
   const readinessFailures = countReadinessFailures(record);
+  const readinessClassification = collectWorstReadinessClassification(record);
   const coldReadyMs = maxDurationWhere(allResults, (command) => command.startsWith("ocm start "));
   const warmReadyMs = maxDurationWhere(allResults, (command) => command.startsWith("ocm service restart "));
   const upgradeMs = maxDurationWhere(allResults, (command) => command.startsWith("ocm upgrade "));
@@ -137,28 +138,43 @@ export function evaluateRecord(record, scenario) {
     });
   }
 
-  if (listeningFailures > 0) {
+  if (readinessClassification?.state === "hard-failure") {
     violations.push({
       kind: "gateway",
-      metric: "listeningFailures",
-      expected: "0",
-      actual: listeningFailures,
-      message: `${listeningFailures} gateway TCP listening probes failed`
+      metric: "readinessClassification",
+      expected: "ready",
+      actual: readinessClassification.state,
+      message: `gateway hard failure: ${readinessClassification.reason}`
     });
   }
 
-  if (readinessFailures > 0) {
+  if (readinessClassification?.state === "unhealthy") {
     violations.push({
       kind: "gateway",
-      metric: "readinessFailures",
-      expected: "0",
-      actual: readinessFailures,
-      message: `${readinessFailures} gateway readiness windows expired before health was ready`
+      metric: "readinessClassification",
+      expected: "ready",
+      actual: readinessClassification.state,
+      message: `gateway unhealthy: ${readinessClassification.reason}`
+    });
+  }
+
+  if (readinessClassification?.state === "slow-startup") {
+    violations.push({
+      kind: "gateway",
+      metric: "readinessClassification",
+      expected: "ready within threshold",
+      actual: readinessClassification.state,
+      message: `gateway slow startup: ${readinessClassification.reason}`
     });
   }
 
   const gatewayReadyThreshold = thresholds.gatewayReadyMs ?? thresholds.coldReadyMs;
-  if (typeof gatewayReadyThreshold === "number" && timeToHealthReadyMs !== null && timeToHealthReadyMs > gatewayReadyThreshold) {
+  if (
+    readinessClassification?.state !== "slow-startup" &&
+    typeof gatewayReadyThreshold === "number" &&
+    timeToHealthReadyMs !== null &&
+    timeToHealthReadyMs > gatewayReadyThreshold
+  ) {
     violations.push({
       kind: "gateway",
       metric: "timeToHealthReadyMs",
@@ -255,6 +271,10 @@ export function evaluateRecord(record, scenario) {
     tcpConnectMaxMs,
     timeToListeningMs,
     timeToHealthReadyMs,
+    readinessClassification: readinessClassification?.state ?? null,
+    readinessClassificationReason: readinessClassification?.reason ?? null,
+    readinessThresholdMs: readinessClassification?.thresholdMs ?? null,
+    readinessHardDeadlineMs: readinessClassification?.deadlineMs ?? null,
     missingDependencyErrors,
     finalGatewayState,
     healthFailures,
@@ -354,6 +374,54 @@ function countReadinessFailures(record) {
     count += 1;
   }
   return count;
+}
+
+function collectWorstReadinessClassification(record) {
+  const values = [];
+  for (const phase of record.phases ?? []) {
+    const readiness = phase.metrics?.readiness;
+    if (readiness?.classification && readiness.deadlineMs > 0) {
+      values.push(readinessClassificationValue(readiness, phase.id));
+    }
+  }
+  const finalReadiness = record.finalMetrics?.readiness;
+  if (finalReadiness?.classification && finalReadiness.deadlineMs > 0) {
+    values.push(readinessClassificationValue(finalReadiness, "final"));
+  }
+  if (values.length === 0) {
+    return null;
+  }
+  values.sort((left, right) => readinessRank(right.state) - readinessRank(left.state));
+  return values[0];
+}
+
+function readinessClassificationValue(readiness, phaseId) {
+  return {
+    phaseId,
+    state: readiness.classification.state,
+    severity: readiness.classification.severity,
+    reason: readiness.classification.reason,
+    thresholdMs: readiness.thresholdMs,
+    deadlineMs: readiness.deadlineMs,
+    listeningReadyAtMs: readiness.listeningReadyAtMs,
+    healthReadyAtMs: readiness.healthReadyAtMs
+  };
+}
+
+function readinessRank(state) {
+  if (state === "hard-failure") {
+    return 4;
+  }
+  if (state === "unhealthy") {
+    return 3;
+  }
+  if (state === "slow-startup") {
+    return 2;
+  }
+  if (state === "ready") {
+    return 1;
+  }
+  return 0;
 }
 
 function collectTcpConnectMax(record) {

@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { quoteShell, runCommand } from "./commands.mjs";
 import { summarizeCpuProfiles } from "./cpuprofile.mjs";
+import { evaluateRecord } from "./evaluator.mjs";
 import { parseTimelineText } from "./timeline.mjs";
 
 export async function runSelfCheck(flags = {}) {
@@ -52,6 +53,7 @@ export async function runSelfCheck(flags = {}) {
       assertArray(data.envs, "cleanup envs");
     }));
     checks.push(await diagnosticsTimelineCheck());
+    checks.push(readinessClassificationCheck());
     checks.push(await cpuProfileParserCheck());
     checks.push(await jsonCommandCheck(
       "dry-run-state-lifecycle-json",
@@ -345,6 +347,84 @@ async function diagnosticsTimelineCheck() {
       id: "diagnostics-timeline-parser",
       status: "FAIL",
       command: "parse fixtures/diagnostics/timeline.jsonl",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function readinessClassificationCheck() {
+  try {
+    const record = {
+      status: "PASS",
+      phases: [
+        {
+          id: "provision",
+          results: [],
+          metrics: {
+            readiness: {
+              deadlineMs: 90000,
+              thresholdMs: 30000,
+              ready: true,
+              listeningReady: true,
+              listeningReadyAtMs: 47000,
+              healthReadyAtMs: 47100,
+              classification: {
+                state: "slow-startup",
+                severity: "fail",
+                reason: "gateway became healthy after 47100ms, beyond the 30000ms threshold"
+              }
+            },
+            logs: {
+              missingDependencyErrors: 0,
+              pluginLoadFailures: 0,
+              metadataScanMentions: 0,
+              configNormalizationMentions: 0,
+              gatewayRestartMentions: 0,
+              providerLoadMentions: 0,
+              modelCatalogMentions: 0,
+              providerTimeoutMentions: 0,
+              eventLoopDelayMentions: 0,
+              v8DiagnosticMentions: 0
+            }
+          }
+        }
+      ],
+      finalMetrics: {
+        service: { gatewayState: "running" },
+        logs: {
+          missingDependencyErrors: 0,
+          pluginLoadFailures: 0,
+          metadataScanMentions: 0,
+          configNormalizationMentions: 0,
+          gatewayRestartMentions: 0,
+          providerLoadMentions: 0,
+          modelCatalogMentions: 0,
+          providerTimeoutMentions: 0,
+          eventLoopDelayMentions: 0,
+          v8DiagnosticMentions: 0
+        }
+      }
+    };
+    evaluateRecord(record, { thresholds: { gatewayReadyMs: 30000 } });
+    assertEqual(record.status, "FAIL", "slow readiness status");
+    assertEqual(record.measurements.readinessClassification, "slow-startup", "readiness classification");
+    assertEqual(
+      record.violations.some((violation) => violation.metric === "readinessClassification"),
+      true,
+      "readiness violation"
+    );
+    return {
+      id: "readiness-classification",
+      status: "PASS",
+      command: "evaluate synthetic slow readiness record",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "readiness-classification",
+      status: "FAIL",
+      command: "evaluate synthetic slow readiness record",
       durationMs: 0,
       message: error.message
     };
