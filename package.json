@@ -1,0 +1,19 @@
+{
+  "name": "kova",
+  "version": "0.1.0",
+  "private": true,
+  "description": "OpenClaw runtime validation lab",
+  "type": "module",
+  "bin": {
+    "kova": "./bin/kova.mjs"
+  },
+  "scripts": {
+    "kova": "node bin/kova.mjs",
+    "plan": "node bin/kova.mjs plan",
+    "check": "node bin/kova.mjs doctor && node bin/kova.mjs plan && node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
+
