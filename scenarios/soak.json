@@ -3,6 +3,7 @@
   "title": "Gateway Soak And Memory Trend",
   "objective": "Run a gateway for a longer window with repeated user-facing checks to detect memory growth, event-loop stalls, and degraded responsiveness.",
   "tags": ["soak", "memory", "latency", "gateway"],
+  "timeoutMs": 300000,
   "thresholds": {
     "durationMs": 1800000,
     "rssGrowthMb": 300,

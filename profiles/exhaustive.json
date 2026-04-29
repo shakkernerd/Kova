@@ -1,0 +1,30 @@
+{
+  "id": "exhaustive",
+  "title": "Exhaustive Matrix",
+  "objective": "Maximum local OpenClaw coverage across install, upgrade, plugins, providers, config corruption, filesystem pressure, service recovery, and performance scenarios.",
+  "entries": [
+    { "scenario": "fresh-install", "state": "fresh" },
+    { "scenario": "fresh-install", "state": "onboarded-user" },
+    { "scenario": "fresh-install", "state": "plugin-index" },
+    { "scenario": "fresh-install", "state": "old-config-keys" },
+    { "scenario": "fresh-install", "state": "corrupted-config" },
+    { "scenario": "upgrade-existing-user", "state": "old-release-user", "timeoutMs": 180000 },
+    { "scenario": "upgrade-existing-user", "state": "failed-upgrade", "timeoutMs": 180000 },
+    { "scenario": "bundled-runtime-deps", "state": "missing-plugin-index" },
+    { "scenario": "bundled-runtime-deps", "state": "stale-runtime-deps" },
+    { "scenario": "plugin-lifecycle", "state": "plugin-index" },
+    { "scenario": "plugin-lifecycle", "state": "external-plugin" },
+    { "scenario": "plugin-lifecycle", "state": "broken-plugin-deps" },
+    { "scenario": "provider-models", "state": "model-auth-configured" },
+    { "scenario": "provider-models", "state": "model-auth-missing" },
+    { "scenario": "dashboard-tui", "state": "fresh" },
+    { "scenario": "gateway-performance", "state": "many-bundled-plugins" },
+    { "scenario": "gateway-performance", "state": "gateway-already-running" },
+    { "scenario": "gateway-performance", "state": "stale-service-state" },
+    { "scenario": "failure-injection", "state": "broken-plugin-deps" },
+    { "scenario": "failure-injection", "state": "corrupted-config" },
+    { "scenario": "soak", "state": "large-workspace", "timeoutMs": 240000 },
+    { "scenario": "cross-platform-smoke", "state": "slow-filesystem" },
+    { "scenario": "cross-platform-smoke", "state": "channel-configured" }
+  ]
+}

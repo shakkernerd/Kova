@@ -8,8 +8,13 @@
       "state": "fresh"
     },
     {
+      "scenario": "fresh-install",
+      "state": "onboarded-user"
+    },
+    {
       "scenario": "upgrade-existing-user",
-      "state": "missing-plugin-index"
+      "state": "old-release-user",
+      "timeoutMs": 180000
     },
     {
       "scenario": "bundled-runtime-deps",
@@ -17,11 +22,15 @@
     },
     {
       "scenario": "plugin-lifecycle",
-      "state": "stale-runtime-deps"
+      "state": "plugin-index"
+    },
+    {
+      "scenario": "plugin-lifecycle",
+      "state": "external-plugin"
     },
     {
       "scenario": "provider-models",
-      "state": "fresh"
+      "state": "model-auth-missing"
     },
     {
       "scenario": "dashboard-tui",
@@ -33,15 +42,16 @@
     },
     {
       "scenario": "failure-injection",
-      "state": "stale-runtime-deps"
+      "state": "broken-plugin-deps"
     },
     {
       "scenario": "soak",
-      "state": "many-bundled-plugins"
+      "state": "large-workspace",
+      "timeoutMs": 240000
     },
     {
       "scenario": "cross-platform-smoke",
-      "state": "fresh"
+      "state": "slow-filesystem"
     }
   ]
 }

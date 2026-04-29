@@ -1,0 +1,27 @@
+{
+  "id": "soak",
+  "title": "Soak Matrix",
+  "objective": "Longer OpenClaw performance coverage for memory growth, filesystem pressure, gateway restarts, and provider/model responsiveness.",
+  "entries": [
+    {
+      "scenario": "soak",
+      "state": "large-workspace",
+      "timeoutMs": 300000
+    },
+    {
+      "scenario": "gateway-performance",
+      "state": "many-bundled-plugins",
+      "timeoutMs": 180000
+    },
+    {
+      "scenario": "gateway-performance",
+      "state": "slow-filesystem",
+      "timeoutMs": 180000
+    },
+    {
+      "scenario": "provider-models",
+      "state": "model-auth-missing",
+      "timeoutMs": 120000
+    }
+  ]
+}

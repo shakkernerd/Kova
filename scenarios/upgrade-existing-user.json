@@ -3,6 +3,7 @@
   "title": "Existing OpenClaw User Upgrade",
   "objective": "Clone existing OpenClaw state, move the clone through a real upgrade path, and verify migrations, plugin indexes, runtime deps, gateway readiness, and diagnostics.",
   "tags": ["existing-user", "upgrade", "plugins", "migration", "gateway"],
+  "timeoutMs": 180000,
   "thresholds": {
     "upgradeMs": 120000,
     "gatewayReadyMs": 45000,
@@ -39,4 +40,3 @@
     }
   ]
 }
-
