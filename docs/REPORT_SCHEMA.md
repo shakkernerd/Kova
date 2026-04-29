@@ -80,6 +80,7 @@ Current metrics include:
 - child PID
 - RSS in KB/MB
 - CPU percent
+- health URL/status/duration
 
 Future metrics will add health latency, event-loop delay, heap reports, runtime
 dependency staging timings, plugin metadata scan counts, and config

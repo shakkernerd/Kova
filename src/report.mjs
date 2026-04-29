@@ -149,6 +149,13 @@ function formatMetrics(metrics) {
     }
   }
 
+  if (metrics.health) {
+    lines.push(`- health: ${metrics.health.ok ? "ok" : "not-ok"}${metrics.health.status ? ` (${metrics.health.status})` : ""} in ${metrics.health.durationMs}ms`);
+    if (metrics.health.error) {
+      lines.push(`- health error: ${metrics.health.error}`);
+    }
+  }
+
   return lines.length > 0 ? lines : ["- unavailable"];
 }
 

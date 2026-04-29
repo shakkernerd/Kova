@@ -9,6 +9,7 @@ export function evaluateRecord(record, scenario) {
   const peakRssMb = collectPeakRss(record);
   const missingDependencyErrors = countMissingDependencyErrors(allResults);
   const finalGatewayState = record.finalMetrics?.service?.gatewayState ?? null;
+  const healthFailures = countHealthFailures(record);
 
   checkDuration(violations, allResults, "statusMs", thresholds.statusMs, (command) => command.includes(" -- status"));
   checkDuration(violations, allResults, "pluginsListMs", thresholds.pluginsListMs, (command) => command.includes(" -- plugins list"));
@@ -49,10 +50,21 @@ export function evaluateRecord(record, scenario) {
     });
   }
 
+  if (typeof thresholds.healthFailures === "number" && healthFailures > thresholds.healthFailures) {
+    violations.push({
+      kind: "health",
+      metric: "healthFailures",
+      expected: `<= ${thresholds.healthFailures}`,
+      actual: healthFailures,
+      message: `${healthFailures} gateway health checks failed, over threshold ${thresholds.healthFailures}`
+    });
+  }
+
   record.measurements = {
     peakRssMb,
     missingDependencyErrors,
-    finalGatewayState
+    finalGatewayState,
+    healthFailures
   };
 
   if (violations.length > 0) {
@@ -61,6 +73,23 @@ export function evaluateRecord(record, scenario) {
   }
 
   return record;
+}
+
+function countHealthFailures(record) {
+  let count = 0;
+  for (const phase of record.phases ?? []) {
+    const health = phase.metrics?.health;
+    if (health && !health.ok) {
+      count += 1;
+    }
+  }
+
+  const finalHealth = record.finalMetrics?.health;
+  if (finalHealth && !finalHealth.ok) {
+    count += 1;
+  }
+
+  return count;
 }
 
 function checkDuration(violations, results, metric, threshold, predicate) {
@@ -125,4 +154,3 @@ function countMissingDependencyErrors(results) {
   }
   return count;
 }
-

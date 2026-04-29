@@ -12,6 +12,7 @@ export async function collectEnvMetrics(envName, options = {}) {
     },
     service: null,
     process: null,
+    health: null,
     error: null
   };
 
@@ -40,11 +41,17 @@ export async function collectEnvMetrics(envName, options = {}) {
   };
 
   if (!serviceJson.childPid) {
+    if (serviceJson.gatewayPort) {
+      metrics.health = await collectHealthMetrics(serviceJson.gatewayPort, timeoutMs);
+    }
     return metrics;
   }
 
   const process = await collectProcessMetrics(serviceJson.childPid, timeoutMs);
   metrics.process = process;
+  if (serviceJson.gatewayPort) {
+    metrics.health = await collectHealthMetrics(serviceJson.gatewayPort, timeoutMs);
+  }
   return metrics;
 }
 
@@ -86,7 +93,36 @@ async function collectProcessMetrics(pid, timeoutMs) {
   return metrics;
 }
 
+async function collectHealthMetrics(port, timeoutMs) {
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.min(timeoutMs, 5000));
+
+  try {
+    const response = await fetch(`http://127.0.0.1:${Number(port)}/health`, {
+      signal: controller.signal
+    });
+    const text = await response.text();
+    return {
+      url: `http://127.0.0.1:${Number(port)}/health`,
+      ok: response.ok,
+      status: response.status,
+      durationMs: Date.now() - startedAt,
+      bodySnippet: text.slice(0, 500)
+    };
+  } catch (error) {
+    return {
+      url: `http://127.0.0.1:${Number(port)}/health`,
+      ok: false,
+      status: null,
+      durationMs: Date.now() - startedAt,
+      error: error.name === "AbortError" ? "health request timed out" : error.message
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function firstOutputLine(value) {
   return value.trim().split("\n").find(Boolean);
 }
-

@@ -141,6 +141,7 @@ The repo has the first production skeleton:
 - timeout handling
 - stdout/stderr capture
 - gateway service snapshots
+- gateway health snapshots
 - gateway PID/RSS/CPU metrics on executed scenarios
 - threshold evaluation for command latency, peak RSS, missing dependency errors,
   and final gateway state
