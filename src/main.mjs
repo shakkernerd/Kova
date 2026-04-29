@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { checkCommand, runCommand } from "./commands.mjs";
+import { bundleReport } from "./artifacts.mjs";
+import { runCommand } from "./commands.mjs";
 import { compareReports, renderCompareSummary } from "./compare.mjs";
 import { parseFlags, printHelp, required, resolveFromCwd } from "./cli.mjs";
 import { platformInfo } from "./platform.mjs";
@@ -30,11 +31,6 @@ export async function main(argv) {
     return;
   }
 
-  if (command === "doctor") {
-    await doctor(flags);
-    return;
-  }
-
   if (command === "setup") {
     await runSetup(flags);
     return;
@@ -47,21 +43,6 @@ export async function main(argv) {
 
   if (command === "plan") {
     await plan(flags);
-    return;
-  }
-
-  if (command === "scenarios") {
-    await scenariosCommand(flags);
-    return;
-  }
-
-  if (command === "states") {
-    await statesCommand(flags);
-    return;
-  }
-
-  if (command === "profiles") {
-    await profilesCommand(flags);
     return;
   }
 
@@ -80,48 +61,12 @@ export async function main(argv) {
     return;
   }
 
-  if (command === "compare") {
-    await compareCommand(flags);
-    return;
-  }
-
   if (command === "cleanup") {
     await cleanupCommand(flags);
     return;
   }
 
   throw new Error(`unknown command: ${command}`);
-}
-
-async function doctor(flags = {}) {
-  const checks = [checkCommand("node", ["--version"]), checkCommand("ocm", ["--version"])];
-  const ok = checks.every((check) => check.status === 0);
-
-  if (flags.json) {
-    console.log(JSON.stringify({
-      schemaVersion: "kova.doctor.v1",
-      generatedAt: new Date().toISOString(),
-      platform: platformInfo(),
-      ok,
-      checks
-    }, null, 2));
-    if (!ok) {
-      throw new Error("doctor found missing prerequisites");
-    }
-    return;
-  }
-
-  for (const check of checks) {
-    if (check.status === 0) {
-      console.log(`PASS ${check.command}: ${check.stdout.trim()}`);
-    } else {
-      console.log(`FAIL ${check.command}: ${check.stderr.trim() || "not available"}`);
-    }
-  }
-
-  if (!ok) {
-    throw new Error("doctor found missing prerequisites");
-  }
 }
 
 async function versionCommand(flags = {}) {
@@ -140,13 +85,17 @@ async function versionCommand(flags = {}) {
 
 async function plan(flags) {
   const scenarios = await loadScenarios(flags.scenario);
+  const states = await loadStates(flags.state);
+  const profiles = flags.profile ? [await loadProfile(flags.profile)] : await loadProfiles();
 
   if (flags.json) {
     console.log(JSON.stringify({
       schemaVersion: "kova.plan.v1",
       generatedAt: new Date().toISOString(),
       platform: platformInfo(),
-      scenarios
+      scenarios,
+      states,
+      profiles: profiles.map(profileSummary)
     }, null, 2));
     return;
   }
@@ -161,161 +110,6 @@ async function plan(flags) {
     }
     console.log("");
   }
-}
-
-async function scenariosCommand(flags) {
-  const [subcommand = "list", id] = flags._;
-
-  if (subcommand === "list") {
-    const scenarios = await loadScenarios();
-    if (flags.json) {
-      console.log(JSON.stringify({
-        schemaVersion: "kova.scenarios.list.v1",
-        generatedAt: new Date().toISOString(),
-        scenarios: scenarios.map((scenario) => ({
-          id: scenario.id,
-          title: scenario.title,
-          objective: scenario.objective,
-          tags: scenario.tags,
-          phaseCount: scenario.phases.length
-        }))
-      }, null, 2));
-      return;
-    }
-
-    for (const scenario of scenarios) {
-      console.log(`${scenario.id}: ${scenario.title}`);
-    }
-    return;
-  }
-
-  if (subcommand === "show") {
-    const scenarioId = required(id, "scenario id");
-    const [scenario] = await loadScenarios(scenarioId);
-    if (flags.json) {
-      console.log(JSON.stringify({
-        schemaVersion: "kova.scenarios.show.v1",
-        generatedAt: new Date().toISOString(),
-        scenario
-      }, null, 2));
-      return;
-    }
-
-    console.log(`${scenario.id}: ${scenario.title}`);
-    console.log(`Objective: ${scenario.objective}`);
-    console.log(`Tags: ${scenario.tags.join(", ")}`);
-    console.log("Phases:");
-    for (const phase of scenario.phases) {
-      console.log(`- ${phase.id}: ${phase.title}`);
-    }
-    return;
-  }
-
-  throw new Error(`unknown scenarios command: ${subcommand}`);
-}
-
-async function statesCommand(flags) {
-  const [subcommand = "list", id] = flags._;
-
-  if (subcommand === "list") {
-    const states = await loadStates();
-    if (flags.json) {
-      console.log(JSON.stringify({
-        schemaVersion: "kova.states.list.v1",
-        generatedAt: new Date().toISOString(),
-        states: states.map((state) => ({
-          id: state.id,
-          title: state.title,
-          objective: state.objective,
-          tags: state.tags,
-          setupStepCount: state.setup.length
-        }))
-      }, null, 2));
-      return;
-    }
-
-    for (const state of states) {
-      console.log(`${state.id}: ${state.title}`);
-    }
-    return;
-  }
-
-  if (subcommand === "show") {
-    const stateId = required(id, "state id");
-    const [state] = await loadStates(stateId);
-    if (flags.json) {
-      console.log(JSON.stringify({
-        schemaVersion: "kova.states.show.v1",
-        generatedAt: new Date().toISOString(),
-        state
-      }, null, 2));
-      return;
-    }
-
-    console.log(`${state.id}: ${state.title}`);
-    console.log(`Objective: ${state.objective}`);
-    console.log(`Tags: ${state.tags.join(", ")}`);
-    console.log("Setup:");
-    if (state.setup.length === 0) {
-      console.log("- none");
-    } else {
-      for (const step of state.setup) {
-        console.log(`- ${step.id}: ${step.title} after ${step.afterPhase}`);
-      }
-    }
-    return;
-  }
-
-  throw new Error(`unknown states command: ${subcommand}`);
-}
-
-async function profilesCommand(flags) {
-  const [subcommand = "list", id] = flags._;
-
-  if (subcommand === "list") {
-    const profiles = await loadProfiles();
-    if (flags.json) {
-      console.log(JSON.stringify({
-        schemaVersion: "kova.profiles.list.v1",
-        generatedAt: new Date().toISOString(),
-        profiles: profiles.map((profile) => ({
-          id: profile.id,
-          title: profile.title,
-          objective: profile.objective,
-          entryCount: profile.entries.length
-        }))
-      }, null, 2));
-      return;
-    }
-
-    for (const profile of profiles) {
-      console.log(`${profile.id}: ${profile.title}`);
-    }
-    return;
-  }
-
-  if (subcommand === "show") {
-    const profileId = required(id, "profile id");
-    const profile = await loadProfile(profileId);
-    if (flags.json) {
-      console.log(JSON.stringify({
-        schemaVersion: "kova.profiles.show.v1",
-        generatedAt: new Date().toISOString(),
-        profile
-      }, null, 2));
-      return;
-    }
-
-    console.log(`${profile.id}: ${profile.title}`);
-    console.log(`Objective: ${profile.objective}`);
-    console.log("Entries:");
-    for (const entry of profile.entries) {
-      console.log(`- ${entry.scenario} / ${entry.state}`);
-    }
-    return;
-  }
-
-  throw new Error(`unknown profiles command: ${subcommand}`);
 }
 
 async function matrixCommand(flags) {
@@ -363,11 +157,10 @@ async function matrixCommand(flags) {
 }
 
 async function reportCommand(flags) {
-  const [subcommand, reportPath] = flags._;
-  const path = required(reportPath, "report path");
-  const report = JSON.parse(await readFile(resolveFromCwd(path), "utf8"));
+  const [subcommand, firstPath, secondPath] = flags._;
 
   if (subcommand === "summarize") {
+    const report = await readReport(required(firstPath, "report path"));
     if (flags.json) {
       console.log(JSON.stringify({
         schemaVersion: "kova.report.summary.v1",
@@ -382,17 +175,37 @@ async function reportCommand(flags) {
   }
 
   if (subcommand === "paste") {
+    const report = await readReport(required(firstPath, "report path"));
     console.log(renderPasteSummary(report));
+    return;
+  }
+
+  if (subcommand === "compare") {
+    await compareReportsCommand(required(firstPath, "baseline report path"), required(secondPath, "current report path"), flags);
+    return;
+  }
+
+  if (subcommand === "bundle") {
+    const receipt = await bundleReport(required(firstPath, "report path"), {
+      outputDir: flags.output_dir
+    });
+
+    if (flags.json) {
+      console.log(JSON.stringify(receipt, null, 2));
+      return;
+    }
+
+    console.log(`Bundle: ${relative(process.cwd(), receipt.outputPath)}`);
+    console.log(`SHA256: ${relative(process.cwd(), receipt.checksumPath)}`);
     return;
   }
 
   throw new Error(`unknown report command: ${subcommand ?? ""}`);
 }
 
-async function compareCommand(flags) {
-  const [baselinePath, currentPath] = flags._;
-  const baseline = JSON.parse(await readFile(resolveFromCwd(required(baselinePath, "baseline report path")), "utf8"));
-  const current = JSON.parse(await readFile(resolveFromCwd(required(currentPath, "current report path")), "utf8"));
+async function compareReportsCommand(baselinePath, currentPath, flags) {
+  const baseline = await readReport(baselinePath);
+  const current = await readReport(currentPath);
   const comparison = compareReports(baseline, current);
 
   if (flags.json) {
@@ -404,6 +217,10 @@ async function compareCommand(flags) {
   if (!comparison.ok) {
     throw new Error("comparison found regressions");
   }
+}
+
+async function readReport(path) {
+  return JSON.parse(await readFile(resolveFromCwd(path), "utf8"));
 }
 
 async function matrixRun(flags) {

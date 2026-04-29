@@ -37,7 +37,6 @@ performed with the right safety model.
 
 ```sh
 node bin/kova.mjs setup --json
-node bin/kova.mjs doctor --json
 node bin/kova.mjs self-check --json
 ```
 
@@ -45,11 +44,7 @@ node bin/kova.mjs self-check --json
 
 ```sh
 node bin/kova.mjs plan --json
-node bin/kova.mjs scenarios list --json
-node bin/kova.mjs scenarios show fresh-install --json
-node bin/kova.mjs states list --json
-node bin/kova.mjs states show missing-plugin-index --json
-node bin/kova.mjs profiles list --json
+node bin/kova.mjs plan --scenario fresh-install --state missing-plugin-index --json
 node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --json
 ```
 
@@ -79,7 +74,8 @@ summary.
 ```sh
 node bin/kova.mjs report summarize reports/<run>.json --json
 node bin/kova.mjs report paste reports/<run>.json
-node bin/kova.mjs compare reports/<baseline>.json reports/<current>.json --json
+node bin/kova.mjs report compare reports/<baseline>.json reports/<current>.json --json
+node bin/kova.mjs report bundle reports/<run>.json --json
 ```
 
 ## Target Selection

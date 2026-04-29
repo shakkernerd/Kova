@@ -119,6 +119,12 @@ normalization counts.
 
 Agents should use `jsonPath` to read detailed evidence.
 
+## Plan Output
+
+`kova plan --json` is the discovery contract for agents. It includes scenario
+definitions, state fixture definitions, profile summaries, platform metadata,
+and supports filtering with `--scenario`, `--state`, and `--profile`.
+
 ## Matrix Receipt
 
 `kova matrix run --json` prints a receipt for one combined profile report:
@@ -149,7 +155,7 @@ represents one scenario/state entry from the selected profile.
 
 ## Compare Report
 
-`kova compare <baseline.json> <current.json> --json` prints:
+`kova report compare <baseline.json> <current.json> --json` prints:
 
 ```json
 {
@@ -175,3 +181,23 @@ Comparison currently detects status regressions, missing scenario/state entries,
 and increases in peak RSS, health failures, health p95, missing dependency
 errors, plugin load failures, metadata scan mentions, and config normalization
 mentions.
+
+## Artifact Bundle
+
+`kova report bundle <report.json> --json` prints a bundle receipt:
+
+```json
+{
+  "schemaVersion": "kova.artifact.bundle.v1",
+  "runId": "kova-2026-04-29T000000Z",
+  "outputPath": "/path/to/bundle.tar.gz",
+  "checksumPath": "/path/to/bundle.tar.gz.sha256",
+  "sha256": "...",
+  "included": {
+    "reportJson": true,
+    "reportMarkdown": true,
+    "pasteSummary": true,
+    "runArtifacts": false
+  }
+}
+```

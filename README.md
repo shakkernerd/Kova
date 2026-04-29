@@ -44,19 +44,12 @@ codex skills install https://github.com/shakkernerd/ocm/tree/main/skills/ocm-ope
 node bin/kova.mjs version
 node bin/kova.mjs setup
 node bin/kova.mjs setup --json
-node bin/kova.mjs doctor
-node bin/kova.mjs doctor --json
 node bin/kova.mjs self-check
 node bin/kova.mjs plan
 node bin/kova.mjs plan --json
-node bin/kova.mjs scenarios list
-node bin/kova.mjs scenarios show fresh-install --json
-node bin/kova.mjs states list
-node bin/kova.mjs states show missing-plugin-index --json
-node bin/kova.mjs profiles list
 node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --json
 node bin/kova.mjs matrix run --profile smoke --target runtime:stable --json
-node bin/kova.mjs compare reports/baseline.json reports/current.json --json
+node bin/kova.mjs report compare reports/baseline.json reports/current.json --json
 node bin/kova.mjs plan --scenario fresh-install
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --state missing-plugin-index --json
@@ -141,11 +134,14 @@ Summarize generated reports:
 node bin/kova.mjs report summarize reports/<run>.json
 node bin/kova.mjs report summarize reports/<run>.json --json
 node bin/kova.mjs report paste reports/<run>.json
-node bin/kova.mjs compare reports/<baseline>.json reports/<current>.json
+node bin/kova.mjs report compare reports/<baseline>.json reports/<current>.json
+node bin/kova.mjs report bundle reports/<run>.json
 ```
 
 `report paste` produces a short handoff summary for another agent or fixer.
-`compare` flags status and metric regressions between two Kova JSON reports.
+`report compare` flags status and metric regressions between two Kova JSON
+reports. `report bundle` packages the JSON report, Markdown report, paste
+summary, and run artifacts for handoff.
 
 ## Current Status
 

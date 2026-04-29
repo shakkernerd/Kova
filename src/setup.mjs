@@ -33,7 +33,7 @@ export async function runSetup(flags = {}) {
     checks,
     nextCommands: [
       "kova self-check",
-      "kova profiles list",
+      "kova plan --json",
       "kova matrix plan --profile smoke --target runtime:stable",
       "kova matrix run --profile smoke --target runtime:stable --execute --json"
     ]
@@ -82,7 +82,7 @@ function commandAvailableCheck(command, args, options = {}) {
 }
 
 async function jsonCommandCheck(id, command, options) {
-  const result = await runCommand(command, { timeoutMs: 30000 });
+  const result = await runCommand(command, { timeoutMs: 30000, maxOutputChars: 1000000 });
   if (result.status !== 0) {
     return {
       id,

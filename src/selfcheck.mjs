@@ -16,10 +16,6 @@ export async function runSelfCheck(flags = {}) {
       assertEqual(data.schemaVersion, "kova.version.v1", "version schema");
       assertString(data.version, "version");
     }));
-    checks.push(await jsonCommandCheck("doctor-json", "node bin/kova.mjs doctor --json", (data) => {
-      assertEqual(data.schemaVersion, "kova.doctor.v1", "doctor schema");
-      assertEqual(data.ok, true, "doctor ok");
-    }));
     checks.push(await jsonCommandCheck("setup-json", "node bin/kova.mjs setup --json", (data) => {
       assertEqual(data.schemaVersion, "kova.setup.v1", "setup schema");
       assertEqual(data.ok, true, "setup ok");
@@ -28,17 +24,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await jsonCommandCheck("plan-json", "node bin/kova.mjs plan --json", (data) => {
       assertEqual(data.schemaVersion, "kova.plan.v1", "plan schema");
       assertArrayNotEmpty(data.scenarios, "plan scenarios");
-    }));
-    checks.push(await jsonCommandCheck("scenarios-list-json", "node bin/kova.mjs scenarios list --json", (data) => {
-      assertEqual(data.schemaVersion, "kova.scenarios.list.v1", "scenarios list schema");
-      assertArrayNotEmpty(data.scenarios, "scenarios");
-    }));
-    checks.push(await jsonCommandCheck("states-list-json", "node bin/kova.mjs states list --json", (data) => {
-      assertEqual(data.schemaVersion, "kova.states.list.v1", "states list schema");
-      assertArrayNotEmpty(data.states, "states");
-    }));
-    checks.push(await jsonCommandCheck("profiles-list-json", "node bin/kova.mjs profiles list --json", (data) => {
-      assertEqual(data.schemaVersion, "kova.profiles.list.v1", "profiles list schema");
+      assertArrayNotEmpty(data.states, "plan states");
       assertArrayNotEmpty(data.profiles, "profiles");
     }));
     checks.push(await jsonCommandCheck("matrix-plan-json", "node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --json", (data) => {
@@ -68,12 +54,22 @@ export async function runSelfCheck(flags = {}) {
       const report = JSON.parse(await readFile(receiptCheck.data.jsonPath, "utf8"));
       checks.push(validateReport(report));
       checks.push(await jsonCommandCheck(
-        "compare-json",
-        `node bin/kova.mjs compare ${quoteShell(receiptCheck.data.jsonPath)} ${quoteShell(receiptCheck.data.jsonPath)} --json`,
+        "report-compare-json",
+        `node bin/kova.mjs report compare ${quoteShell(receiptCheck.data.jsonPath)} ${quoteShell(receiptCheck.data.jsonPath)} --json`,
         (data) => {
           assertEqual(data.schemaVersion, "kova.compare.v1", "compare schema");
           assertEqual(data.ok, true, "compare ok");
           assertEqual(data.regressionCount, 0, "compare regression count");
+        }
+      ));
+      checks.push(await jsonCommandCheck(
+        "report-bundle-json",
+        `node bin/kova.mjs report bundle ${quoteShell(receiptCheck.data.jsonPath)} --output-dir ${quoteShell(tmp)} --json`,
+        (data) => {
+          assertEqual(data.schemaVersion, "kova.artifact.bundle.v1", "bundle schema");
+          assertString(data.outputPath, "bundle output path");
+          assertString(data.checksumPath, "bundle checksum path");
+          assertString(data.sha256, "bundle sha256");
         }
       ));
     }
@@ -114,7 +110,7 @@ async function commandCheck(id, command) {
 }
 
 async function jsonCommandCheck(id, command, validate) {
-  const result = await runCommand(command, { timeoutMs: 30000 });
+  const result = await runCommand(command, { timeoutMs: 30000, maxOutputChars: 1000000 });
   if (result.status !== 0) {
     return {
       id,

@@ -47,7 +47,7 @@ Kova should remain usable by humans and CI with only:
 Before running a real scenario, an agent should:
 
 1. Load/read `ocm-operator` if available.
-2. Run `node bin/kova.mjs doctor --json`.
+2. Run `node bin/kova.mjs setup --json`.
 3. Run `node bin/kova.mjs plan --json`.
 4. Dry-run the intended scenario.
 5. Execute exactly the intended scenario with `--execute`.

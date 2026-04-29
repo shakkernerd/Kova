@@ -60,8 +60,8 @@ export function runCommand(command, options) {
         signal,
         timedOut,
         durationMs: Date.now() - startedAt,
-        stdout: truncate(stdout),
-        stderr: truncate(stderr)
+        stdout: truncate(stdout, options.maxOutputChars ?? 20000),
+        stderr: truncate(stderr, options.maxOutputChars ?? 20000)
       });
     });
   });

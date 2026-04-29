@@ -36,22 +36,16 @@ Usage:
   kova version [--json]
   kova --version
   kova setup [--ci] [--json]
-  kova doctor
   kova self-check [--json]
   kova plan [--scenario <id>] [--json]
-  kova scenarios list [--json]
-  kova scenarios show <id> [--json]
-  kova states list [--json]
-  kova states show <id> [--json]
-  kova profiles list [--json]
-  kova profiles show <id> [--json]
+  kova run --target <selector> [--from <selector>] [--scenario <id>] [--state <id>] [--report-dir <path>] [--health-samples <n>] [--execute] [--keep-env] [--retain-on-failure] [--json]
   kova matrix plan --profile <id> --target <selector> [--from <selector>] [--json]
   kova matrix run --profile <id> --target <selector> [--from <selector>] [--report-dir <path>] [--health-samples <n>] [--execute] [--keep-env] [--retain-on-failure] [--json]
-  kova run --target <selector> [--from <selector>] [--scenario <id>] [--state <id>] [--report-dir <path>] [--health-samples <n>] [--execute] [--keep-env] [--retain-on-failure] [--json]
-  kova cleanup envs [--execute] [--json]
   kova report summarize <report.json> [--json]
   kova report paste <report.json>
-  kova compare <baseline.json> <current.json> [--json]
+  kova report compare <baseline.json> <current.json> [--json]
+  kova report bundle <report.json> [--output-dir <path>] [--json]
+  kova cleanup envs [--execute] [--json]
 
 Selectors:
   npm:<version>              Published OpenClaw release
