@@ -387,7 +387,7 @@ function diagnosticsEnv(context, envName, artifactDir) {
   }
 
   const env = {
-    OPENCLAW_DIAGNOSTICS: "1",
+    OPENCLAW_DIAGNOSTICS: "timeline",
     OPENCLAW_DIAGNOSTICS_RUN_ID: context.runId,
     OPENCLAW_DIAGNOSTICS_ENV: envName,
     OPENCLAW_DIAGNOSTICS_TIMELINE_PATH: join(artifactDir, "openclaw", "timeline.jsonl"),

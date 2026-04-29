@@ -296,6 +296,7 @@ export function evaluateRecord(record, scenario) {
     openclawEventLoopMaxMs: timelineSummary.eventLoopMaxMs,
     openclawProviderRequestMaxMs: timelineSummary.providerRequestMaxMs,
     openclawChildProcessFailedCount: timelineSummary.childProcessFailedCount,
+    runtimeDepsStagingPluginId: timelineSummary.runtimeDepsStagePluginId,
     pluginMetadataScanCount: openclawDiagnostics.pluginMetadataScanCount,
     configNormalizationCount: openclawDiagnostics.configNormalizationCount,
     runtimeDepsStagingMs,
@@ -554,6 +555,7 @@ function collectTimelineSummary(record) {
   let childProcessFailedCount = 0;
   let repeatedSpanCount = 0;
   let runtimeDepsStageMaxMs = null;
+  let slowestRuntimeDepsPlugin = null;
 
   for (const timeline of timelines) {
     eventCount = Math.max(eventCount, timeline.eventCount ?? 0);
@@ -562,7 +564,17 @@ function collectTimelineSummary(record) {
     repeatedSpanCount = Math.max(repeatedSpanCount, timeline.repeatedSpans?.length ?? 0);
     eventLoopMaxMs = maxNullable(eventLoopMaxMs, timeline.eventLoop?.maxMs);
     providerRequestMaxMs = maxNullable(providerRequestMaxMs, timeline.providers?.maxDurationMs);
-    runtimeDepsStageMaxMs = maxNullable(runtimeDepsStageMaxMs, timeline.spanTotals?.["runtimeDeps.stage"]?.maxDurationMs);
+    runtimeDepsStageMaxMs = maxNullable(
+      runtimeDepsStageMaxMs,
+      timeline.runtimeDeps?.maxDurationMs ?? timeline.spanTotals?.["runtimeDeps.stage"]?.maxDurationMs
+    );
+
+    const runtimeDepsCandidate = timeline.runtimeDeps?.slowest;
+    if (runtimeDepsCandidate && typeof runtimeDepsCandidate.durationMs === "number") {
+      if (!slowestRuntimeDepsPlugin || runtimeDepsCandidate.durationMs > slowestRuntimeDepsPlugin.durationMs) {
+        slowestRuntimeDepsPlugin = runtimeDepsCandidate;
+      }
+    }
 
     const candidate = timeline.slowestSpans?.[0];
     if (candidate && typeof candidate.durationMs === "number") {
@@ -582,7 +594,8 @@ function collectTimelineSummary(record) {
     eventLoopMaxMs,
     providerRequestMaxMs,
     childProcessFailedCount,
-    runtimeDepsStageMaxMs
+    runtimeDepsStageMaxMs,
+    runtimeDepsStagePluginId: slowestRuntimeDepsPlugin?.pluginId ?? null
   };
 }
 

@@ -248,9 +248,15 @@ async function diagnosticsTimelineCheck() {
     const text = await readFile("fixtures/diagnostics/timeline.jsonl", "utf8");
     const timeline = parseTimelineText(text);
     assertEqual(timeline.available, true, "timeline available");
-    assertEqual(timeline.eventCount, 7, "timeline event count");
+    assertEqual(timeline.eventCount, 8, "timeline event count");
     assertEqual(timeline.parseErrorCount, 0, "timeline parse errors");
-    assertEqual(timeline.repeatedSpans[0]?.name, "plugins.metadata.scan", "repeated span");
+    assertEqual(
+      timeline.repeatedSpans.some((span) => span.name === "plugins.metadata.scan"),
+      true,
+      "repeated plugin metadata span"
+    );
+    assertEqual(timeline.runtimeDeps.slowest?.pluginId, "browser", "runtime deps slowest plugin");
+    assertEqual(timeline.runtimeDeps.byPlugin[1]?.pluginId, "memory-core", "runtime deps by plugin");
     assertEqual(timeline.eventLoop.maxMs, 214, "event loop max");
     assertEqual(timeline.providers.maxDurationMs, 1220, "provider duration");
     assertEqual(timeline.childProcesses.failedCount, 1, "child process failures");

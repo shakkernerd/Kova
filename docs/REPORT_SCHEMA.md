@@ -109,6 +109,8 @@ Current metrics include:
 - OpenClaw diagnostics timeline availability, event count, parse errors,
   slowest spans, repeated spans, event-loop max, provider request max, and child
   process failures
+- runtime dependency staging grouped by bundled plugin when OpenClaw emits
+  `runtimeDeps.stage` spans with `pluginId` attributes
 
 When OpenClaw emits `OPENCLAW_DIAGNOSTICS_TIMELINE_PATH`, Kova stores the raw
 JSONL timeline under the run artifacts and summarizes it in `metrics.timeline`.

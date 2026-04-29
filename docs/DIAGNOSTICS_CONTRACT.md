@@ -12,7 +12,7 @@ must keep running and report diagnostics as unavailable.
 Kova sets these variables for OpenClaw commands it launches:
 
 ```sh
-OPENCLAW_DIAGNOSTICS=1
+OPENCLAW_DIAGNOSTICS=timeline
 OPENCLAW_DIAGNOSTICS_RUN_ID=<kova-run-id>
 OPENCLAW_DIAGNOSTICS_ENV=<kova-env-name>
 OPENCLAW_DIAGNOSTICS_TIMELINE_PATH=<artifact-dir>/openclaw/timeline.jsonl
@@ -137,5 +137,6 @@ Kova stores the complete timeline as an artifact. Human reports should show:
 - max event-loop delay
 - slowest provider request
 - slowest child process and failed child process count
+- runtime dependency staging grouped by plugin id when available
 
 Raw event dumps belong in JSON artifacts, not Markdown summaries.

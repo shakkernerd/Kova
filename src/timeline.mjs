@@ -48,6 +48,7 @@ export function summarizeTimeline(events, parseErrors = []) {
   const providerRequests = events.filter((event) => event.type === "provider.request");
   const childProcesses = events.filter((event) => event.type === "childProcess.exit");
   const spanTotals = summarizeSpans(spanEvents);
+  const runtimeDeps = summarizeRuntimeDeps(spanEvents);
   const slowestSpans = spanEvents
     .filter((event) => typeof event.durationMs === "number")
     .toSorted((left, right) => right.durationMs - left.durationMs)
@@ -67,6 +68,7 @@ export function summarizeTimeline(events, parseErrors = []) {
       .filter((span) => span.count > 1)
       .toSorted((left, right) => (right.totalDurationMs - left.totalDurationMs) || (right.count - left.count))
       .slice(0, 10),
+    runtimeDeps,
     eventLoop: summarizeEventLoop(eventLoopSamples),
     providers: summarizeTimedCollection(providerRequests),
     childProcesses: summarizeChildProcesses(childProcesses),
@@ -85,6 +87,13 @@ function emptyTimeline(extra = {}) {
     slowestSpans: [],
     spanTotals: {},
     repeatedSpans: [],
+    runtimeDeps: {
+      count: 0,
+      totalDurationMs: 0,
+      maxDurationMs: null,
+      slowest: null,
+      byPlugin: []
+    },
     eventLoop: {
       sampleCount: 0,
       p95MaxMs: null,
@@ -153,6 +162,55 @@ function summarizeSpans(events) {
   return totals;
 }
 
+function summarizeRuntimeDeps(events) {
+  const runtimeDepsEvents = events.filter((event) => event.name === "runtimeDeps.stage");
+  const byPlugin = new Map();
+  let totalDurationMs = 0;
+  let maxDurationMs = null;
+  let slowest = null;
+
+  for (const event of runtimeDepsEvents) {
+    const durationMs = typeof event.durationMs === "number" ? event.durationMs : null;
+    const pluginId = event.pluginId ?? event.attributes?.pluginId ?? "gateway";
+    const dependencyCount = numberOrNull(event.dependencyCount ?? event.attributes?.dependencyCount ?? event.attributes?.pluginCount);
+    const existing = byPlugin.get(pluginId) ?? {
+      pluginId,
+      count: 0,
+      totalDurationMs: 0,
+      maxDurationMs: null,
+      dependencyCountMax: null
+    };
+
+    existing.count += 1;
+    if (durationMs !== null) {
+      totalDurationMs = round(totalDurationMs + durationMs);
+      maxDurationMs = maxDurationMs === null ? durationMs : Math.max(maxDurationMs, durationMs);
+      existing.totalDurationMs = round(existing.totalDurationMs + durationMs);
+      existing.maxDurationMs = existing.maxDurationMs === null ? durationMs : Math.max(existing.maxDurationMs, durationMs);
+      if (!slowest || durationMs > slowest.durationMs) {
+        slowest = compactTimedEvent(event);
+      }
+    }
+    existing.dependencyCountMax = maxNullable(existing.dependencyCountMax, dependencyCount);
+    byPlugin.set(pluginId, existing);
+  }
+
+  return {
+    count: runtimeDepsEvents.length,
+    totalDurationMs,
+    maxDurationMs,
+    slowest,
+    byPlugin: [...byPlugin.values()]
+      .map((entry) => ({
+        ...entry,
+        totalDurationMs: round(entry.totalDurationMs),
+        maxDurationMs: entry.maxDurationMs === null ? null : round(entry.maxDurationMs)
+      }))
+      .toSorted((left, right) => (right.totalDurationMs - left.totalDurationMs) || (right.maxDurationMs ?? 0) - (left.maxDurationMs ?? 0))
+      .slice(0, 10)
+  };
+}
+
 function summarizeEventLoop(samples) {
   const p95Values = samples.map((sample) => numberOrNull(sample.p95Ms)).filter(isNumber);
   const p99Values = samples.map((sample) => numberOrNull(sample.p99Ms)).filter(isNumber);
@@ -217,6 +275,13 @@ function compactTimedEvent(event) {
 
 function maxOrNull(values) {
   return values.length === 0 ? null : Math.max(...values);
+}
+
+function maxNullable(left, right) {
+  if (typeof right !== "number") {
+    return left;
+  }
+  return left === null ? right : Math.max(left, right);
 }
 
 function numberOrNull(value) {
