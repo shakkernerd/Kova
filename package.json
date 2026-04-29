@@ -11,7 +11,7 @@
     "kova": "node bin/kova.mjs",
     "plan": "node bin/kova.mjs plan",
     "check": "node bin/kova.mjs self-check",
-    "pack:release": "node scripts/build-release.mjs"
+    "pack:release": "scripts/package-release.sh"
   },
   "engines": {
     "node": ">=22"

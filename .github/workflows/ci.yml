@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install OCM
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/shakkernerd/ocm/main/install.sh | bash -s -- --force
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Run check suite
+        run: npm run check
+      - name: Smoke package install
+        run: |
+          npm run pack:release
+          tmp="$(mktemp -d)"
+          ./install.sh --archive ./dist/kova.tar.gz --prefix "$tmp/kova" --bin-dir "$tmp/bin" --require-ocm
+          "$tmp/bin/kova" version
+          "$tmp/bin/kova" setup --ci --json
+          "$tmp/bin/kova" self-check
+          rm -rf "$tmp"

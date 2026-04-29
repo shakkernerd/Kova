@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build release archive
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install OCM
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/shakkernerd/ocm/main/install.sh | bash -s -- --force
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Run checks
+        run: npm run check
+      - name: Package release archive
+        run: ./scripts/package-release.sh --output-dir ./dist
+      - name: Smoke install archive
+        run: |
+          tmp="$(mktemp -d)"
+          ./install.sh --archive ./dist/kova.tar.gz --prefix "$tmp/kova" --bin-dir "$tmp/bin" --require-ocm
+          "$tmp/bin/kova" version
+          "$tmp/bin/kova" setup --ci --json
+          "$tmp/bin/kova" self-check
+          rm -rf "$tmp"
+      - name: Upload release archive
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./dist/*.tar.gz*

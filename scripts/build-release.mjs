@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const packageJson = JSON.parse(await readFile(join(repoRoot, "package.json"), "utf8"));
 const version = packageJson.version;
-const distDir = join(repoRoot, "dist");
+const distDir = parseOutputDir();
 const stageRoot = join(distDir, "stage");
 const appName = `kova-${version}`;
 const appDir = join(stageRoot, appName);
@@ -69,4 +69,25 @@ async function copyRequired(path) {
     throw new Error(`release input missing: ${path}`);
   }
   await cp(source, join(appDir, path), { recursive: true });
+}
+
+function parseOutputDir() {
+  let outputDir = "dist";
+  const args = process.argv.slice(2);
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--output-dir") {
+      index += 1;
+      if (!args[index]) {
+        throw new Error("--output-dir requires a value");
+      }
+      outputDir = args[index];
+    } else if (arg === "--help" || arg === "-h") {
+      console.log("Usage: scripts/build-release.mjs [--output-dir <dir>]");
+      process.exit(0);
+    } else {
+      throw new Error(`unknown argument: ${arg}`);
+    }
+  }
+  return join(repoRoot, outputDir);
 }
