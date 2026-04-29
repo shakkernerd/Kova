@@ -45,6 +45,8 @@ export function renderMarkdownReport(report) {
       lines.push(`- Peak RSS: ${record.measurements.peakRssMb ?? "unknown"} MB`);
       lines.push(`- Missing dependency errors: ${record.measurements.missingDependencyErrors ?? "unknown"}`);
       lines.push(`- Final gateway state: ${record.measurements.finalGatewayState ?? "unknown"}`);
+      lines.push(`- Health failures: ${record.measurements.healthFailures ?? "unknown"}`);
+      lines.push(`- Health p95: ${record.measurements.healthP95Ms ?? "unknown"} ms`);
     }
     lines.push("");
     if (record.violations?.length > 0) {
@@ -159,6 +161,11 @@ function formatMetrics(metrics) {
     }
   }
 
+  if (metrics.healthSummary) {
+    lines.push(`- health samples: ${metrics.healthSummary.okCount}/${metrics.healthSummary.count} ok`);
+    lines.push(`- health latency p95/max: ${metrics.healthSummary.p95Ms ?? "unknown"}ms / ${metrics.healthSummary.maxMs ?? "unknown"}ms`);
+  }
+
   return lines.length > 0 ? lines : ["- unavailable"];
 }
 
@@ -234,7 +241,7 @@ export function renderPasteSummary(report) {
     if (record.status === "PASS" || record.status === "DRY-RUN") {
       lines.push(`Evidence: ${record.phases?.length ?? 0} phases recorded.`);
       if (record.measurements) {
-        lines.push(`Measurements: peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; final gateway ${record.measurements.finalGatewayState ?? "unknown"}.`);
+        lines.push(`Measurements: peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms.`);
       }
     } else if (record.violations?.length > 0) {
       lines.push("Violations:");

@@ -88,10 +88,10 @@ Current metrics include:
 - RSS in KB/MB
 - CPU percent
 - health URL/status/duration
+- health sample counts and p50/p95/max latency
 
-Future metrics will add health latency, event-loop delay, heap reports, runtime
-dependency staging timings, plugin metadata scan counts, and config
-normalization counts.
+Future metrics will add event-loop delay, heap reports, runtime dependency
+staging timings, plugin metadata scan counts, and config normalization counts.
 
 ## Run Receipt
 

@@ -43,8 +43,8 @@ Usage:
   kova profiles list [--json]
   kova profiles show <id> [--json]
   kova matrix plan --profile <id> --target <selector> [--from <selector>] [--json]
-  kova matrix run --profile <id> --target <selector> [--from <selector>] [--report-dir <path>] [--execute] [--keep-env] [--retain-on-failure] [--json]
-  kova run --target <selector> [--from <selector>] [--scenario <id>] [--state <id>] [--report-dir <path>] [--execute] [--keep-env] [--retain-on-failure] [--json]
+  kova matrix run --profile <id> --target <selector> [--from <selector>] [--report-dir <path>] [--health-samples <n>] [--execute] [--keep-env] [--retain-on-failure] [--json]
+  kova run --target <selector> [--from <selector>] [--scenario <id>] [--state <id>] [--report-dir <path>] [--health-samples <n>] [--execute] [--keep-env] [--retain-on-failure] [--json]
   kova cleanup envs [--execute] [--json]
   kova report summarize <report.json> [--json]
   kova report paste <report.json>

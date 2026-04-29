@@ -2,6 +2,8 @@ import { runCommand } from "./commands.mjs";
 
 export async function collectEnvMetrics(envName, options = {}) {
   const timeoutMs = Math.min(options.timeoutMs ?? 10000, 10000);
+  const healthSampleCount = Math.max(1, Number(options.healthSamples ?? 3));
+  const healthIntervalMs = Math.max(0, Number(options.healthIntervalMs ?? 250));
   const service = await runCommand(`ocm service status ${envName} --json`, { timeoutMs });
   const metrics = {
     collectedAt: new Date().toISOString(),
@@ -13,6 +15,8 @@ export async function collectEnvMetrics(envName, options = {}) {
     service: null,
     process: null,
     health: null,
+    healthSamples: [],
+    healthSummary: null,
     error: null
   };
 
@@ -43,6 +47,8 @@ export async function collectEnvMetrics(envName, options = {}) {
   if (!serviceJson.childPid) {
     if (serviceJson.gatewayPort) {
       metrics.health = await collectHealthMetrics(serviceJson.gatewayPort, timeoutMs);
+      metrics.healthSamples = [metrics.health];
+      metrics.healthSummary = summarizeHealthSamples(metrics.healthSamples);
     }
     return metrics;
   }
@@ -50,7 +56,13 @@ export async function collectEnvMetrics(envName, options = {}) {
   const process = await collectProcessMetrics(serviceJson.childPid, timeoutMs);
   metrics.process = process;
   if (serviceJson.gatewayPort) {
-    metrics.health = await collectHealthMetrics(serviceJson.gatewayPort, timeoutMs);
+    metrics.healthSamples = await collectHealthSamples(serviceJson.gatewayPort, {
+      count: healthSampleCount,
+      intervalMs: healthIntervalMs,
+      timeoutMs
+    });
+    metrics.health = metrics.healthSamples.at(-1) ?? null;
+    metrics.healthSummary = summarizeHealthSamples(metrics.healthSamples);
   }
   return metrics;
 }
@@ -121,6 +133,47 @@ async function collectHealthMetrics(port, timeoutMs) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+async function collectHealthSamples(port, options) {
+  const samples = [];
+  for (let index = 0; index < options.count; index += 1) {
+    samples.push(await collectHealthMetrics(port, options.timeoutMs));
+    if (index < options.count - 1 && options.intervalMs > 0) {
+      await sleep(options.intervalMs);
+    }
+  }
+  return samples;
+}
+
+function summarizeHealthSamples(samples) {
+  if (!Array.isArray(samples) || samples.length === 0) {
+    return null;
+  }
+
+  const durations = samples.map((sample) => sample.durationMs).filter((duration) => typeof duration === "number").sort((a, b) => a - b);
+  return {
+    count: samples.length,
+    okCount: samples.filter((sample) => sample.ok).length,
+    failureCount: samples.filter((sample) => !sample.ok).length,
+    minMs: durations.at(0) ?? null,
+    p50Ms: percentile(durations, 0.5),
+    p95Ms: percentile(durations, 0.95),
+    maxMs: durations.at(-1) ?? null
+  };
+}
+
+function percentile(values, percentileValue) {
+  if (values.length === 0) {
+    return null;
+  }
+
+  const index = Math.ceil(values.length * percentileValue) - 1;
+  return values[Math.min(Math.max(index, 0), values.length - 1)];
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function firstOutputLine(value) {

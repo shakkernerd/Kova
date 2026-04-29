@@ -10,6 +10,7 @@ export function evaluateRecord(record, scenario) {
   const missingDependencyErrors = countMissingDependencyErrors(allResults);
   const finalGatewayState = record.finalMetrics?.service?.gatewayState ?? null;
   const healthFailures = countHealthFailures(record);
+  const healthP95Ms = collectHealthP95(record);
 
   checkDuration(violations, allResults, "statusMs", thresholds.statusMs, (command) => command.includes(" -- status"));
   checkDuration(violations, allResults, "pluginsListMs", thresholds.pluginsListMs, (command) => command.includes(" -- plugins list"));
@@ -60,11 +61,22 @@ export function evaluateRecord(record, scenario) {
     });
   }
 
+  if (typeof thresholds.healthP95Ms === "number" && healthP95Ms !== null && healthP95Ms > thresholds.healthP95Ms) {
+    violations.push({
+      kind: "health",
+      metric: "healthP95Ms",
+      expected: `<= ${thresholds.healthP95Ms}`,
+      actual: healthP95Ms,
+      message: `gateway health p95 ${healthP95Ms}ms exceeded threshold ${thresholds.healthP95Ms}ms`
+    });
+  }
+
   record.measurements = {
     peakRssMb,
     missingDependencyErrors,
     finalGatewayState,
-    healthFailures
+    healthFailures,
+    healthP95Ms
   };
 
   if (violations.length > 0) {
@@ -78,18 +90,35 @@ export function evaluateRecord(record, scenario) {
 function countHealthFailures(record) {
   let count = 0;
   for (const phase of record.phases ?? []) {
-    const health = phase.metrics?.health;
-    if (health && !health.ok) {
-      count += 1;
+    count += phase.metrics?.healthSummary?.failureCount ?? healthFailureCount([phase.metrics?.health]);
+  }
+
+  count += record.finalMetrics?.healthSummary?.failureCount ?? healthFailureCount([record.finalMetrics?.health]);
+  return count;
+}
+
+function collectHealthP95(record) {
+  const p95Values = [];
+  for (const phase of record.phases ?? []) {
+    const p95 = phase.metrics?.healthSummary?.p95Ms;
+    if (typeof p95 === "number") {
+      p95Values.push(p95);
     }
   }
 
-  const finalHealth = record.finalMetrics?.health;
-  if (finalHealth && !finalHealth.ok) {
-    count += 1;
+  const finalP95 = record.finalMetrics?.healthSummary?.p95Ms;
+  if (typeof finalP95 === "number") {
+    p95Values.push(finalP95);
   }
 
-  return count;
+  if (p95Values.length === 0) {
+    return null;
+  }
+  return Math.max(...p95Values);
+}
+
+function healthFailureCount(samples) {
+  return samples.filter((sample) => sample && !sample.ok).length;
 }
 
 function checkDuration(violations, results, metric, threshold, predicate) {

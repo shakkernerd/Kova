@@ -85,7 +85,7 @@ export async function executeScenario(scenario, context) {
           commands,
           evidence: phase.evidence ?? [],
           results,
-          metrics: await collectEnvMetrics(envName, { timeoutMs: context.timeoutMs })
+          metrics: await collectEnvMetrics(envName, metricOptions(context))
         });
 
         const statePhase = await executeStateSetupAfterPhase(context, envName, phase.id);
@@ -104,7 +104,7 @@ export async function executeScenario(scenario, context) {
     }
   } finally {
     record.finishedAt = new Date().toISOString();
-    record.finalMetrics = await collectEnvMetrics(envName, { timeoutMs: context.timeoutMs });
+    record.finalMetrics = await collectEnvMetrics(envName, metricOptions(context));
     evaluateRecord(record, scenario);
 
     const shouldRetain = context.keepEnv || (context.retainOnFailure && record.status !== "PASS");
@@ -151,7 +151,15 @@ async function executeStateSetupAfterPhase(context, envName, phaseId) {
     commands,
     evidence,
     results,
-    metrics: await collectEnvMetrics(envName, { timeoutMs: context.timeoutMs })
+    metrics: await collectEnvMetrics(envName, metricOptions(context))
+  };
+}
+
+function metricOptions(context) {
+  return {
+    timeoutMs: context.timeoutMs,
+    healthSamples: context.healthSamples,
+    healthIntervalMs: context.healthIntervalMs
   };
 }
 

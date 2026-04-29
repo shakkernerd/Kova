@@ -142,6 +142,8 @@ When reporting back to a human:
 - include the failing command only when there is a failure
 - include concise evidence from the JSON report
 - include gateway PID/RSS/CPU metrics when they explain the issue
+- include health failure and health p95 metrics when startup or responsiveness
+  is the concern
 - include threshold violations from the report before raw logs
 - classify OpenClaw failures separately from harness/provisioning blockers
 - mention cleanup status
