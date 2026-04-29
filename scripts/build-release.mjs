@@ -15,6 +15,8 @@ const appName = `kova-${version}`;
 const appDir = join(stageRoot, appName);
 const archivePath = join(distDir, `${appName}.tar.gz`);
 const checksumPath = `${archivePath}.sha256`;
+const latestArchivePath = join(distDir, "kova.tar.gz");
+const latestChecksumPath = `${latestArchivePath}.sha256`;
 
 await rm(stageRoot, { recursive: true, force: true });
 await mkdir(appDir, { recursive: true });
@@ -46,6 +48,8 @@ if (tar.status !== 0) {
 const archive = await readFile(archivePath);
 const sha256 = createHash("sha256").update(archive).digest("hex");
 await writeFile(checksumPath, `${sha256}  ${appName}.tar.gz\n`, "utf8");
+await cp(archivePath, latestArchivePath);
+await writeFile(latestChecksumPath, `${sha256}  kova.tar.gz\n`, "utf8");
 await rm(stageRoot, { recursive: true, force: true });
 
 console.log(JSON.stringify({
@@ -53,6 +57,8 @@ console.log(JSON.stringify({
   version,
   archivePath,
   checksumPath,
+  latestArchivePath,
+  latestChecksumPath,
   sha256,
   bytes: archive.length
 }, null, 2));

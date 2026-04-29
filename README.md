@@ -74,6 +74,41 @@ The archive is written to `dist/kova-<version>.tar.gz` with a matching
 `.sha256` file. It contains only the app files needed by the installer and
 excludes local reports, artifacts, ignored planning docs, and git state.
 
+## Install Script
+
+Install from a GitHub release artifact:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/shakkernerd/kova/main/install.sh | bash
+```
+
+The installer uses a normal app layout:
+
+```text
+~/.kova/app
+~/.kova/bin/kova
+~/.kova/reports
+~/.kova/artifacts
+~/.local/bin/kova -> ~/.kova/bin/kova
+```
+
+The app directory can be replaced on update. Reports and artifacts live outside
+the app directory and are not removed by install/update.
+
+It can install from a local archive while testing releases:
+
+```sh
+./install.sh --archive dist/kova.tar.gz --prefix /tmp/kova --bin-dir /tmp/bin
+```
+
+OCM is checked during install. It is not installed by default:
+
+```sh
+KOVA_INSTALL_OCM=1 curl -fsSL https://raw.githubusercontent.com/shakkernerd/kova/main/install.sh | bash
+KOVA_REQUIRE_OCM=1 curl -fsSL https://raw.githubusercontent.com/shakkernerd/kova/main/install.sh | bash
+KOVA_SKIP_OCM=1 curl -fsSL https://raw.githubusercontent.com/shakkernerd/kova/main/install.sh | bash
+```
+
 `run` is dry-run by default. It writes Markdown and JSON reports showing the
 planned OpenClaw scenario.
 
