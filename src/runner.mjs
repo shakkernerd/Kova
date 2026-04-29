@@ -1,6 +1,7 @@
 import { runCommand } from "./commands.mjs";
 import { materializeCommands } from "./scenarios.mjs";
 import { quoteShell } from "./commands.mjs";
+import { collectEnvMetrics } from "./metrics.mjs";
 
 export function createRunId() {
   const stamp = new Date().toISOString().replaceAll(":", "").replace(/\.\d+Z$/, "Z");
@@ -81,7 +82,8 @@ export async function executeScenario(scenario, context) {
           intent: phase.intent,
           commands,
           evidence: phase.evidence ?? [],
-          results
+          results,
+          metrics: await collectEnvMetrics(envName, { timeoutMs: context.timeoutMs })
         });
 
         if (scenarioFailed) {
@@ -92,6 +94,7 @@ export async function executeScenario(scenario, context) {
   } finally {
     record.finishedAt = new Date().toISOString();
     if (!context.keepEnv) {
+      record.finalMetrics = await collectEnvMetrics(envName, { timeoutMs: context.timeoutMs });
       const cleanup = await runCommand(`ocm env destroy ${envName} --yes`, { timeoutMs: context.timeoutMs });
       record.cleanup = cleanup.status === 0 ? "destroyed" : "destroy-failed";
       record.cleanupResult = cleanup;
@@ -146,4 +149,3 @@ function classifyCommandFailure(result) {
 
   return "FAIL";
 }
-

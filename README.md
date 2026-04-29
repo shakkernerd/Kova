@@ -137,13 +137,14 @@ The repo has the first production skeleton:
 - OCM-backed command execution
 - timeout handling
 - stdout/stderr capture
+- gateway service snapshots
+- gateway PID/RSS/CPU metrics on executed scenarios
 - Markdown and JSON reports
 - explicit execution mode
 - default cleanup of temporary envs
 
 Next work should add deeper OpenClaw metrics collection:
 
-- gateway PID/RSS/CPU snapshots
 - health latency polling
 - V8 diagnostic reports
 - event-loop delay when OpenClaw exposes it

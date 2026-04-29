@@ -86,6 +86,12 @@ export function renderMarkdownReport(report) {
         }
         lines.push("");
       }
+      if (phase.metrics) {
+        lines.push("Metrics:");
+        lines.push("");
+        lines.push(...formatMetrics(phase.metrics));
+        lines.push("");
+      }
     }
 
     lines.push("### Cleanup");
@@ -106,6 +112,31 @@ export function renderMarkdownReport(report) {
   }
 
   return `${lines.join("\n")}\n`;
+}
+
+function formatMetrics(metrics) {
+  const lines = [];
+  if (metrics.service) {
+    lines.push(`- gateway state: ${metrics.service.gatewayState ?? "unknown"}`);
+    lines.push(`- child pid: ${metrics.service.childPid ?? "none"}`);
+    lines.push(`- gateway port: ${metrics.service.gatewayPort ?? "unknown"}`);
+    if (metrics.service.issue) {
+      lines.push(`- issue: ${metrics.service.issue}`);
+    }
+  } else if (metrics.error) {
+    lines.push(`- unavailable: ${metrics.error}`);
+  }
+
+  if (metrics.process) {
+    if (metrics.process.rssMb !== null) {
+      lines.push(`- RSS: ${metrics.process.rssMb} MB`);
+    }
+    if (metrics.process.cpuPercent !== null) {
+      lines.push(`- CPU: ${metrics.process.cpuPercent}%`);
+    }
+  }
+
+  return lines.length > 0 ? lines : ["- unavailable"];
 }
 
 function indentFence(value) {
