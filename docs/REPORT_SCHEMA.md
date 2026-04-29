@@ -53,6 +53,8 @@ Important fields:
 - `phases`: commands, results, and metrics by phase
 - `finalMetrics`: service/process snapshot before cleanup
 - `cleanup`: cleanup result
+- `retainedReason`: why a retained env was kept, such as `keep-env` or
+  `failure`
 - `cleanupResult`: cleanup command evidence
 
 ## Phase Result
@@ -104,4 +106,3 @@ normalization counts.
 ```
 
 Agents should use `jsonPath` to read detailed evidence.
-

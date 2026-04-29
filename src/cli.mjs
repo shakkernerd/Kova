@@ -37,7 +37,7 @@ Usage:
   kova plan [--scenario <id>] [--json]
   kova scenarios list [--json]
   kova scenarios show <id> [--json]
-  kova run --target <selector> [--from <selector>] [--scenario <id>] [--report-dir <path>] [--execute] [--keep-env] [--json]
+  kova run --target <selector> [--from <selector>] [--scenario <id>] [--report-dir <path>] [--execute] [--keep-env] [--retain-on-failure] [--json]
   kova report summarize <report.json> [--json]
   kova report paste <report.json>
 

@@ -208,6 +208,7 @@ async function run(flags) {
     runId,
     execute: flags.execute === true,
     keepEnv: flags.keep_env === true,
+    retainOnFailure: flags.retain_on_failure === true,
     timeoutMs: Number(flags.timeout_ms ?? 120000)
   };
   const records = [];

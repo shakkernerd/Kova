@@ -66,6 +66,7 @@ debugging only when needed:
 
 ```sh
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --execute --keep-env
+node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --execute --retain-on-failure
 ```
 
 ## Target Selectors

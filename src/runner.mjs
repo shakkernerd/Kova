@@ -94,9 +94,11 @@ export async function executeScenario(scenario, context) {
     }
   } finally {
     record.finishedAt = new Date().toISOString();
-    if (!context.keepEnv) {
-      record.finalMetrics = await collectEnvMetrics(envName, { timeoutMs: context.timeoutMs });
-      evaluateRecord(record, scenario);
+    record.finalMetrics = await collectEnvMetrics(envName, { timeoutMs: context.timeoutMs });
+    evaluateRecord(record, scenario);
+
+    const shouldRetain = context.keepEnv || (context.retainOnFailure && record.status !== "PASS");
+    if (!shouldRetain) {
       const cleanup = await runCommand(`ocm env destroy ${envName} --yes`, { timeoutMs: context.timeoutMs });
       record.cleanup = cleanup.status === 0 ? "destroyed" : "destroy-failed";
       record.cleanupResult = cleanup;
@@ -104,9 +106,8 @@ export async function executeScenario(scenario, context) {
         record.status = "BLOCKED";
       }
     } else {
-      record.finalMetrics = await collectEnvMetrics(envName, { timeoutMs: context.timeoutMs });
-      evaluateRecord(record, scenario);
       record.cleanup = "retained";
+      record.retainedReason = context.keepEnv ? "keep-env" : "failure";
     }
   }
 

@@ -103,7 +103,7 @@ node bin/kova.mjs run \
 If a user wants to retain a failed env:
 
 ```sh
-node bin/kova.mjs run --target runtime:stable --scenario fresh-install --execute --keep-env
+node bin/kova.mjs run --target runtime:stable --scenario fresh-install --execute --retain-on-failure
 ```
 
 Otherwise, Kova should clean up temporary envs automatically.
