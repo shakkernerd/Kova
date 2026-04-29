@@ -38,18 +38,40 @@ export function validateStateShape(state, sourceName = "state") {
   requireString(state, "title", errors);
   requireString(state, "objective", errors);
   requireArray(state, "tags", errors);
+  if (state.prepare !== undefined) {
+    requireArray(state, "prepare", errors);
+  }
   requireArray(state, "setup", errors);
+  if (state.cleanup !== undefined) {
+    requireArray(state, "cleanup", errors);
+  }
 
   if (typeof state.id === "string" && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(state.id)) {
     errors.push("id must be kebab-case lowercase alphanumeric");
   }
 
+  if (Array.isArray(state.prepare)) {
+    validateSteps(state.prepare, "prepare", errors, { phaseBinding: false });
+  }
   if (Array.isArray(state.setup)) {
-    for (const [index, step] of state.setup.entries()) {
-      const prefix = `setup[${index}]`;
-      requireString(step, "id", errors, prefix);
-      requireString(step, "title", errors, prefix);
-      requireString(step, "intent", errors, prefix);
+    validateSteps(state.setup, "setup", errors, { phaseBinding: true });
+  }
+  if (Array.isArray(state.cleanup)) {
+    validateSteps(state.cleanup, "cleanup", errors, { phaseBinding: false });
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`${sourceName} is invalid:\n- ${errors.join("\n- ")}`);
+  }
+}
+
+function validateSteps(steps, key, errors, options) {
+  for (const [index, step] of steps.entries()) {
+    const prefix = `${key}[${index}]`;
+    requireString(step, "id", errors, prefix);
+    requireString(step, "title", errors, prefix);
+    requireString(step, "intent", errors, prefix);
+    if (options.phaseBinding) {
       if (step.afterPhase !== undefined && step.afterPhases !== undefined) {
         errors.push(`${prefix} must use afterPhase or afterPhases, not both`);
       }
@@ -58,32 +80,28 @@ export function validateStateShape(state, sourceName = "state") {
       } else {
         requireString(step, "afterPhase", errors, prefix);
       }
-      requireArray(step, "commands", errors, prefix);
-      requireArray(step, "evidence", errors, prefix);
+    }
+    requireArray(step, "commands", errors, prefix);
+    requireArray(step, "evidence", errors, prefix);
 
-      if (Array.isArray(step.afterPhases)) {
-        if (step.afterPhases.length === 0) {
-          errors.push(`${prefix}.afterPhases must not be empty`);
-        }
-        for (const [phaseIndex, phase] of step.afterPhases.entries()) {
-          if (typeof phase !== "string" || phase.length === 0) {
-            errors.push(`${prefix}.afterPhases[${phaseIndex}] must be a non-empty string`);
-          }
-        }
+    if (Array.isArray(step.afterPhases)) {
+      if (step.afterPhases.length === 0) {
+        errors.push(`${prefix}.afterPhases must not be empty`);
       }
-
-      if (Array.isArray(step.commands)) {
-        for (const [commandIndex, command] of step.commands.entries()) {
-          if (typeof command !== "string" || command.length === 0) {
-            errors.push(`${prefix}.commands[${commandIndex}] must be a non-empty string`);
-          }
+      for (const [phaseIndex, phase] of step.afterPhases.entries()) {
+        if (typeof phase !== "string" || phase.length === 0) {
+          errors.push(`${prefix}.afterPhases[${phaseIndex}] must be a non-empty string`);
         }
       }
     }
-  }
 
-  if (errors.length > 0) {
-    throw new Error(`${sourceName} is invalid:\n- ${errors.join("\n- ")}`);
+    if (Array.isArray(step.commands)) {
+      for (const [commandIndex, command] of step.commands.entries()) {
+        if (typeof command !== "string" || command.length === 0) {
+          errors.push(`${prefix}.commands[${commandIndex}] must be a non-empty string`);
+        }
+      }
+    }
   }
 }
 

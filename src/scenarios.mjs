@@ -157,6 +157,7 @@ export function materializeCommands(commands, values) {
       .replaceAll("{target}", values.target)
       .replaceAll("{from}", values.from)
       .replaceAll("{sourceEnv}", values.sourceEnv)
+      .replaceAll("{artifactDir}", values.artifactDir ?? "")
       .replaceAll("{startSelector}", values.startSelector)
       .replaceAll("{upgradeSelector}", values.upgradeSelector)
       .replaceAll("{fromUpgradeSelector}", values.fromUpgradeSelector)

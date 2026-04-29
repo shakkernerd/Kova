@@ -1,0 +1,40 @@
+{
+  "id": "large-memory-session",
+  "title": "Large Memory And Session State",
+  "objective": "A user state with large memory and session files, used to detect expensive startup/session parsing and memory growth.",
+  "tags": ["memory", "sessions", "performance", "large-state"],
+  "prepare": [
+    {
+      "id": "prepare-host-import",
+      "title": "Prepare Host Import Fixture",
+      "intent": "Create a host-side import fixture under the run artifact directory so state import behavior is exercised without touching durable user envs.",
+      "commands": [
+        "mkdir -p '{artifactDir}/import/session-pack' && node -e 'const fs=require(\"fs\"), path=require(\"path\"); const root=\"{artifactDir}/import/session-pack\"; const sessions=Array.from({length:80},(_,i)=>({id:`kova-session-${i}`,createdAt:new Date().toISOString(),messages:Array.from({length:30},(_,j)=>({role:j%2?\"assistant\":\"user\",content:`kova fixture message ${i}/${j} `.repeat(200)}))})); fs.writeFileSync(path.join(root,\"sessions.json\"),JSON.stringify({schemaVersion:\"kova.fixture.sessions.v1\",sessions},null,2)); fs.writeFileSync(path.join(root,\"memory.json\"),JSON.stringify({schemaVersion:\"kova.fixture.memory.v1\",items:Array.from({length:1200},(_,i)=>({id:`memory-${i}`,text:`memory payload ${i} `.repeat(120)}))},null,2));'"
+      ],
+      "evidence": ["host import fixture exists under the Kova artifact directory"]
+    }
+  ],
+  "setup": [
+    {
+      "id": "import-large-session-state",
+      "title": "Import Large Session State",
+      "intent": "Import large session and memory files into common OpenClaw state locations.",
+      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start", "clone"],
+      "commands": [
+        "ocm env exec {env} -- sh -lc 'mkdir -p \"$OPENCLAW_HOME/.openclaw/agents/main/sessions\" \"$OPENCLAW_HOME/.openclaw/memory\" \"$OPENCLAW_HOME/sessions\" \"$OPENCLAW_HOME/memory\"; cp \"{artifactDir}/import/session-pack/sessions.json\" \"$OPENCLAW_HOME/.openclaw/agents/main/sessions/sessions.json\"; cp \"{artifactDir}/import/session-pack/sessions.json\" \"$OPENCLAW_HOME/sessions/sessions.json\"; cp \"{artifactDir}/import/session-pack/memory.json\" \"$OPENCLAW_HOME/.openclaw/memory/memory.json\"; cp \"{artifactDir}/import/session-pack/memory.json\" \"$OPENCLAW_HOME/memory/memory.json\"'"
+      ],
+      "evidence": ["large session file imported", "large memory file imported"]
+    }
+  ],
+  "cleanup": [
+    {
+      "id": "cleanup-host-import",
+      "title": "Cleanup Host Import Fixture",
+      "intent": "Remove host-side import fixture files after the env is no longer being retained.",
+      "commands": [
+        "rm -rf '{artifactDir}/import'"
+      ],
+      "evidence": ["host import fixture removed"]
+    }
+  ]
+}

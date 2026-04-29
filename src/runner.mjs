@@ -3,6 +3,9 @@ import { materializeCommands } from "./scenarios.mjs";
 import { quoteShell } from "./commands.mjs";
 import { collectEnvMetrics } from "./metrics.mjs";
 import { evaluateRecord } from "./evaluator.mjs";
+import { artifactsDir } from "./paths.mjs";
+import { mkdir } from "node:fs/promises";
+import { join } from "node:path";
 
 export function createRunId() {
   const stamp = new Date().toISOString().replaceAll(":", "").replace(/\.\d+Z$/, "Z");
@@ -45,14 +48,17 @@ export function buildSkippedRecord(scenario, context, reason) {
 
 export async function executeScenario(scenario, context) {
   const envName = envNameFor(scenario.id, context.state?.id, context.runId);
+  const artifactDir = join(artifactsDir, context.runId, envName);
   const record = buildDryRunRecord(scenario, context);
   record.status = "PASS";
   record.startedAt = new Date().toISOString();
+  record.artifactDir = artifactDir;
   record.phases = [];
 
   let scenarioFailed = false;
 
   try {
+    await mkdir(artifactDir, { recursive: true });
     const setupResults = await executeTargetSetup(context, envName);
     if (setupResults.length > 0) {
       record.phases.push({
@@ -66,6 +72,17 @@ export async function executeScenario(scenario, context) {
       if (setupResults.some((result) => result.status !== 0)) {
         record.status = "BLOCKED";
         scenarioFailed = true;
+      }
+    }
+
+    if (!scenarioFailed) {
+      const preparePhase = await executeStateLifecycleSteps(context, envName, scenario, "prepare", context.state?.prepare ?? [], artifactDir);
+      if (preparePhase) {
+        record.phases.push(preparePhase);
+        if (preparePhase.results.some((result) => result.status !== 0)) {
+          scenarioFailed = true;
+          record.status = "FAIL";
+        }
       }
     }
 
@@ -97,7 +114,7 @@ export async function executeScenario(scenario, context) {
           metrics: await collectEnvMetrics(envName, metricOptions(context, scenario, phase))
         });
 
-        const statePhase = await executeStateSetupAfterPhase(context, envName, phase.id, scenario);
+        const statePhase = await executeStateSetupAfterPhase(context, envName, phase.id, scenario, artifactDir);
         if (statePhase) {
           record.phases.push(statePhase);
           if (statePhase.results.some((result) => result.status !== 0)) {
@@ -118,6 +135,15 @@ export async function executeScenario(scenario, context) {
 
     const shouldRetain = context.keepEnv || (context.retainOnFailure && record.status !== "PASS");
     if (!shouldRetain) {
+      const cleanupPhase = await executeStateLifecycleSteps(context, envName, scenario, "cleanup", context.state?.cleanup ?? [], artifactDir);
+      if (cleanupPhase) {
+        record.phases.push(cleanupPhase);
+        if (cleanupPhase.results.some((result) => result.status !== 0) && record.status === "PASS") {
+          record.status = "BLOCKED";
+        }
+      }
+    }
+    if (!shouldRetain) {
       const cleanup = await runCommand(`ocm env destroy ${envName} --yes`, { timeoutMs: context.timeoutMs });
       record.cleanup = cleanup.status === 0 ? "destroyed" : "destroy-failed";
       record.cleanupResult = cleanup;
@@ -133,9 +159,17 @@ export async function executeScenario(scenario, context) {
   return record;
 }
 
-async function executeStateSetupAfterPhase(context, envName, phaseId, scenario) {
+async function executeStateSetupAfterPhase(context, envName, phaseId, scenario, artifactDir) {
   const steps = (context.state?.setup ?? []).filter((step) => stateStepMatchesPhase(step, phaseId));
   if (steps.length === 0) {
+    return null;
+  }
+
+  return executeStateLifecycleSteps(context, envName, scenario, `state-${phaseId}`, steps, artifactDir, phaseId);
+}
+
+async function executeStateLifecycleSteps(context, envName, scenario, kind, steps, artifactDir, phaseId = null) {
+  if (!Array.isArray(steps) || steps.length === 0) {
     return null;
   }
 
@@ -144,7 +178,7 @@ async function executeStateSetupAfterPhase(context, envName, phaseId, scenario) 
   const evidence = [];
 
   for (const step of steps) {
-    const stepCommands = materializeCommands(step.commands ?? [], commandValues(context, envName));
+    const stepCommands = materializeCommands(step.commands ?? [], commandValues(context, envName, artifactDir));
     commands.push(...stepCommands);
     evidence.push(...(step.evidence ?? []));
 
@@ -154,14 +188,34 @@ async function executeStateSetupAfterPhase(context, envName, phaseId, scenario) 
   }
 
   return {
-    id: `state-${phaseId}`,
-    title: `State Setup After ${phaseId}`,
-    intent: `Apply Kova state '${context.state.id}' setup after scenario phase '${phaseId}'.`,
+    id: kind,
+    title: stateLifecycleTitle(context.state?.id, kind, phaseId),
+    intent: stateLifecycleIntent(context.state?.id, kind, phaseId),
     commands,
     evidence,
     results,
     metrics: await collectEnvMetrics(envName, metricOptions(context, scenario, { id: phaseId }))
   };
+}
+
+function stateLifecycleTitle(stateId, kind, phaseId) {
+  if (kind === "prepare") {
+    return `State Prepare (${stateId})`;
+  }
+  if (kind === "cleanup") {
+    return `State Cleanup (${stateId})`;
+  }
+  return `State Setup After ${phaseId}`;
+}
+
+function stateLifecycleIntent(stateId, kind, phaseId) {
+  if (kind === "prepare") {
+    return `Prepare Kova state '${stateId}' before scenario phases.`;
+  }
+  if (kind === "cleanup") {
+    return `Clean up Kova state '${stateId}' fixture artifacts before env destruction.`;
+  }
+  return `Apply Kova state '${stateId}' setup after scenario phase '${phaseId}'.`;
 }
 
 function stateStepMatchesPhase(step, phaseId) {
@@ -219,12 +273,13 @@ async function executeTargetSetup(context, envName) {
   return results;
 }
 
-function commandValues(context, envName) {
+function commandValues(context, envName, artifactDir = "") {
   return {
     env: envName,
     target: context.target,
     from: context.from ?? "",
     sourceEnv: context.sourceEnv ?? "",
+    artifactDir,
     startSelector: context.targetPlan.startSelector,
     upgradeSelector: context.targetPlan.upgradeSelector,
     fromUpgradeSelector: context.fromPlan?.upgradeSelector ?? ""

@@ -7,6 +7,7 @@
     { "scenario": "fresh-install", "state": "onboarded-user" },
     { "scenario": "fresh-install", "state": "plugin-index" },
     { "scenario": "fresh-install", "state": "old-config-keys" },
+    { "scenario": "fresh-install", "state": "large-memory-session" },
     { "scenario": "fresh-install", "state": "corrupted-config" },
     { "scenario": "upgrade-existing-user", "state": "old-release-user", "timeoutMs": 180000 },
     { "scenario": "upgrade-existing-user", "state": "failed-upgrade", "timeoutMs": 180000 },
@@ -24,6 +25,7 @@
     { "scenario": "failure-injection", "state": "broken-plugin-deps" },
     { "scenario": "failure-injection", "state": "corrupted-config" },
     { "scenario": "soak", "state": "large-workspace", "timeoutMs": 240000 },
+    { "scenario": "soak", "state": "large-memory-session", "timeoutMs": 240000 },
     { "scenario": "cross-platform-smoke", "state": "slow-filesystem" },
     { "scenario": "cross-platform-smoke", "state": "channel-configured" }
   ]

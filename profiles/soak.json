@@ -9,6 +9,11 @@
       "timeoutMs": 300000
     },
     {
+      "scenario": "soak",
+      "state": "large-memory-session",
+      "timeoutMs": 300000
+    },
+    {
       "scenario": "gateway-performance",
       "state": "many-bundled-plugins",
       "timeoutMs": 180000
