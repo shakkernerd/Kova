@@ -18,7 +18,8 @@ export function checkCommand(command, args) {
 export function runCommand(command, options) {
   const startedAt = Date.now();
   return new Promise((resolve) => {
-    const child = spawn("zsh", ["-lc", command], {
+    const shell = process.env.SHELL || "/bin/sh";
+    const child = spawn(shell, ["-lc", command], {
       cwd: repoRoot,
       env: { ...process.env, ...(options.env ?? {}) },
       stdio: ["ignore", "pipe", "pipe"]
@@ -38,6 +39,18 @@ export function runCommand(command, options) {
     });
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
+    });
+    child.on("error", (error) => {
+      clearTimeout(timer);
+      resolve({
+        command,
+        status: 127,
+        signal: null,
+        timedOut,
+        durationMs: Date.now() - startedAt,
+        stdout,
+        stderr: error.message
+      });
     });
     child.on("close", (status, signal) => {
       clearTimeout(timer);
@@ -64,4 +77,3 @@ function truncate(value, limit = 20000) {
   }
   return `${value.slice(0, limit)}\n[truncated ${value.length - limit} chars]`;
 }
-
