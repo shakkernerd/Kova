@@ -50,13 +50,13 @@ node bin/kova.mjs scenarios show fresh-install --json
 3. Dry-run the intended scenario:
 
 ```sh
-node bin/kova.mjs run --target runtime:stable --scenario fresh-install
+node bin/kova.mjs run --target runtime:stable --scenario fresh-install --json
 ```
 
 4. Execute one scenario explicitly:
 
 ```sh
-node bin/kova.mjs run --target runtime:stable --scenario fresh-install --execute
+node bin/kova.mjs run --target runtime:stable --scenario fresh-install --execute --json
 ```
 
 5. Read the generated JSON report first. Use the Markdown report for the human

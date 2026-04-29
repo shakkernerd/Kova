@@ -236,6 +236,19 @@ async function run(flags) {
   await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
   const mode = context.execute ? "execution" : "dry-run";
+  if (flags.json) {
+    console.log(JSON.stringify({
+      schemaVersion: "kova.run.receipt.v1",
+      generatedAt: new Date().toISOString(),
+      mode,
+      runId,
+      reportPath,
+      jsonPath,
+      summary: report.summary
+    }, null, 2));
+    return;
+  }
+
   console.log(`Kova ${mode} report written: ${relative(process.cwd(), reportPath)}`);
   console.log(`Kova ${mode} data written: ${relative(process.cwd(), jsonPath)}`);
 }

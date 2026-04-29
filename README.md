@@ -49,6 +49,7 @@ node bin/kova.mjs scenarios list
 node bin/kova.mjs scenarios show fresh-install --json
 node bin/kova.mjs plan --scenario fresh-install
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install
+node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --json
 ```
 
 `run` is dry-run by default. It writes Markdown and JSON reports showing the
@@ -118,6 +119,7 @@ Reports should answer:
 
 Agents should use `node bin/kova.mjs plan --json` to choose scenarios and then
 read the generated JSON report after `run`. Markdown is intentionally compact.
+Use `run --json` when an agent needs stable report paths without parsing text.
 
 Summarize generated reports:
 
