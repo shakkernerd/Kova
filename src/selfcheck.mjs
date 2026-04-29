@@ -43,6 +43,29 @@ export async function runSelfCheck(flags = {}) {
     }));
     checks.push(await diagnosticsTimelineCheck());
     checks.push(await cpuProfileParserCheck());
+    checks.push(await jsonCommandCheck(
+      "dry-run-state-lifecycle-json",
+      `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --state missing-plugin-index --report-dir ${quoteShell(tmp)} --json`,
+      async (data) => {
+        assertEqual(data.schemaVersion, "kova.run.receipt.v1", "state dry-run receipt schema");
+        const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
+        const commands = report.records?.[0]?.phases?.flatMap((phase) => phase.commands ?? []) ?? [];
+        if (!commands.some((command) => command.includes("rm -f") && command.includes("plugins/installs.json"))) {
+          throw new Error("state lifecycle command missing from dry-run report");
+        }
+      }
+    ));
+    checks.push(await jsonCommandCheck(
+      "dry-run-source-env-quoting-json",
+      `node bin/kova.mjs run --target runtime:stable --scenario upgrade-existing-user --source-env 'Team Env' --report-dir ${quoteShell(tmp)} --json`,
+      async (data) => {
+        const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
+        const command = report.records?.[0]?.phases?.[0]?.commands?.[0] ?? "";
+        if (!command.includes("ocm env clone 'Team Env'")) {
+          throw new Error(`source env was not shell-quoted: ${command}`);
+        }
+      }
+    ));
 
     const receiptCheck = await jsonCommandCheck(
       "dry-run-report-json",
@@ -193,7 +216,7 @@ async function jsonCommandCheck(id, command, validate) {
 
   try {
     const data = JSON.parse(result.stdout);
-    validate(data);
+    await validate(data);
     return {
       id,
       status: "PASS",

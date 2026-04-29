@@ -14,6 +14,7 @@ export function createRunId() {
 
 export function buildDryRunRecord(scenario, context) {
   const envName = envNameFor(scenario.id, context.state?.id, context.runId);
+  const artifactDir = join(artifactsDir, context.runId, envName);
 
   return {
     scenario: scenario.id,
@@ -27,13 +28,7 @@ export function buildDryRunRecord(scenario, context) {
     objective: scenario.objective,
     thresholds: scenario.thresholds,
     cleanup: context.keepEnv ? "retained" : "planned",
-    phases: scenario.phases.map((phase) => ({
-      id: phase.id,
-      title: phase.title,
-      intent: phase.intent,
-      commands: materializeCommands(phase.commands ?? [], commandValues(context, envName)),
-      evidence: phase.evidence ?? []
-    }))
+    phases: buildPlannedPhases(scenario, context, envName, artifactDir)
   };
 }
 
@@ -172,6 +167,97 @@ async function executeStateSetupAfterPhase(context, envName, phaseId, scenario, 
   return executeStateLifecycleSteps(context, envName, scenario, `state-${phaseId}`, steps, artifactDir, phaseId);
 }
 
+function buildPlannedPhases(scenario, context, envName, artifactDir) {
+  const phases = [];
+  const targetSetupPhase = buildTargetSetupPhase(context, envName);
+  if (targetSetupPhase) {
+    phases.push(targetSetupPhase);
+  }
+
+  const preparePhase = buildStateLifecyclePhase(context, envName, scenario, "prepare", context.state?.prepare ?? [], artifactDir);
+  if (preparePhase) {
+    phases.push(preparePhase);
+  }
+
+  for (const phase of scenario.phases) {
+    if (phase.id === "cleanup") {
+      continue;
+    }
+    phases.push({
+      id: phase.id,
+      title: phase.title,
+      intent: phase.intent,
+      commands: materializeCommands(phase.commands ?? [], commandValues(context, envName, artifactDir)),
+      evidence: phase.evidence ?? []
+    });
+
+    const statePhase = buildStateLifecyclePhase(
+      context,
+      envName,
+      scenario,
+      `state-${phase.id}`,
+      (context.state?.setup ?? []).filter((step) => stateStepMatchesPhase(step, phase.id)),
+      artifactDir,
+      phase.id
+    );
+    if (statePhase) {
+      phases.push(statePhase);
+    }
+  }
+
+  if (!context.keepEnv) {
+    const cleanupPhase = buildStateLifecyclePhase(context, envName, scenario, "cleanup", context.state?.cleanup ?? [], artifactDir);
+    if (cleanupPhase) {
+      phases.push(cleanupPhase);
+    }
+    phases.push({
+      id: "env-cleanup",
+      title: "Environment Cleanup",
+      intent: "Destroy the disposable Kova env after the scenario finishes.",
+      commands: [`ocm env destroy ${quoteShell(envName)} --yes`],
+      evidence: ["temporary env destroyed"]
+    });
+  }
+
+  return phases;
+}
+
+function buildTargetSetupPhase(context, envName) {
+  if (context.targetPlan.kind !== "local-build") {
+    return null;
+  }
+
+  return {
+    id: "target-setup",
+    title: "Target Runtime Setup",
+    intent: "Prepare the target OpenClaw runtime selector for the scenario.",
+    commands: [targetSetupCommand(context.targetPlan)],
+    evidence: [`local-build runtime ${context.targetPlan.runtimeName}`, `kova env ${envName}`]
+  };
+}
+
+function buildStateLifecyclePhase(context, envName, scenario, kind, steps, artifactDir, phaseId = null) {
+  if (!Array.isArray(steps) || steps.length === 0) {
+    return null;
+  }
+
+  const commands = [];
+  const evidence = [];
+  for (const step of steps) {
+    commands.push(...materializeCommands(step.commands ?? [], commandValues(context, envName, artifactDir)));
+    evidence.push(...(step.evidence ?? []));
+  }
+
+  return {
+    id: kind,
+    title: stateLifecycleTitle(context.state?.id, kind, phaseId),
+    intent: stateLifecycleIntent(context.state?.id, kind, phaseId),
+    commands,
+    evidence,
+    scenario: scenario.id
+  };
+}
+
 async function executeStateLifecycleSteps(context, envName, scenario, kind, steps, artifactDir, phaseId = null) {
   if (!Array.isArray(steps) || steps.length === 0) {
     return null;
@@ -268,7 +354,7 @@ async function executeTargetSetup(context, envName) {
   }
 
   const results = [
-    await runCommand(`ocm runtime build-local ${context.targetPlan.runtimeName} --repo ${quoteShell(context.targetPlan.repoPath)} --force`, {
+    await runCommand(targetSetupCommand(context.targetPlan), {
       timeoutMs: context.timeoutMs,
       env: { KOVA_ENV_NAME: envName }
     })
@@ -277,6 +363,10 @@ async function executeTargetSetup(context, envName) {
     context.targetSetup.completed = true;
   }
   return results;
+}
+
+function targetSetupCommand(targetPlan) {
+  return `ocm runtime build-local ${quoteShell(targetPlan.runtimeName)} --repo ${quoteShell(targetPlan.repoPath)} --force`;
 }
 
 function runScenarioCommand(command, context, envName, artifactDir, phaseId, commandIndex) {
@@ -334,10 +424,10 @@ function quoteNodeOptionValue(value) {
 
 function commandValues(context, envName, artifactDir = "") {
   return {
-    env: envName,
+    env: quoteShell(envName),
     target: context.target,
     from: context.from ?? "",
-    sourceEnv: context.sourceEnv ?? "",
+    sourceEnv: quoteShell(context.sourceEnv ?? ""),
     artifactDir,
     startSelector: context.targetPlan.startSelector,
     upgradeSelector: context.targetPlan.upgradeSelector,
