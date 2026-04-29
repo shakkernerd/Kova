@@ -73,6 +73,7 @@ export function renderMarkdownReport(report) {
       lines.push(`- Agent turn: ${record.measurements.agentTurnMs ?? "unknown"} ms (${record.measurements.agentResponseOk ?? "not-run"})`);
       lines.push(`- V8 reports / heap snapshots: ${record.measurements.v8ReportCount ?? "unknown"} / ${record.measurements.heapSnapshotCount ?? "unknown"}`);
       lines.push(`- Node CPU/heap/trace profiles: ${record.measurements.nodeCpuProfileCount ?? "unknown"} / ${record.measurements.nodeHeapProfileCount ?? "unknown"} / ${record.measurements.nodeTraceEventCount ?? "unknown"}`);
+      lines.push(`- Node profile top function: ${record.measurements.nodeProfileTopFunction ?? "unknown"} ${record.measurements.nodeProfileTopFunctionMs ?? "unknown"} ms`);
       lines.push(`- Diagnostic / heap bytes: ${record.measurements.diagnosticArtifactBytes ?? "unknown"} / ${record.measurements.heapSnapshotBytes ?? "unknown"}`);
       lines.push(`- Node profile bytes: ${record.measurements.nodeProfileArtifactBytes ?? "unknown"}`);
       if (record.measurements.resourceTopByCpu?.length > 0) {
@@ -257,6 +258,10 @@ function formatMetrics(metrics) {
     lines.push(`- Node heap profiles: ${metrics.nodeProfiles.heapProfileCount}`);
     lines.push(`- Node trace events: ${metrics.nodeProfiles.traceEventCount}`);
     lines.push(`- Node profile artifact bytes: ${metrics.nodeProfiles.artifactBytes}`);
+    if (metrics.nodeProfiles.cpuProfileSummary?.topFunctions?.length > 0) {
+      const top = metrics.nodeProfiles.cpuProfileSummary.topFunctions[0];
+      lines.push(`- Node top CPU function: ${top.functionName} ${top.selfMs}ms ${shortLocation(top.url, top.lineNumber)}`);
+    }
   }
 
   if (metrics.openclawDiagnostics) {
@@ -369,7 +374,7 @@ export function renderPasteSummary(report) {
     if (record.status === "PASS" || record.status === "DRY-RUN") {
       lines.push(`Evidence: ${record.phases?.length ?? 0} phases recorded.`);
       if (record.measurements) {
-        lines.push(`Measurements: cold ready ${record.measurements.coldReadyMs ?? "unknown"}ms; warm ready ${record.measurements.warmReadyMs ?? "unknown"}ms; listening ${record.measurements.timeToListeningMs ?? "unknown"}ms; health ready ${record.measurements.timeToHealthReadyMs ?? "unknown"}ms; peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; max CPU ${record.measurements.cpuPercentMax ?? "unknown"}%; samples ${record.measurements.resourceSampleCount ?? "unknown"}; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}; restarts ${record.measurements.gatewayRestartCount ?? "unknown"}; agent turn ${record.measurements.agentTurnMs ?? "not-run"}ms; provider/model timeouts ${record.measurements.providerTimeoutMentions ?? "unknown"}; event-loop signals ${record.measurements.eventLoopDelayMentions ?? "unknown"}; timeline ${record.measurements.openclawTimelineAvailable ? "available" : "unavailable"}; slowest span ${record.measurements.openclawSlowestSpanName ?? "unknown"} ${record.measurements.openclawSlowestSpanMs ?? "unknown"}ms; node profiles ${record.measurements.nodeCpuProfileCount ?? "unknown"}/${record.measurements.nodeHeapProfileCount ?? "unknown"}/${record.measurements.nodeTraceEventCount ?? "unknown"}; runtime deps staging ${record.measurements.runtimeDepsStagingMs ?? "unknown"}ms.`);
+        lines.push(`Measurements: cold ready ${record.measurements.coldReadyMs ?? "unknown"}ms; warm ready ${record.measurements.warmReadyMs ?? "unknown"}ms; listening ${record.measurements.timeToListeningMs ?? "unknown"}ms; health ready ${record.measurements.timeToHealthReadyMs ?? "unknown"}ms; peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; max CPU ${record.measurements.cpuPercentMax ?? "unknown"}%; samples ${record.measurements.resourceSampleCount ?? "unknown"}; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}; restarts ${record.measurements.gatewayRestartCount ?? "unknown"}; agent turn ${record.measurements.agentTurnMs ?? "not-run"}ms; provider/model timeouts ${record.measurements.providerTimeoutMentions ?? "unknown"}; event-loop signals ${record.measurements.eventLoopDelayMentions ?? "unknown"}; timeline ${record.measurements.openclawTimelineAvailable ? "available" : "unavailable"}; slowest span ${record.measurements.openclawSlowestSpanName ?? "unknown"} ${record.measurements.openclawSlowestSpanMs ?? "unknown"}ms; node profiles ${record.measurements.nodeCpuProfileCount ?? "unknown"}/${record.measurements.nodeHeapProfileCount ?? "unknown"}/${record.measurements.nodeTraceEventCount ?? "unknown"}; top CPU ${record.measurements.nodeProfileTopFunction ?? "unknown"} ${record.measurements.nodeProfileTopFunctionMs ?? "unknown"}ms; runtime deps staging ${record.measurements.runtimeDepsStagingMs ?? "unknown"}ms.`);
       }
     } else if (record.violations?.length > 0) {
       lines.push("Violations:");
@@ -421,4 +426,10 @@ function fencedSnippet(value) {
 function shortCommand(command) {
   const value = String(command ?? "").replace(/\s+/g, " ").trim();
   return value.length <= 90 ? value : `${value.slice(0, 87)}...`;
+}
+
+function shortLocation(url, lineNumber) {
+  const value = String(url ?? "");
+  const label = value.length <= 72 ? value : `...${value.slice(-69)}`;
+  return lineNumber === null || lineNumber === undefined ? label : `${label}:${lineNumber}`;
 }

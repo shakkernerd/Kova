@@ -26,6 +26,7 @@ export function evaluateRecord(record, scenario) {
   const nodeHeapProfileCount = countNodeProfileMetric(record, "heapProfileCount");
   const nodeTraceEventCount = countNodeProfileMetric(record, "traceEventCount");
   const nodeProfileArtifactBytes = countNodeProfileMetric(record, "artifactBytes");
+  const nodeProfileTopFunction = collectNodeProfileTopFunction(record);
   const heapSnapshotBytes = countHeapSnapshotBytes(record);
   const openclawDiagnostics = collectOpenClawDiagnostics(record);
   const timelineSummary = collectTimelineSummary(record);
@@ -276,6 +277,9 @@ export function evaluateRecord(record, scenario) {
     nodeHeapProfileCount,
     nodeTraceEventCount,
     nodeProfileArtifactBytes,
+    nodeProfileTopFunction: nodeProfileTopFunction?.functionName ?? null,
+    nodeProfileTopFunctionMs: nodeProfileTopFunction?.selfMs ?? null,
+    nodeProfileTopFunctionUrl: nodeProfileTopFunction?.url ?? null,
     heapSnapshotBytes,
     resourceSampleCount: resourceSummary.sampleCount,
     resourceSampleArtifacts: resourceSummary.artifacts,
@@ -657,6 +661,20 @@ function countNodeProfileMetric(record, key) {
     count = Math.max(count, finalValue);
   }
   return count;
+}
+
+function collectNodeProfileTopFunction(record) {
+  let top = null;
+  for (const metrics of allMetricObjects(record)) {
+    const candidate = metrics?.nodeProfiles?.cpuProfileSummary?.topFunctions?.[0];
+    if (!candidate || typeof candidate.selfMs !== "number") {
+      continue;
+    }
+    if (!top || candidate.selfMs > top.selfMs) {
+      top = candidate;
+    }
+  }
+  return top;
 }
 
 function collectOpenClawDiagnostics(record) {

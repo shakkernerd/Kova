@@ -1,4 +1,5 @@
 import { runCommand } from "./commands.mjs";
+import { summarizeCpuProfiles } from "./cpuprofile.mjs";
 import { loadTimeline } from "./timeline.mjs";
 import { createConnection } from "node:net";
 import { cp, mkdir, readdir, stat, writeFile } from "node:fs/promises";
@@ -523,15 +524,19 @@ async function collectNodeProfileMetrics(artifactDir) {
     artifactBytes += await fileSize(artifact);
   }
 
+  const cpuProfiles = artifacts.filter((path) => /\.cpuprofile$/i.test(path));
+  const cpuProfileSummary = await summarizeCpuProfiles(cpuProfiles, { limit: 10, maxProfiles: 20 });
+
   return {
     commandStatus: 0,
     statusLabel: artifacts.length > 0 ? "PASS" : "INFO",
     durationMs: Date.now() - startedAt,
     fileCount: artifacts.length,
-    cpuProfileCount: artifacts.filter((path) => /\.cpuprofile$/i.test(path)).length,
+    cpuProfileCount: cpuProfiles.length,
     heapProfileCount: artifacts.filter((path) => /\.heapprofile$/i.test(path)).length,
     traceEventCount: artifacts.filter((path) => /node-trace.*\.(json|log)$/i.test(path)).length,
     artifactBytes,
+    cpuProfileSummary,
     artifacts,
     error: artifacts.length > 0 ? null : "node profile artifacts not emitted"
   };

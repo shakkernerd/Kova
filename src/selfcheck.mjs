@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { quoteShell, runCommand } from "./commands.mjs";
+import { summarizeCpuProfiles } from "./cpuprofile.mjs";
 import { parseTimelineText } from "./timeline.mjs";
 
 export async function runSelfCheck(flags = {}) {
@@ -41,6 +42,7 @@ export async function runSelfCheck(flags = {}) {
       assertArray(data.envs, "cleanup envs");
     }));
     checks.push(await diagnosticsTimelineCheck());
+    checks.push(await cpuProfileParserCheck());
 
     const receiptCheck = await jsonCommandCheck(
       "dry-run-report-json",
@@ -111,6 +113,30 @@ export async function runSelfCheck(flags = {}) {
 
   if (!ok) {
     throw new Error("self-check failed");
+  }
+}
+
+async function cpuProfileParserCheck() {
+  try {
+    const summary = await summarizeCpuProfiles(["fixtures/diagnostics/sample.cpuprofile"], { limit: 3 });
+    assertEqual(summary.profileCount, 1, "CPU profile count");
+    assertEqual(summary.parseErrorCount, 0, "CPU profile parse errors");
+    assertEqual(summary.topFunctions[0]?.functionName, "collectBundledPluginMetadata", "top CPU function");
+    assertEqual(summary.topFunctions[0]?.selfMs, 7, "top CPU self ms");
+    return {
+      id: "cpu-profile-parser",
+      status: "PASS",
+      command: "parse fixtures/diagnostics/sample.cpuprofile",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "cpu-profile-parser",
+      status: "FAIL",
+      command: "parse fixtures/diagnostics/sample.cpuprofile",
+      durationMs: 0,
+      message: error.message
+    };
   }
 }
 

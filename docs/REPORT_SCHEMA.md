@@ -99,7 +99,8 @@ Current metrics include:
 - provider/model load and timeout signals
 - event-loop delay signals
 - V8 diagnostic report and heap snapshot file counts
-- optional Node CPU profile, heap profile, and trace event artifact counts
+- optional Node CPU profile, heap profile, trace event artifact counts, and
+  top CPU self-time functions parsed from `.cpuprofile` artifacts
 - OpenClaw diagnostics timeline availability, event count, parse errors,
   slowest spans, repeated spans, event-loop max, provider request max, and child
   process failures
