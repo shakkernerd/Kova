@@ -112,3 +112,106 @@ function indentFence(value) {
   return ["  ```text", ...value.trim().split("\n").slice(0, 80).map((line) => `  ${line}`), "  ```"].join("\n");
 }
 
+export function renderReportSummary(report, options = {}) {
+  const records = report.records ?? [];
+  const summary = {
+    runId: report.runId,
+    mode: report.mode,
+    target: report.target,
+    from: report.from ?? null,
+    platform: report.platform,
+    statuses: report.summary?.statuses ?? summarizeRecords(records).statuses,
+    scenarios: records.map((record) => ({
+      id: record.scenario,
+      title: record.title,
+      status: record.status,
+      cleanup: record.cleanup ?? "not-run",
+      failedCommand: firstFailedCommand(record)?.command ?? null
+    }))
+  };
+
+  if (options.structured) {
+    return summary;
+  }
+
+  const lines = [
+    `Run: ${summary.runId}`,
+    `Mode: ${summary.mode}`,
+    `Target: ${summary.target}`,
+    `Platform: ${summary.platform?.os ?? "unknown"} ${summary.platform?.release ?? ""} (${summary.platform?.arch ?? "unknown"})`,
+    "Statuses:",
+    ...Object.entries(summary.statuses).map(([status, count]) => `- ${status}: ${count}`),
+    "",
+    "Scenarios:"
+  ];
+
+  for (const scenario of summary.scenarios) {
+    lines.push(`- ${scenario.status} ${scenario.id} (${scenario.cleanup})`);
+    if (scenario.failedCommand) {
+      lines.push(`  failed command: ${scenario.failedCommand}`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+export function renderPasteSummary(report) {
+  const records = report.records ?? [];
+  const lines = [
+    "Kova OpenClaw Runtime Findings",
+    "",
+    `Run: ${report.runId}`,
+    `Target: ${report.target}`,
+    `Mode: ${report.mode}`,
+    `Platform: ${report.platform?.os ?? "unknown"} ${report.platform?.release ?? ""} (${report.platform?.arch ?? "unknown"})`,
+    ""
+  ];
+
+  for (const record of records) {
+    const failed = firstFailedCommand(record);
+    lines.push(`Scenario: ${record.scenario}`);
+    lines.push(`Result: ${record.status}`);
+    lines.push(`Cleanup: ${record.cleanup ?? "not-run"}`);
+    if (record.status === "PASS" || record.status === "DRY-RUN") {
+      lines.push(`Evidence: ${record.phases?.length ?? 0} phases recorded.`);
+    } else if (failed) {
+      lines.push("Failure:");
+      lines.push(`- Command: ${failed.command}`);
+      lines.push(`- Status: ${failed.status}${failed.timedOut ? " (timeout)" : ""}`);
+      lines.push(`- Duration: ${failed.durationMs}ms`);
+      lines.push(`- Likely OpenClaw area: ${record.likelyOwner ?? "OpenClaw"}`);
+      const stderr = failed.stderr?.trim();
+      const stdout = failed.stdout?.trim();
+      if (stderr) {
+        lines.push("- stderr:");
+        lines.push(fencedSnippet(stderr));
+      } else if (stdout) {
+        lines.push("- stdout:");
+        lines.push(fencedSnippet(stdout));
+      }
+    } else {
+      lines.push("Failure: scenario did not record a failed command; inspect JSON report.");
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+function firstFailedCommand(record) {
+  for (const phase of record.phases ?? []) {
+    for (const result of phase.results ?? []) {
+      if (result.status !== 0 || result.timedOut) {
+        return result;
+      }
+    }
+  }
+  if (record.cleanupResult && record.cleanupResult.status !== 0) {
+    return record.cleanupResult;
+  }
+  return null;
+}
+
+function fencedSnippet(value) {
+  return ["```text", ...value.split("\n").slice(0, 30), "```"].join("\n");
+}

@@ -45,6 +45,8 @@ node bin/kova.mjs doctor
 node bin/kova.mjs doctor --json
 node bin/kova.mjs plan
 node bin/kova.mjs plan --json
+node bin/kova.mjs scenarios list
+node bin/kova.mjs scenarios show fresh-install --json
 node bin/kova.mjs plan --scenario fresh-install
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install
 ```
@@ -116,6 +118,16 @@ Reports should answer:
 
 Agents should use `node bin/kova.mjs plan --json` to choose scenarios and then
 read the generated JSON report after `run`. Markdown is intentionally compact.
+
+Summarize generated reports:
+
+```sh
+node bin/kova.mjs report summarize reports/<run>.json
+node bin/kova.mjs report summarize reports/<run>.json --json
+node bin/kova.mjs report paste reports/<run>.json
+```
+
+`report paste` produces a short handoff summary for another agent or fixer.
 
 ## Current Status
 

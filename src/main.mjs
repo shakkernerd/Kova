@@ -1,10 +1,10 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { checkCommand } from "./commands.mjs";
 import { parseFlags, printHelp, required, resolveFromCwd } from "./cli.mjs";
 import { platformInfo } from "./platform.mjs";
 import { reportsDir } from "./paths.mjs";
-import { renderMarkdownReport, summarizeRecords } from "./report.mjs";
+import { renderMarkdownReport, renderPasteSummary, renderReportSummary, summarizeRecords } from "./report.mjs";
 import { buildDryRunRecord, createRunId, executeScenario } from "./runner.mjs";
 import { loadScenarios, validateScenarioRun } from "./scenarios.mjs";
 import { resolveTarget } from "./targets.mjs";
@@ -30,8 +30,18 @@ export async function main(argv) {
     return;
   }
 
+  if (command === "scenarios") {
+    await scenariosCommand(flags);
+    return;
+  }
+
   if (command === "run") {
     await run(flags);
+    return;
+  }
+
+  if (command === "report") {
+    await reportCommand(flags);
     return;
   }
 
@@ -94,6 +104,84 @@ async function plan(flags) {
   }
 }
 
+async function scenariosCommand(flags) {
+  const [subcommand = "list", id] = flags._;
+
+  if (subcommand === "list") {
+    const scenarios = await loadScenarios();
+    if (flags.json) {
+      console.log(JSON.stringify({
+        schemaVersion: "kova.scenarios.list.v1",
+        generatedAt: new Date().toISOString(),
+        scenarios: scenarios.map((scenario) => ({
+          id: scenario.id,
+          title: scenario.title,
+          objective: scenario.objective,
+          tags: scenario.tags,
+          phaseCount: scenario.phases.length
+        }))
+      }, null, 2));
+      return;
+    }
+
+    for (const scenario of scenarios) {
+      console.log(`${scenario.id}: ${scenario.title}`);
+    }
+    return;
+  }
+
+  if (subcommand === "show") {
+    const scenarioId = required(id, "scenario id");
+    const [scenario] = await loadScenarios(scenarioId);
+    if (flags.json) {
+      console.log(JSON.stringify({
+        schemaVersion: "kova.scenarios.show.v1",
+        generatedAt: new Date().toISOString(),
+        scenario
+      }, null, 2));
+      return;
+    }
+
+    console.log(`${scenario.id}: ${scenario.title}`);
+    console.log(`Objective: ${scenario.objective}`);
+    console.log(`Tags: ${scenario.tags.join(", ")}`);
+    console.log("Phases:");
+    for (const phase of scenario.phases) {
+      console.log(`- ${phase.id}: ${phase.title}`);
+    }
+    return;
+  }
+
+  throw new Error(`unknown scenarios command: ${subcommand}`);
+}
+
+async function reportCommand(flags) {
+  const [subcommand, reportPath] = flags._;
+  const path = required(reportPath, "report path");
+  const report = JSON.parse(await readFile(resolveFromCwd(path), "utf8"));
+
+  if (subcommand === "summarize") {
+    if (flags.json) {
+      console.log(JSON.stringify({
+        schemaVersion: "kova.report.summary.v1",
+        generatedAt: new Date().toISOString(),
+        summary: renderReportSummary(report, { structured: true })
+      }, null, 2));
+      return;
+    }
+
+    console.log(renderReportSummary(report));
+    return;
+  }
+
+  if (subcommand === "paste") {
+    console.log(renderPasteSummary(report));
+    return;
+  }
+
+  throw new Error(`unknown report command: ${subcommand ?? ""}`);
+}
+
 async function run(flags) {
   const target = required(flags.target, "--target");
   if (flags.execute === true && !flags.scenario) {
@@ -151,4 +239,3 @@ async function run(flags) {
   console.log(`Kova ${mode} report written: ${relative(process.cwd(), reportPath)}`);
   console.log(`Kova ${mode} data written: ${relative(process.cwd(), jsonPath)}`);
 }
-

@@ -35,7 +35,11 @@ export function printHelp() {
 Usage:
   kova doctor
   kova plan [--scenario <id>] [--json]
+  kova scenarios list [--json]
+  kova scenarios show <id> [--json]
   kova run --target <selector> [--from <selector>] [--scenario <id>] [--report-dir <path>] [--execute] [--keep-env]
+  kova report summarize <report.json> [--json]
+  kova report paste <report.json>
 
 Selectors:
   npm:<version>              Published OpenClaw release
@@ -63,4 +67,3 @@ export function resolveFromCwd(path) {
   }
   return `${process.cwd()}/${path}`;
 }
-

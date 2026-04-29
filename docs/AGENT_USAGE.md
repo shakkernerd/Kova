@@ -43,6 +43,8 @@ node bin/kova.mjs doctor --json
 
 ```sh
 node bin/kova.mjs plan --json
+node bin/kova.mjs scenarios list --json
+node bin/kova.mjs scenarios show fresh-install --json
 ```
 
 3. Dry-run the intended scenario:
@@ -59,6 +61,13 @@ node bin/kova.mjs run --target runtime:stable --scenario fresh-install --execute
 
 5. Read the generated JSON report first. Use the Markdown report for the human
 summary.
+
+6. Produce a compact handoff when needed:
+
+```sh
+node bin/kova.mjs report summarize reports/<run>.json --json
+node bin/kova.mjs report paste reports/<run>.json
+```
 
 ## Target Selection
 
@@ -112,6 +121,8 @@ When reporting back to a human:
 - include concise evidence from the JSON report
 - classify OpenClaw failures separately from harness/provisioning blockers
 - mention cleanup status
+- use `kova report paste <report.json>` as the starting point for fixer
+  handoffs
 
 Do not paste large successful command outputs. They are stored in the JSON
 report when needed.
