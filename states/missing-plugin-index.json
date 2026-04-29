@@ -8,7 +8,7 @@
       "id": "remove-plugin-index",
       "title": "Remove Plugin Install Index",
       "intent": "Delete known plugin install index locations inside the disposable OpenClaw env.",
-      "afterPhase": "provision",
+      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start", "clone"],
       "commands": [
         "ocm env exec {env} -- sh -lc 'rm -f \"$OPENCLAW_HOME/.openclaw/plugins/installs.json\" \"$OPENCLAW_HOME/plugins/installs.json\"'"
       ],
@@ -16,4 +16,3 @@
     }
   ]
 }
-

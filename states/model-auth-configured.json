@@ -1,0 +1,18 @@
+{
+  "id": "model-auth-configured",
+  "title": "Model Auth Configured",
+  "objective": "A user state with model/provider auth-looking config present, used to exercise authenticated provider discovery without relying on real secrets.",
+  "tags": ["models", "providers", "auth"],
+  "setup": [
+    {
+      "id": "write-model-auth-config",
+      "title": "Write Model Auth Config",
+      "intent": "Create redacted provider auth config and environment marker files.",
+      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start", "clone"],
+      "commands": [
+        "ocm env exec {env} -- node -e 'const fs=require(\"fs\"), path=require(\"path\"); const home=process.env.OPENCLAW_HOME; fs.mkdirSync(path.join(home,\"config\"),{recursive:true}); fs.writeFileSync(path.join(home,\"config\",\"providers.json\"),JSON.stringify({schemaVersion:\"kova.fixture.providers.v1\",providers:{openai:{auth:\"env\",env:\"OPENAI_API_KEY\",configured:true},anthropic:{auth:\"env\",env:\"ANTHROPIC_API_KEY\",configured:true}}},null,2)); fs.writeFileSync(path.join(home,\".env.kova\"),\"OPENAI_API_KEY=kova-redacted\\nANTHROPIC_API_KEY=kova-redacted\\n\");'"
+      ],
+      "evidence": ["provider config exists", "redacted auth env marker exists"]
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "corrupted-config",
+  "title": "Corrupted Config",
+  "objective": "A user state with malformed config files, used to verify OpenClaw reports corruption without wedging the gateway.",
+  "tags": ["config", "failure", "diagnostics"],
+  "setup": [
+    {
+      "id": "write-corrupted-config",
+      "title": "Write Corrupted Config",
+      "intent": "Create malformed JSON in common config paths.",
+      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start", "clone"],
+      "commands": [
+        "ocm env exec {env} -- sh -lc 'mkdir -p \"$OPENCLAW_HOME/config\" \"$OPENCLAW_HOME/.openclaw\"; printf \"{ this is not valid json\" > \"$OPENCLAW_HOME/config/settings.json\"; printf \"[bad\" > \"$OPENCLAW_HOME/.openclaw/config.json\"'"
+      ],
+      "evidence": ["malformed config files exist"]
+    }
+  ]
+}

@@ -1,8 +1,18 @@
 {
   "id": "many-bundled-plugins",
   "title": "Many Bundled Plugins Enabled",
-  "objective": "A pressure state for bundled plugin and provider metadata paths. This state currently records intent and will gain concrete config mutation commands as Kova state coverage expands.",
+  "objective": "A pressure state for bundled plugin and provider metadata paths. It creates a plugin install index with many bundled-like entries so OpenClaw startup and metadata paths run under heavier registry pressure.",
   "tags": ["plugins", "providers", "pressure"],
-  "setup": []
+  "setup": [
+    {
+      "id": "write-many-plugin-index",
+      "title": "Write Many Plugin Index Entries",
+      "intent": "Create a large plugin install index in common OpenClaw plugin index locations.",
+      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start", "clone"],
+      "commands": [
+        "ocm env exec {env} -- node -e 'const fs=require(\"fs\"), path=require(\"path\"); const home=process.env.OPENCLAW_HOME; const entries=Array.from({length:80},(_,i)=>({id:`kova-bundled-${i}`,name:`kova-bundled-${i}`,source:\"bundled\",enabled:true,version:\"0.0.0\",manifest:{id:`kova-bundled-${i}`,runtimeDependencies:[\"zod\",\"ws\",\"undici\",\"chokidar\"]}})); for (const rel of [\"plugins\",\".openclaw/plugins\"]) { const dir=path.join(home,rel); fs.mkdirSync(dir,{recursive:true}); fs.writeFileSync(path.join(dir,\"installs.json\"), JSON.stringify({schemaVersion:\"kova.fixture.plugins.v1\",plugins:entries}, null, 2)); }'"
+      ],
+      "evidence": ["large plugin install index written"]
+    }
+  ]
 }
-

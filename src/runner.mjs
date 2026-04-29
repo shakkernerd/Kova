@@ -125,7 +125,7 @@ export async function executeScenario(scenario, context) {
 }
 
 async function executeStateSetupAfterPhase(context, envName, phaseId) {
-  const steps = (context.state?.setup ?? []).filter((step) => step.afterPhase === phaseId);
+  const steps = (context.state?.setup ?? []).filter((step) => stateStepMatchesPhase(step, phaseId));
   if (steps.length === 0) {
     return null;
   }
@@ -153,6 +153,13 @@ async function executeStateSetupAfterPhase(context, envName, phaseId) {
     results,
     metrics: await collectEnvMetrics(envName, metricOptions(context))
   };
+}
+
+function stateStepMatchesPhase(step, phaseId) {
+  if (Array.isArray(step.afterPhases)) {
+    return step.afterPhases.includes(phaseId);
+  }
+  return step.afterPhase === phaseId;
 }
 
 function metricOptions(context) {

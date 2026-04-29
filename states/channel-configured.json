@@ -1,0 +1,18 @@
+{
+  "id": "channel-configured",
+  "title": "Channel Configured User",
+  "objective": "A user state with release channel metadata present, used to verify channel-aware update paths do not lose user intent.",
+  "tags": ["upgrade", "channel", "config"],
+  "setup": [
+    {
+      "id": "write-channel-config",
+      "title": "Write Channel Config",
+      "intent": "Create channel config in common config locations.",
+      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start", "clone"],
+      "commands": [
+        "ocm env exec {env} -- node -e 'const fs=require(\"fs\"), path=require(\"path\"); const home=process.env.OPENCLAW_HOME; fs.mkdirSync(path.join(home,\"config\"),{recursive:true}); fs.writeFileSync(path.join(home,\"config\",\"channel.json\"),JSON.stringify({schemaVersion:\"kova.fixture.channel.v1\",channel:\"beta\"},null,2)); fs.writeFileSync(path.join(home,\".openclaw-channel\"),\"beta\\n\");'"
+      ],
+      "evidence": ["channel config exists"]
+    }
+  ]
+}

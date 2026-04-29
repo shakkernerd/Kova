@@ -50,9 +50,27 @@ export function validateStateShape(state, sourceName = "state") {
       requireString(step, "id", errors, prefix);
       requireString(step, "title", errors, prefix);
       requireString(step, "intent", errors, prefix);
-      requireString(step, "afterPhase", errors, prefix);
+      if (step.afterPhase !== undefined && step.afterPhases !== undefined) {
+        errors.push(`${prefix} must use afterPhase or afterPhases, not both`);
+      }
+      if (step.afterPhases !== undefined) {
+        requireArray(step, "afterPhases", errors, prefix);
+      } else {
+        requireString(step, "afterPhase", errors, prefix);
+      }
       requireArray(step, "commands", errors, prefix);
       requireArray(step, "evidence", errors, prefix);
+
+      if (Array.isArray(step.afterPhases)) {
+        if (step.afterPhases.length === 0) {
+          errors.push(`${prefix}.afterPhases must not be empty`);
+        }
+        for (const [phaseIndex, phase] of step.afterPhases.entries()) {
+          if (typeof phase !== "string" || phase.length === 0) {
+            errors.push(`${prefix}.afterPhases[${phaseIndex}] must be a non-empty string`);
+          }
+        }
+      }
 
       if (Array.isArray(step.commands)) {
         for (const [commandIndex, command] of step.commands.entries()) {
@@ -84,4 +102,3 @@ function requireArray(value, key, errors, prefix = "") {
 function path(prefix, key) {
   return prefix ? `${prefix}.${key}` : key;
 }
-

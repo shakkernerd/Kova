@@ -1,0 +1,18 @@
+{
+  "id": "failed-upgrade",
+  "title": "Previous Failed Upgrade",
+  "objective": "A user state with failed-upgrade residue, used to verify a later upgrade can recover cleanly.",
+  "tags": ["upgrade", "recovery", "failure"],
+  "setup": [
+    {
+      "id": "write-failed-upgrade-state",
+      "title": "Write Failed Upgrade State",
+      "intent": "Create failed upgrade markers and backup-looking folders.",
+      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start", "clone", "source-runtime"],
+      "commands": [
+        "ocm env exec {env} -- node -e 'const fs=require(\"fs\"), path=require(\"path\"); const home=process.env.OPENCLAW_HOME; const root=path.join(home,\".openclaw\",\"upgrades\",\"failed-kova\"); fs.mkdirSync(root,{recursive:true}); fs.writeFileSync(path.join(root,\"state.json\"),JSON.stringify({schemaVersion:\"kova.fixture.failed-upgrade.v1\",from:\"2026.4.24\",to:\"2026.4.26\",status:\"failed\",reason:\"fixture\"},null,2)); fs.mkdirSync(path.join(home,\".openclaw\",\"backups\",\"failed-kova\"),{recursive:true});'"
+      ],
+      "evidence": ["failed upgrade marker exists", "backup residue exists"]
+    }
+  ]
+}

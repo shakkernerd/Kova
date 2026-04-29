@@ -1,0 +1,18 @@
+{
+  "id": "plugin-index",
+  "title": "Existing Plugin Install Index",
+  "objective": "A user state with a real plugin install index already present, used to verify updates preserve and migrate plugin registry data.",
+  "tags": ["plugins", "migration", "registry"],
+  "setup": [
+    {
+      "id": "write-plugin-index",
+      "title": "Write Plugin Install Index",
+      "intent": "Create plugin install indexes in common OpenClaw plugin paths.",
+      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start", "clone"],
+      "commands": [
+        "ocm env exec {env} -- node -e 'const fs=require(\"fs\"), path=require(\"path\"); const home=process.env.OPENCLAW_HOME; const index={schemaVersion:\"kova.fixture.plugins.v1\",plugins:[{id:\"browser\",source:\"bundled\",enabled:true,version:\"bundled\"},{id:\"memory-core\",source:\"bundled\",enabled:true,version:\"bundled\"},{id:\"discord\",source:\"external\",enabled:true,version:\"0.0.0\",path:\"plugins/discord\"}]}; for (const rel of [\"plugins\",\".openclaw/plugins\"]) { const dir=path.join(home,rel); fs.mkdirSync(dir,{recursive:true}); fs.writeFileSync(path.join(dir,\"installs.json\"),JSON.stringify(index,null,2)); }'"
+      ],
+      "evidence": ["plugin install index exists in common locations"]
+    }
+  ]
+}

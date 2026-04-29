@@ -1,0 +1,18 @@
+{
+  "id": "old-config-keys",
+  "title": "Old Config Keys",
+  "objective": "A user state with legacy config key names, used to verify config normalization and migration performance.",
+  "tags": ["config", "migration", "performance"],
+  "setup": [
+    {
+      "id": "write-old-config",
+      "title": "Write Old Config Keys",
+      "intent": "Create legacy config keys that modern OpenClaw should normalize or ignore safely.",
+      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start", "clone"],
+      "commands": [
+        "ocm env exec {env} -- node -e 'const fs=require(\"fs\"), path=require(\"path\"); const home=process.env.OPENCLAW_HOME; fs.mkdirSync(path.join(home,\"config\"),{recursive:true}); fs.writeFileSync(path.join(home,\"config\",\"legacy.json\"),JSON.stringify({schemaVersion:\"kova.fixture.legacy-config.v1\",gateway_port:21120,plugin_runtime_deps:\"legacy\",model_provider:\"openai\",enable_browser_plugin:true},null,2));'"
+      ],
+      "evidence": ["legacy config file exists"]
+    }
+  ]
+}
