@@ -6,8 +6,9 @@ export function evaluateRecord(record, scenario) {
   const thresholds = scenario.thresholds ?? {};
   const violations = [];
   const allResults = collectResults(record);
-  const peakRssMb = collectPeakRss(record);
-  const cpuPercentMax = collectCpuPercentMax(record);
+  const resourceSummary = collectResourceSummary(allResults);
+  const peakRssMb = maxNullable(collectPeakRss(record), resourceSummary.peakTotalRssMb);
+  const cpuPercentMax = maxNullable(collectCpuPercentMax(record), resourceSummary.maxTotalCpuPercent);
   const missingDependencyErrors = countMissingDependencyErrors(allResults) + countLogMetric(record, "missingDependencyErrors");
   const pluginLoadFailures = countLogMetric(record, "pluginLoadFailures");
   const metadataScanMentions = countLogMetric(record, "metadataScanMentions");
@@ -253,6 +254,12 @@ export function evaluateRecord(record, scenario) {
     heapSnapshotCount,
     diagnosticArtifactBytes,
     heapSnapshotBytes,
+    resourceSampleCount: resourceSummary.sampleCount,
+    resourceSampleArtifacts: resourceSummary.artifacts,
+    resourcePeakCommandTreeRssMb: resourceSummary.peakCommandTreeRssMb,
+    resourcePeakGatewayRssMb: resourceSummary.peakGatewayRssMb,
+    resourceTopByRss: resourceSummary.topByRss,
+    resourceTopByCpu: resourceSummary.topByCpu,
     pluginMetadataScanCount: openclawDiagnostics.pluginMetadataScanCount,
     configNormalizationCount: openclawDiagnostics.configNormalizationCount,
     runtimeDepsStagingMs: openclawDiagnostics.runtimeDepsStagingMs,
@@ -436,6 +443,61 @@ function collectPeakRss(record) {
   return peak;
 }
 
+function collectResourceSummary(results) {
+  let sampleCount = 0;
+  let peakTotalRssMb = null;
+  let maxTotalCpuPercent = null;
+  let peakCommandTreeRssMb = null;
+  let peakGatewayRssMb = null;
+  const artifacts = [];
+  const byPid = new Map();
+
+  for (const result of results) {
+    const samples = result.resourceSamples;
+    if (!samples) {
+      continue;
+    }
+    sampleCount += samples.sampleCount ?? 0;
+    peakTotalRssMb = maxNullable(peakTotalRssMb, samples.peakTotalRssMb);
+    maxTotalCpuPercent = maxNullable(maxTotalCpuPercent, samples.maxTotalCpuPercent);
+    peakCommandTreeRssMb = maxNullable(peakCommandTreeRssMb, samples.peakCommandTreeRssMb);
+    peakGatewayRssMb = maxNullable(peakGatewayRssMb, samples.peakGatewayRssMb);
+    if (samples.artifactPath) {
+      artifacts.push(samples.artifactPath);
+    }
+    for (const process of [...(samples.topByRss ?? []), ...(samples.topByCpu ?? [])]) {
+      const existing = byPid.get(process.pid) ?? {
+        pid: process.pid,
+        command: process.command,
+        role: process.role,
+        peakRssMb: 0,
+        maxCpuPercent: 0,
+        firstSeenMs: process.firstSeenMs,
+        lastSeenMs: process.lastSeenMs
+      };
+      existing.command = process.command;
+      existing.role = mergeRoles(existing.role, process.role);
+      existing.peakRssMb = Math.max(existing.peakRssMb, process.peakRssMb ?? 0);
+      existing.maxCpuPercent = Math.max(existing.maxCpuPercent, process.maxCpuPercent ?? 0);
+      existing.firstSeenMs = Math.min(existing.firstSeenMs ?? process.firstSeenMs ?? 0, process.firstSeenMs ?? 0);
+      existing.lastSeenMs = Math.max(existing.lastSeenMs ?? process.lastSeenMs ?? 0, process.lastSeenMs ?? 0);
+      byPid.set(process.pid, existing);
+    }
+  }
+
+  const processes = [...byPid.values()];
+  return {
+    sampleCount,
+    peakTotalRssMb,
+    maxTotalCpuPercent,
+    peakCommandTreeRssMb,
+    peakGatewayRssMb,
+    artifacts,
+    topByRss: processes.toSorted((left, right) => right.peakRssMb - left.peakRssMb).slice(0, 5),
+    topByCpu: processes.toSorted((left, right) => right.maxCpuPercent - left.maxCpuPercent).slice(0, 5)
+  };
+}
+
 function collectCpuPercentMax(record) {
   const values = [];
   for (const phase of record.phases ?? []) {
@@ -451,6 +513,18 @@ function collectCpuPercentMax(record) {
   }
 
   return values.length === 0 ? null : Math.max(...values);
+}
+
+function maxNullable(left, right) {
+  if (typeof right !== "number") {
+    return left;
+  }
+  return left === null ? right : Math.max(left, right);
+}
+
+function mergeRoles(left, right) {
+  const roles = new Set(`${left ?? ""},${right ?? ""}`.split(",").filter(Boolean));
+  return [...roles].join(",");
 }
 
 function countLogMetric(record, key) {
@@ -514,13 +588,6 @@ function allMetricObjects(record) {
     ...(record.phases ?? []).map((phase) => phase.metrics).filter(Boolean),
     record.finalMetrics
   ].filter(Boolean);
-}
-
-function maxNullable(left, right) {
-  if (typeof right !== "number") {
-    return left;
-  }
-  return left === null ? right : Math.max(left, right);
 }
 
 function countDiagnosticMetric(record, key) {

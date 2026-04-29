@@ -94,8 +94,8 @@ export async function executeScenario(scenario, context) {
 
         const commands = materializeCommands(phase.commands ?? [], commandValues(context, envName));
         const results = [];
-        for (const command of commands) {
-          const result = await runCommand(command, { timeoutMs: context.timeoutMs });
+        for (const [commandIndex, command] of commands.entries()) {
+          const result = await runScenarioCommand(command, context, envName, artifactDir, phase.id, commandIndex);
           results.push(result);
           if (result.status !== 0) {
             scenarioFailed = true;
@@ -182,8 +182,8 @@ async function executeStateLifecycleSteps(context, envName, scenario, kind, step
     commands.push(...stepCommands);
     evidence.push(...(step.evidence ?? []));
 
-    for (const command of stepCommands) {
-      results.push(await runCommand(command, { timeoutMs: context.timeoutMs }));
+    for (const [commandIndex, command] of stepCommands.entries()) {
+      results.push(await runScenarioCommand(command, context, envName, artifactDir, kind, commandIndex));
     }
   }
 
@@ -275,6 +275,17 @@ async function executeTargetSetup(context, envName) {
   return results;
 }
 
+function runScenarioCommand(command, context, envName, artifactDir, phaseId, commandIndex) {
+  return runCommand(command, {
+    timeoutMs: context.timeoutMs,
+    resourceSample: context.resourceSampling === false ? null : {
+      envName,
+      intervalMs: context.resourceSampleIntervalMs,
+      artifactPath: join(artifactDir, "resource-samples", `${safeSegment(phaseId)}-${commandIndex + 1}.jsonl`)
+    }
+  });
+}
+
 function commandValues(context, envName, artifactDir = "") {
   return {
     env: envName,
@@ -286,6 +297,10 @@ function commandValues(context, envName, artifactDir = "") {
     upgradeSelector: context.targetPlan.upgradeSelector,
     fromUpgradeSelector: context.fromPlan?.upgradeSelector ?? ""
   };
+}
+
+function safeSegment(value) {
+  return String(value ?? "phase").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "phase";
 }
 
 function envNameFor(scenarioId, stateId, runId) {

@@ -27,7 +27,9 @@ const defaultThresholds = {
   eventLoopDelayMs: 250,
   providerModelTimingMs: 5000,
   diagnosticArtifactBytes: 25 * 1024 * 1024,
-  heapSnapshotBytes: 50 * 1024 * 1024
+  heapSnapshotBytes: 50 * 1024 * 1024,
+  resourcePeakCommandTreeRssMb: 100,
+  resourcePeakGatewayRssMb: 100
 };
 
 export function compareReports(baseline, current, options = {}) {
@@ -257,6 +259,9 @@ function metricDeltas(baseline, current) {
     "heapSnapshotCount",
     "diagnosticArtifactBytes",
     "heapSnapshotBytes",
+    "resourceSampleCount",
+    "resourcePeakCommandTreeRssMb",
+    "resourcePeakGatewayRssMb",
     "pluginMetadataScanCount",
     "configNormalizationCount",
     "runtimeDepsStagingMs",

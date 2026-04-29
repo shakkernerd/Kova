@@ -44,6 +44,9 @@ export function renderMarkdownReport(report) {
     if (record.measurements) {
       lines.push(`- Peak RSS: ${record.measurements.peakRssMb ?? "unknown"} MB`);
       lines.push(`- Max CPU: ${record.measurements.cpuPercentMax ?? "unknown"}%`);
+      lines.push(`- Resource samples: ${record.measurements.resourceSampleCount ?? "unknown"}`);
+      lines.push(`- Command tree peak RSS: ${record.measurements.resourcePeakCommandTreeRssMb ?? "unknown"} MB`);
+      lines.push(`- Gateway peak RSS: ${record.measurements.resourcePeakGatewayRssMb ?? "unknown"} MB`);
       lines.push(`- Cold ready: ${record.measurements.coldReadyMs ?? "unknown"} ms`);
       lines.push(`- Warm ready: ${record.measurements.warmReadyMs ?? "unknown"} ms`);
       lines.push(`- Time to listening: ${record.measurements.timeToListeningMs ?? "unknown"} ms`);
@@ -66,6 +69,14 @@ export function renderMarkdownReport(report) {
       lines.push(`- Agent turn: ${record.measurements.agentTurnMs ?? "unknown"} ms (${record.measurements.agentResponseOk ?? "not-run"})`);
       lines.push(`- V8 reports / heap snapshots: ${record.measurements.v8ReportCount ?? "unknown"} / ${record.measurements.heapSnapshotCount ?? "unknown"}`);
       lines.push(`- Diagnostic / heap bytes: ${record.measurements.diagnosticArtifactBytes ?? "unknown"} / ${record.measurements.heapSnapshotBytes ?? "unknown"}`);
+      if (record.measurements.resourceTopByCpu?.length > 0) {
+        const top = record.measurements.resourceTopByCpu[0];
+        lines.push(`- Top CPU process: pid ${top.pid} ${top.maxCpuPercent}% ${top.role} ${shortCommand(top.command)}`);
+      }
+      if (record.measurements.resourceTopByRss?.length > 0) {
+        const top = record.measurements.resourceTopByRss[0];
+        lines.push(`- Top RSS process: pid ${top.pid} ${top.peakRssMb} MB ${top.role} ${shortCommand(top.command)}`);
+      }
     }
     lines.push("");
     if (record.violations?.length > 0) {
@@ -107,6 +118,18 @@ export function renderMarkdownReport(report) {
           lines.push(`- \`${result.command}\``);
           lines.push(`  - status: ${result.status}${result.timedOut ? " (timeout)" : ""}`);
           lines.push(`  - duration: ${result.durationMs}ms`);
+          if (result.resourceSamples) {
+            lines.push(`  - resource samples: ${result.resourceSamples.sampleCount}`);
+            lines.push(`  - peak sampled RSS: ${result.resourceSamples.peakTotalRssMb ?? "unknown"} MB`);
+            lines.push(`  - max sampled CPU: ${result.resourceSamples.maxTotalCpuPercent ?? "unknown"}%`);
+            if (result.resourceSamples.topByCpu?.length > 0) {
+              const top = result.resourceSamples.topByCpu[0];
+              lines.push(`  - top CPU: pid ${top.pid} ${top.maxCpuPercent}% ${top.role} ${shortCommand(top.command)}`);
+            }
+            if (result.resourceSamples.artifactPath) {
+              lines.push(`  - resource artifact: ${result.resourceSamples.artifactPath}`);
+            }
+          }
           const includeOutput = result.status !== 0 || result.timedOut;
           if (includeOutput && result.stdout.trim()) {
             lines.push("  - stdout:");
@@ -315,7 +338,7 @@ export function renderPasteSummary(report) {
     if (record.status === "PASS" || record.status === "DRY-RUN") {
       lines.push(`Evidence: ${record.phases?.length ?? 0} phases recorded.`);
       if (record.measurements) {
-        lines.push(`Measurements: cold ready ${record.measurements.coldReadyMs ?? "unknown"}ms; warm ready ${record.measurements.warmReadyMs ?? "unknown"}ms; listening ${record.measurements.timeToListeningMs ?? "unknown"}ms; health ready ${record.measurements.timeToHealthReadyMs ?? "unknown"}ms; peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; max CPU ${record.measurements.cpuPercentMax ?? "unknown"}%; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}; restarts ${record.measurements.gatewayRestartCount ?? "unknown"}; agent turn ${record.measurements.agentTurnMs ?? "not-run"}ms; provider/model timeouts ${record.measurements.providerTimeoutMentions ?? "unknown"}; event-loop signals ${record.measurements.eventLoopDelayMentions ?? "unknown"}; runtime deps staging ${record.measurements.runtimeDepsStagingMs ?? "unknown"}ms.`);
+        lines.push(`Measurements: cold ready ${record.measurements.coldReadyMs ?? "unknown"}ms; warm ready ${record.measurements.warmReadyMs ?? "unknown"}ms; listening ${record.measurements.timeToListeningMs ?? "unknown"}ms; health ready ${record.measurements.timeToHealthReadyMs ?? "unknown"}ms; peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; max CPU ${record.measurements.cpuPercentMax ?? "unknown"}%; samples ${record.measurements.resourceSampleCount ?? "unknown"}; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}; restarts ${record.measurements.gatewayRestartCount ?? "unknown"}; agent turn ${record.measurements.agentTurnMs ?? "not-run"}ms; provider/model timeouts ${record.measurements.providerTimeoutMentions ?? "unknown"}; event-loop signals ${record.measurements.eventLoopDelayMentions ?? "unknown"}; runtime deps staging ${record.measurements.runtimeDepsStagingMs ?? "unknown"}ms.`);
       }
     } else if (record.violations?.length > 0) {
       lines.push("Violations:");
@@ -362,4 +385,9 @@ function firstFailedCommand(record) {
 
 function fencedSnippet(value) {
   return ["```text", ...value.split("\n").slice(0, 30), "```"].join("\n");
+}
+
+function shortCommand(command) {
+  const value = String(command ?? "").replace(/\s+/g, " ").trim();
+  return value.length <= 90 ? value : `${value.slice(0, 87)}...`;
 }
