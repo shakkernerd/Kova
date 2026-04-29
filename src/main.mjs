@@ -387,6 +387,9 @@ async function matrixRun(flags) {
   const targetPlan = resolveTarget(target, "target");
   const fromPlan = flags.from ? resolveTarget(flags.from, "from") : null;
   const entries = await expandProfile(profile);
+  for (const entry of entries) {
+    validateScenarioRun(entry.scenario, flags);
+  }
   const reportRoot = flags.report_dir ? resolveFromCwd(flags.report_dir) : reportsDir;
   const runId = createRunId();
   const reportPath = join(reportRoot, `${runId}-${profile.id}.md`);
@@ -395,7 +398,6 @@ async function matrixRun(flags) {
   const records = [];
 
   for (const entry of entries) {
-    validateScenarioRun(entry.scenario, flags);
     const context = {
       target,
       targetPlan,
