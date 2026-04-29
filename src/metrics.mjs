@@ -17,6 +17,7 @@ export async function collectEnvMetrics(envName, options = {}) {
     health: null,
     healthSamples: [],
     healthSummary: null,
+    logs: null,
     error: null
   };
 
@@ -50,6 +51,7 @@ export async function collectEnvMetrics(envName, options = {}) {
       metrics.healthSamples = [metrics.health];
       metrics.healthSummary = summarizeHealthSamples(metrics.healthSamples);
     }
+    metrics.logs = await collectLogMetrics(envName, timeoutMs);
     return metrics;
   }
 
@@ -64,6 +66,7 @@ export async function collectEnvMetrics(envName, options = {}) {
     metrics.health = metrics.healthSamples.at(-1) ?? null;
     metrics.healthSummary = summarizeHealthSamples(metrics.healthSamples);
   }
+  metrics.logs = await collectLogMetrics(envName, timeoutMs);
   return metrics;
 }
 
@@ -174,6 +177,34 @@ function percentile(values, percentileValue) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function collectLogMetrics(envName, timeoutMs) {
+  const result = await runCommand(`ocm logs ${envName} --tail 200`, { timeoutMs });
+  const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  return {
+    commandStatus: result.status,
+    durationMs: result.durationMs,
+    timedOut: result.timedOut,
+    missingDependencyErrors: countPattern(text, /cannot find module|missing dependenc|missing runtime dep/i),
+    pluginLoadFailures: countPattern(text, /\[plugins\].*failed to load|plugin.*failed to load/i),
+    runtimeDependencyMentions: countPattern(text, /runtime dep|runtime dependency|runtime-deps/i),
+    metadataScanMentions: countPattern(text, /collectBundledPluginMetadata|bundled plugin metadata|manifest read|readdirSync/i),
+    configNormalizationMentions: countPattern(text, /config normal/i),
+    errorMentions: countPattern(text, /\berror\b|exception|unhandled/i),
+    stdoutSnippet: result.stdout.slice(-4000),
+    stderrSnippet: result.stderr.slice(-4000)
+  };
+}
+
+function countPattern(text, pattern) {
+  let count = 0;
+  for (const line of text.split("\n")) {
+    if (pattern.test(line)) {
+      count += 1;
+    }
+  }
+  return count;
 }
 
 function firstOutputLine(value) {

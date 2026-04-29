@@ -47,6 +47,9 @@ export function renderMarkdownReport(report) {
       lines.push(`- Final gateway state: ${record.measurements.finalGatewayState ?? "unknown"}`);
       lines.push(`- Health failures: ${record.measurements.healthFailures ?? "unknown"}`);
       lines.push(`- Health p95: ${record.measurements.healthP95Ms ?? "unknown"} ms`);
+      lines.push(`- Plugin load failures: ${record.measurements.pluginLoadFailures ?? "unknown"}`);
+      lines.push(`- Metadata scan mentions: ${record.measurements.metadataScanMentions ?? "unknown"}`);
+      lines.push(`- Config normalization mentions: ${record.measurements.configNormalizationMentions ?? "unknown"}`);
     }
     lines.push("");
     if (record.violations?.length > 0) {
@@ -166,6 +169,13 @@ function formatMetrics(metrics) {
     lines.push(`- health latency p95/max: ${metrics.healthSummary.p95Ms ?? "unknown"}ms / ${metrics.healthSummary.maxMs ?? "unknown"}ms`);
   }
 
+  if (metrics.logs) {
+    lines.push(`- log missing dependency errors: ${metrics.logs.missingDependencyErrors}`);
+    lines.push(`- log plugin load failures: ${metrics.logs.pluginLoadFailures}`);
+    lines.push(`- log metadata scan mentions: ${metrics.logs.metadataScanMentions}`);
+    lines.push(`- log config normalization mentions: ${metrics.logs.configNormalizationMentions}`);
+  }
+
   return lines.length > 0 ? lines : ["- unavailable"];
 }
 
@@ -241,7 +251,7 @@ export function renderPasteSummary(report) {
     if (record.status === "PASS" || record.status === "DRY-RUN") {
       lines.push(`Evidence: ${record.phases?.length ?? 0} phases recorded.`);
       if (record.measurements) {
-        lines.push(`Measurements: peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms.`);
+        lines.push(`Measurements: peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}.`);
       }
     } else if (record.violations?.length > 0) {
       lines.push("Violations:");

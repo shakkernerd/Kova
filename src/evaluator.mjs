@@ -7,7 +7,10 @@ export function evaluateRecord(record, scenario) {
   const violations = [];
   const allResults = collectResults(record);
   const peakRssMb = collectPeakRss(record);
-  const missingDependencyErrors = countMissingDependencyErrors(allResults);
+  const missingDependencyErrors = countMissingDependencyErrors(allResults) + countLogMetric(record, "missingDependencyErrors");
+  const pluginLoadFailures = countLogMetric(record, "pluginLoadFailures");
+  const metadataScanMentions = countLogMetric(record, "metadataScanMentions");
+  const configNormalizationMentions = countLogMetric(record, "configNormalizationMentions");
   const finalGatewayState = record.finalMetrics?.service?.gatewayState ?? null;
   const healthFailures = countHealthFailures(record);
   const healthP95Ms = collectHealthP95(record);
@@ -38,6 +41,16 @@ export function evaluateRecord(record, scenario) {
       expected: `<= ${allowedMissingDependencyErrors}`,
       actual: missingDependencyErrors,
       message: `${missingDependencyErrors} missing dependency/plugin load error patterns found`
+    });
+  }
+
+  if (typeof thresholds.pluginLoadFailures === "number" && pluginLoadFailures > thresholds.pluginLoadFailures) {
+    violations.push({
+      kind: "log",
+      metric: "pluginLoadFailures",
+      expected: `<= ${thresholds.pluginLoadFailures}`,
+      actual: pluginLoadFailures,
+      message: `${pluginLoadFailures} plugin load failure patterns found`
     });
   }
 
@@ -76,7 +89,10 @@ export function evaluateRecord(record, scenario) {
     missingDependencyErrors,
     finalGatewayState,
     healthFailures,
-    healthP95Ms
+    healthP95Ms,
+    pluginLoadFailures,
+    metadataScanMentions,
+    configNormalizationMentions
   };
 
   if (violations.length > 0) {
@@ -168,6 +184,22 @@ function collectPeakRss(record) {
   }
 
   return peak;
+}
+
+function countLogMetric(record, key) {
+  let count = 0;
+  for (const phase of record.phases ?? []) {
+    const value = phase.metrics?.logs?.[key];
+    if (typeof value === "number") {
+      count = Math.max(count, value);
+    }
+  }
+
+  const finalValue = record.finalMetrics?.logs?.[key];
+  if (typeof finalValue === "number") {
+    count = Math.max(count, finalValue);
+  }
+  return count;
 }
 
 function countMissingDependencyErrors(results) {

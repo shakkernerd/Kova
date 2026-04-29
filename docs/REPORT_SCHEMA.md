@@ -89,9 +89,13 @@ Current metrics include:
 - CPU percent
 - health URL/status/duration
 - health sample counts and p50/p95/max latency
+- gateway log diagnostic counts for missing dependency errors, plugin load
+  failures, runtime dependency mentions, metadata scan mentions, and config
+  normalization mentions
 
 Future metrics will add event-loop delay, heap reports, runtime dependency
-staging timings, plugin metadata scan counts, and config normalization counts.
+staging timings, structured plugin metadata scan counts, and structured config
+normalization counts.
 
 ## Run Receipt
 

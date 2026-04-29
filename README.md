@@ -152,6 +152,7 @@ The repo has the first production skeleton:
 - gateway service snapshots
 - gateway health snapshots
 - gateway health latency samples
+- gateway log diagnostic counts
 - gateway PID/RSS/CPU metrics on executed scenarios
 - threshold evaluation for command latency, peak RSS, missing dependency errors,
   and final gateway state
