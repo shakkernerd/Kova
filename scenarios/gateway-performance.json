@@ -1,0 +1,37 @@
+{
+  "id": "gateway-performance",
+  "title": "Gateway Startup And Runtime Performance",
+  "objective": "Measure cold start, warm start, health latency, memory, CPU, and user-facing command latency for a target OpenClaw runtime.",
+  "tags": ["performance", "gateway", "memory", "cpu", "event-loop"],
+  "thresholds": {
+    "coldReadyMs": 30000,
+    "warmReadyMs": 15000,
+    "healthP95Ms": 1000,
+    "peakRssMb": 900,
+    "eventLoopMaxMs": 500
+  },
+  "phases": [
+    {
+      "id": "cold-start",
+      "title": "Cold Start",
+      "intent": "Start a fresh gateway and capture readiness timing, process state, and logs.",
+      "commands": ["ocm start {env} {startSelector} --json", "ocm service status {env} --json"],
+      "evidence": ["ready time", "PID", "RSS", "CPU", "startup logs"]
+    },
+    {
+      "id": "api-latency",
+      "title": "API Latency",
+      "intent": "Run user-facing status, plugin, and model commands and capture duration and gateway health after each.",
+      "commands": ["ocm @{env} -- status", "ocm @{env} -- plugins list", "ocm @{env} -- models list"],
+      "evidence": ["command durations", "health after each command", "logs"]
+    },
+    {
+      "id": "warm-restart",
+      "title": "Warm Restart",
+      "intent": "Restart the gateway after runtime deps and registries are warm, then compare readiness and memory.",
+      "commands": ["ocm service restart {env}", "ocm service status {env} --json"],
+      "evidence": ["warm ready time", "RSS delta", "startup log delta"]
+    }
+  ]
+}
+

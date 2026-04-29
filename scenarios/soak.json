@@ -1,0 +1,27 @@
+{
+  "id": "soak",
+  "title": "Gateway Soak And Memory Trend",
+  "objective": "Run a gateway for a longer window with repeated user-facing checks to detect memory growth, event-loop stalls, and degraded responsiveness.",
+  "tags": ["soak", "memory", "latency", "gateway"],
+  "thresholds": {
+    "durationMs": 1800000,
+    "rssGrowthMb": 300,
+    "healthP95Ms": 1000
+  },
+  "phases": [
+    {
+      "id": "start",
+      "title": "Start Gateway",
+      "intent": "Start the target runtime and capture baseline status.",
+      "commands": ["ocm start {env} {startSelector} --json", "ocm service status {env} --json"],
+      "evidence": ["baseline PID", "baseline RSS", "baseline health"]
+    },
+    {
+      "id": "loop",
+      "title": "Repeated User Checks",
+      "intent": "Repeat status, plugin list, model list, and health checks while tracking memory and latency.",
+      "commands": ["ocm @{env} -- status", "ocm @{env} -- plugins list", "ocm @{env} -- models list"],
+      "evidence": ["latency trend", "RSS trend", "logs during loop"]
+    }
+  ]
+}

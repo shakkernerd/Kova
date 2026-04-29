@@ -1,0 +1,27 @@
+{
+  "id": "cross-platform-smoke",
+  "title": "Cross-Platform Runtime Smoke",
+  "objective": "Run the core OpenClaw runtime scenarios across supported platforms and flag platform-specific startup, filesystem, and service behavior.",
+  "tags": ["platform", "macos", "linux", "wsl2", "gateway"],
+  "thresholds": {
+    "gatewayReadyMs": 45000,
+    "healthMs": 5000,
+    "syncFsStallDetected": false
+  },
+  "phases": [
+    {
+      "id": "platform",
+      "title": "Platform Baseline",
+      "intent": "Capture OS, architecture, Node, OCM, and OpenClaw runtime details.",
+      "commands": ["node --version", "ocm --version", "ocm start {env} {startSelector} --json"],
+      "evidence": ["OS", "architecture", "Node version", "runtime version", "gateway port"]
+    },
+    {
+      "id": "core-smoke",
+      "title": "Core Runtime Smoke",
+      "intent": "Run the minimum user-facing checks used for every platform.",
+      "commands": ["ocm @{env} -- status", "ocm @{env} -- plugins list", "ocm logs {env} --tail 250 --raw"],
+      "evidence": ["status", "plugin list", "filesystem stall logs", "health latency"]
+    }
+  ]
+}

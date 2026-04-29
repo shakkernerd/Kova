@@ -1,0 +1,58 @@
+{
+  "id": "fresh-install",
+  "title": "Fresh OpenClaw Install Baseline",
+  "objective": "Create a disposable fresh OpenClaw home from the target runtime, start the gateway, and verify basic user-facing commands without onboarding or manual setup.",
+  "tags": ["fresh-user", "gateway", "plugins", "models", "performance"],
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "statusMs": 10000,
+    "pluginsListMs": 10000,
+    "modelsListMs": 20000,
+    "peakRssMb": 900
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision Fresh Env",
+      "intent": "Create a disposable OpenClaw environment with the selected runtime and minimum local config.",
+      "commands": ["ocm start {env} {startSelector} --json"],
+      "evidence": ["OCM start JSON", "env name", "runtime binding", "gateway port"]
+    },
+    {
+      "id": "readiness",
+      "title": "Gateway Readiness",
+      "intent": "Confirm the gateway reaches a usable running state within the threshold.",
+      "commands": ["ocm service status {env} --json", "ocm @{env} -- status"],
+      "evidence": ["ready time", "gateway state", "gateway PID", "health/status result"]
+    },
+    {
+      "id": "plugins",
+      "title": "Plugin Baseline",
+      "intent": "Verify OpenClaw can inspect installed/bundled plugin state without missing runtime dependency errors.",
+      "commands": ["ocm @{env} -- plugins list", "ocm @{env} -- plugins update --all --dry-run"],
+      "evidence": ["plugins list output", "plugin update dry-run output", "missing dependency log scan"]
+    },
+    {
+      "id": "models",
+      "title": "Model Baseline",
+      "intent": "Verify model discovery does not stall the gateway or hang indefinitely.",
+      "commands": ["ocm @{env} -- models list"],
+      "evidence": ["models list duration", "timeout behavior", "gateway health after model list"]
+    },
+    {
+      "id": "logs",
+      "title": "Startup Logs",
+      "intent": "Capture startup logs for dependency staging, plugin loading, stalls, and warnings.",
+      "commands": ["ocm logs {env} --tail 200 --raw"],
+      "evidence": ["startup logs", "missing dependency errors", "plugin metadata scan warnings"]
+    },
+    {
+      "id": "cleanup",
+      "title": "Cleanup",
+      "intent": "Destroy the disposable OpenClaw environment unless retained for debugging.",
+      "commands": ["ocm env destroy {env} --yes"],
+      "evidence": ["destroy result"]
+    }
+  ]
+}
+

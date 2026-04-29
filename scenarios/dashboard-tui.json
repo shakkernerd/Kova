@@ -1,0 +1,27 @@
+{
+  "id": "dashboard-tui",
+  "title": "Dashboard And TUI Responsiveness",
+  "objective": "Verify user-facing dashboard and TUI entry paths connect to the gateway without making the gateway unresponsive.",
+  "tags": ["dashboard", "tui", "websocket", "gateway"],
+  "thresholds": {
+    "statusMs": 10000,
+    "tuiSmokeMs": 15000,
+    "dashboardConnectMs": 10000
+  },
+  "phases": [
+    {
+      "id": "gateway",
+      "title": "Gateway Start",
+      "intent": "Start the gateway and confirm status before UI checks.",
+      "commands": ["ocm start {env} {startSelector} --json", "ocm @{env} -- status"],
+      "evidence": ["gateway status", "dashboard URL", "gateway port"]
+    },
+    {
+      "id": "ui-entry",
+      "title": "UI Entry Smoke",
+      "intent": "Exercise non-interactive UI entry points where available and capture connection failures.",
+      "commands": ["ocm logs {env} --tail 250 --raw"],
+      "evidence": ["websocket disconnect logs", "TUI startup logs", "gateway responsiveness after UI entry"]
+    }
+  ]
+}

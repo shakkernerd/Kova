@@ -1,0 +1,27 @@
+{
+  "id": "provider-models",
+  "title": "Provider And Model Discovery",
+  "objective": "Exercise model/provider discovery paths and verify slow, missing, or unauthenticated providers do not stall the gateway globally.",
+  "tags": ["models", "providers", "timeouts", "gateway"],
+  "thresholds": {
+    "modelsListMs": 20000,
+    "statusAfterModelsMs": 10000,
+    "gatewayResponsive": true
+  },
+  "phases": [
+    {
+      "id": "baseline",
+      "title": "Provider Discovery Baseline",
+      "intent": "Start the gateway and run model discovery with the target runtime's default config.",
+      "commands": ["ocm start {env} {startSelector} --json", "ocm @{env} -- models list", "ocm @{env} -- status"],
+      "evidence": ["models list duration", "provider timeout warnings", "gateway status after model discovery"]
+    },
+    {
+      "id": "logs",
+      "title": "Provider Logs",
+      "intent": "Capture logs for provider/model discovery stalls, missing auth, and timeout handling.",
+      "commands": ["ocm logs {env} --tail 300 --raw"],
+      "evidence": ["timeout logs", "auth skip logs", "gateway stall logs"]
+    }
+  ]
+}

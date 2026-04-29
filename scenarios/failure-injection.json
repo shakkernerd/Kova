@@ -1,0 +1,27 @@
+{
+  "id": "failure-injection",
+  "title": "OpenClaw Failure Containment",
+  "objective": "Inject bad plugin/provider/runtime conditions and verify OpenClaw reports useful diagnostics without taking down the gateway.",
+  "tags": ["failure", "plugins", "providers", "diagnostics", "gateway"],
+  "thresholds": {
+    "gatewaySurvives": true,
+    "diagnosticPresent": true,
+    "statusAfterFailureMs": 10000
+  },
+  "phases": [
+    {
+      "id": "baseline",
+      "title": "Baseline Gateway",
+      "intent": "Start from a clean gateway before injecting failure conditions.",
+      "commands": ["ocm start {env} {startSelector} --json", "ocm @{env} -- status"],
+      "evidence": ["baseline status", "gateway PID"]
+    },
+    {
+      "id": "diagnostics",
+      "title": "Diagnostic Capture",
+      "intent": "Capture logs and status after injected failures. Scenario-specific injectors will be added as Kova grows.",
+      "commands": ["ocm logs {env} --tail 300 --raw", "ocm @{env} -- status"],
+      "evidence": ["error classification", "gateway survival", "recovery guidance"]
+    }
+  ]
+}
