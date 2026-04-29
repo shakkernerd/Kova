@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { bundleReport } from "./artifacts.mjs";
-import { runCommand } from "./commands.mjs";
+import { quoteShell, runCommand } from "./commands.mjs";
 import { compareReports, renderCompareFixerSummary, renderCompareSummary } from "./compare.mjs";
 import { parseFlags, printHelp, required, resolveFromCwd } from "./cli.mjs";
 import { platformInfo } from "./platform.mjs";
@@ -278,6 +278,10 @@ async function matrixRun(flags) {
   const records = flags.execute === true
     ? await runMatrixEntries(entries, runEntry, controls)
     : await Promise.all(entries.map((entry) => runEntry(entry)));
+  const targetCleanup = await cleanupTargetRuntimeIfNeeded(targetPlan, records, {
+    execute: flags.execute === true,
+    timeoutMs: positiveIntegerFlag(flags, "timeout_ms", 120000)
+  });
 
   await mkdir(reportRoot, { recursive: true });
   const report = {
@@ -291,6 +295,7 @@ async function matrixRun(flags) {
     controls,
     state: null,
     platform: platformInfo(),
+    targetCleanup,
     summary: summarizeRecords(records),
     records
   };
@@ -603,6 +608,10 @@ async function run(flags) {
       records.push(buildDryRunRecord(scenario, context));
     }
   }
+  const targetCleanup = await cleanupTargetRuntimeIfNeeded(targetPlan, records, {
+    execute: context.execute,
+    timeoutMs: context.timeoutMs
+  });
 
   await mkdir(reportRoot, { recursive: true });
   const report = {
@@ -618,6 +627,7 @@ async function run(flags) {
       objective: state.objective
     },
     platform: platformInfo(),
+    targetCleanup,
     summary: summarizeRecords(records),
     records
   };
@@ -650,6 +660,44 @@ function resolveRunTimeout(scenarios, flags) {
     .map((scenario) => scenario.timeoutMs)
     .filter((timeout) => typeof timeout === "number");
   return scenarioTimeouts.length === 0 ? 120000 : Math.max(...scenarioTimeouts);
+}
+
+async function cleanupTargetRuntimeIfNeeded(targetPlan, records, options) {
+  if (targetPlan.kind !== "local-build") {
+    return null;
+  }
+
+  const command = `ocm runtime remove ${quoteShell(targetPlan.runtimeName)} --json`;
+  if (!options.execute) {
+    return {
+      status: "planned",
+      runtimeName: targetPlan.runtimeName,
+      command
+    };
+  }
+
+  if (records.some((record) => record.cleanup === "retained")) {
+    return {
+      status: "retained",
+      runtimeName: targetPlan.runtimeName,
+      command,
+      reason: "one or more envs were retained"
+    };
+  }
+
+  const result = await runCommand(command, { timeoutMs: options.timeoutMs });
+  return {
+    status: result.status === 0 ? "removed" : "remove-failed",
+    runtimeName: targetPlan.runtimeName,
+    command,
+    result: {
+      status: result.status,
+      durationMs: result.durationMs,
+      timedOut: result.timedOut,
+      stdout: result.stdout,
+      stderr: result.stderr
+    }
+  };
 }
 
 function positiveIntegerFlag(flags, key, defaultValue) {

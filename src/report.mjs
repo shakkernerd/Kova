@@ -25,6 +25,21 @@ export function renderMarkdownReport(report) {
     ...Object.entries(report.summary.statuses).map(([status, count]) => `- ${status}: ${count}`),
     ""
   ];
+  if (report.targetCleanup) {
+    lines.push("## Target Cleanup");
+    lines.push("");
+    lines.push(`- Runtime: \`${report.targetCleanup.runtimeName}\``);
+    lines.push(`- Result: ${report.targetCleanup.status}`);
+    lines.push(`- Command: \`${report.targetCleanup.command}\``);
+    if (report.targetCleanup.reason) {
+      lines.push(`- Reason: ${report.targetCleanup.reason}`);
+    }
+    if (report.targetCleanup.result) {
+      lines.push(`- Exit: ${report.targetCleanup.result.status}`);
+      lines.push(`- Duration: ${report.targetCleanup.result.durationMs}ms`);
+    }
+    lines.push("");
+  }
 
   for (const record of report.records) {
     lines.push(`## ${record.title}`);

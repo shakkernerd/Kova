@@ -31,6 +31,7 @@ kova.report.v1
     "release": "25.3.0",
     "node": "v24.13.0"
   },
+  "targetCleanup": null,
   "summary": {
     "total": 1,
     "statuses": {
@@ -40,6 +41,10 @@ kova.report.v1
   "records": []
 }
 ```
+
+`targetCleanup` is normally `null`. For `local-build:<repo>` targets, it records
+whether Kova removed the generated temporary OCM runtime after execution, or why
+it retained that runtime.
 
 ## Record
 

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { quoteShell, runCommand } from "./commands.mjs";
@@ -76,6 +76,7 @@ export async function runSelfCheck(flags = {}) {
         }
       }
     ));
+    checks.push(await localBuildRuntimeCleanupCheck(tmp));
 
     const receiptCheck = await jsonCommandCheck(
       "dry-run-report-json",
@@ -146,6 +147,72 @@ export async function runSelfCheck(flags = {}) {
 
   if (!ok) {
     throw new Error("self-check failed");
+  }
+}
+
+async function localBuildRuntimeCleanupCheck(tmp) {
+  const binDir = join(tmp, "mock-bin");
+  const repoDir = join(tmp, "mock-openclaw repo");
+  const reportDir = join(tmp, "local-build-cleanup-report");
+  const ocmLog = join(tmp, "mock-ocm.log");
+  await mkdir(binDir, { recursive: true });
+  await mkdir(repoDir, { recursive: true });
+  const ocmPath = join(binDir, "ocm");
+  await writeFile(ocmPath, `#!/bin/sh
+printf '%s\\n' "$*" >> "$KOVA_MOCK_OCM_LOG"
+case "$1:$2" in
+  runtime:build-local) echo '{"ok":true}'; exit 0 ;;
+  runtime:remove) echo '{"removed":true}'; exit 0 ;;
+  service:status) echo '{"running":false,"desiredRunning":false,"childPid":null,"gatewayPort":null,"gatewayState":"stopped"}'; exit 0 ;;
+  env:exec) exit 0 ;;
+  env:destroy) echo '{"destroyed":true}'; exit 0 ;;
+esac
+case "$1" in
+  start) echo '{"ok":true}'; exit 0 ;;
+  logs) exit 0 ;;
+  @*) echo 'ok'; exit 0 ;;
+  --version) echo 'mock-ocm'; exit 0 ;;
+esac
+echo "unhandled mock ocm command: $*" >&2
+exit 2
+`, "utf8");
+  await chmod(ocmPath, 0o755);
+
+  const command = `node bin/kova.mjs run --target local-build:${quoteShell(repoDir)} --scenario fresh-install --execute --report-dir ${quoteShell(reportDir)} --json`;
+  const result = await runCommand(command, {
+    timeoutMs: 30000,
+    maxOutputChars: 1000000,
+    env: {
+      PATH: `${binDir}:${process.env.PATH}`,
+      KOVA_MOCK_OCM_LOG: ocmLog
+    }
+  });
+
+  try {
+    if (result.status !== 0) {
+      throw new Error(result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`);
+    }
+    const receipt = JSON.parse(result.stdout);
+    const report = JSON.parse(await readFile(receipt.jsonPath, "utf8"));
+    const log = await readFile(ocmLog, "utf8");
+    assertEqual(report.targetCleanup?.status, "removed", "local-build target cleanup status");
+    if (!/runtime remove kova-local-\d+ --json/.test(log)) {
+      throw new Error(`runtime remove was not called; log:\n${log}`);
+    }
+    return {
+      id: "local-build-runtime-cleanup",
+      status: "PASS",
+      command,
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "local-build-runtime-cleanup",
+      status: "FAIL",
+      command,
+      durationMs: result.durationMs,
+      message: error.message
+    };
   }
 }
 
