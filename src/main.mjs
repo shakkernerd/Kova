@@ -7,6 +7,7 @@ import { reportsDir } from "./paths.mjs";
 import { renderMarkdownReport, renderPasteSummary, renderReportSummary, summarizeRecords } from "./report.mjs";
 import { buildDryRunRecord, createRunId, executeScenario } from "./runner.mjs";
 import { loadScenarios, validateScenarioRun } from "./scenarios.mjs";
+import { loadStates } from "./states.mjs";
 import { resolveTarget } from "./targets.mjs";
 
 const reportSchemaVersion = "kova.report.v1";
@@ -32,6 +33,11 @@ export async function main(argv) {
 
   if (command === "scenarios") {
     await scenariosCommand(flags);
+    return;
+  }
+
+  if (command === "states") {
+    await statesCommand(flags);
     return;
   }
 
@@ -153,6 +159,61 @@ async function scenariosCommand(flags) {
   }
 
   throw new Error(`unknown scenarios command: ${subcommand}`);
+}
+
+async function statesCommand(flags) {
+  const [subcommand = "list", id] = flags._;
+
+  if (subcommand === "list") {
+    const states = await loadStates();
+    if (flags.json) {
+      console.log(JSON.stringify({
+        schemaVersion: "kova.states.list.v1",
+        generatedAt: new Date().toISOString(),
+        states: states.map((state) => ({
+          id: state.id,
+          title: state.title,
+          objective: state.objective,
+          tags: state.tags,
+          setupStepCount: state.setup.length
+        }))
+      }, null, 2));
+      return;
+    }
+
+    for (const state of states) {
+      console.log(`${state.id}: ${state.title}`);
+    }
+    return;
+  }
+
+  if (subcommand === "show") {
+    const stateId = required(id, "state id");
+    const [state] = await loadStates(stateId);
+    if (flags.json) {
+      console.log(JSON.stringify({
+        schemaVersion: "kova.states.show.v1",
+        generatedAt: new Date().toISOString(),
+        state
+      }, null, 2));
+      return;
+    }
+
+    console.log(`${state.id}: ${state.title}`);
+    console.log(`Objective: ${state.objective}`);
+    console.log(`Tags: ${state.tags.join(", ")}`);
+    console.log("Setup:");
+    if (state.setup.length === 0) {
+      console.log("- none");
+    } else {
+      for (const step of state.setup) {
+        console.log(`- ${step.id}: ${step.title} after ${step.afterPhase}`);
+      }
+    }
+    return;
+  }
+
+  throw new Error(`unknown states command: ${subcommand}`);
 }
 
 async function reportCommand(flags) {

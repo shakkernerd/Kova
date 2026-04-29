@@ -1,0 +1,19 @@
+{
+  "id": "stale-runtime-deps",
+  "title": "Stale Plugin Runtime Dependencies",
+  "objective": "A user state where staged bundled plugin runtime dependencies are removed after provisioning, used to verify OpenClaw can restage dependencies without missing dependency errors or gateway stalls.",
+  "tags": ["plugins", "runtime-deps", "migration"],
+  "setup": [
+    {
+      "id": "remove-runtime-deps",
+      "title": "Remove Staged Runtime Dependencies",
+      "intent": "Delete staged plugin runtime dependency folders inside the disposable OpenClaw env.",
+      "afterPhase": "provision",
+      "commands": [
+        "ocm env exec {env} -- sh -lc 'rm -rf \"$OPENCLAW_HOME/.openclaw/plugin-runtime-deps\" \"$OPENCLAW_HOME/plugin-runtime-deps\"'"
+      ],
+      "evidence": ["removed staged plugin runtime dependency folders"]
+    }
+  ]
+}
+

@@ -1,0 +1,8 @@
+{
+  "id": "fresh",
+  "title": "Fresh OpenClaw User",
+  "objective": "A new isolated OpenClaw home with no intentional state mutations beyond normal scenario provisioning.",
+  "tags": ["fresh", "baseline"],
+  "setup": []
+}
+

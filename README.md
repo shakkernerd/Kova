@@ -47,6 +47,8 @@ node bin/kova.mjs plan
 node bin/kova.mjs plan --json
 node bin/kova.mjs scenarios list
 node bin/kova.mjs scenarios show fresh-install --json
+node bin/kova.mjs states list
+node bin/kova.mjs states show missing-plugin-index --json
 node bin/kova.mjs plan --scenario fresh-install
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install
 node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --json

@@ -46,6 +46,7 @@ Important fields:
 - `status`: `PASS`, `FAIL`, `BLOCKED`, `SKIPPED`, or `DRY-RUN`
 - `target`: OpenClaw target selector
 - `from`: optional source selector
+- `state`: OpenClaw user-state fixture
 - `envName`: disposable Kova/OCM env name
 - `thresholds`: scenario threshold contract
 - `measurements`: evaluated measurements

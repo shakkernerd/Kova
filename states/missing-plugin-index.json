@@ -1,0 +1,19 @@
+{
+  "id": "missing-plugin-index",
+  "title": "Missing Plugin Install Index",
+  "objective": "A user state where plugin install index files are absent after provisioning, used to verify OpenClaw rebuilds or handles plugin metadata without expensive repeated scans.",
+  "tags": ["plugins", "migration", "registry"],
+  "setup": [
+    {
+      "id": "remove-plugin-index",
+      "title": "Remove Plugin Install Index",
+      "intent": "Delete known plugin install index locations inside the disposable OpenClaw env.",
+      "afterPhase": "provision",
+      "commands": [
+        "ocm env exec {env} -- sh -lc 'rm -f \"$OPENCLAW_HOME/.openclaw/plugins/installs.json\" \"$OPENCLAW_HOME/plugins/installs.json\"'"
+      ],
+      "evidence": ["removed plugin install index files"]
+    }
+  ]
+}
+

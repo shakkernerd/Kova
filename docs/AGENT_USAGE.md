@@ -45,6 +45,8 @@ node bin/kova.mjs doctor --json
 node bin/kova.mjs plan --json
 node bin/kova.mjs scenarios list --json
 node bin/kova.mjs scenarios show fresh-install --json
+node bin/kova.mjs states list --json
+node bin/kova.mjs states show missing-plugin-index --json
 ```
 
 3. Dry-run the intended scenario:

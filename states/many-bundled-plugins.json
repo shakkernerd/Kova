@@ -1,0 +1,8 @@
+{
+  "id": "many-bundled-plugins",
+  "title": "Many Bundled Plugins Enabled",
+  "objective": "A pressure state for bundled plugin and provider metadata paths. This state currently records intent and will gain concrete config mutation commands as Kova state coverage expands.",
+  "tags": ["plugins", "providers", "pressure"],
+  "setup": []
+}
+
