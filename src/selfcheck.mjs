@@ -77,6 +77,7 @@ export async function runSelfCheck(flags = {}) {
       }
     ));
     checks.push(await localBuildRuntimeCleanupCheck(tmp));
+    checks.push(await localBuildRuntimeAlreadyAbsentCleanupCheck(tmp));
 
     const receiptCheck = await jsonCommandCheck(
       "dry-run-report-json",
@@ -211,6 +212,69 @@ exit 2
   } catch (error) {
     return {
       id: "local-build-runtime-cleanup",
+      status: "FAIL",
+      command,
+      durationMs: result.durationMs,
+      message: error.message
+    };
+  }
+}
+
+async function localBuildRuntimeAlreadyAbsentCleanupCheck(tmp) {
+  const binDir = join(tmp, "mock-bin-absent-runtime");
+  const repoDir = join(tmp, "mock-openclaw failed build");
+  const reportDir = join(tmp, "local-build-absent-cleanup-report");
+  const ocmLog = join(tmp, "mock-ocm-absent.log");
+  await mkdir(binDir, { recursive: true });
+  await mkdir(repoDir, { recursive: true });
+  const ocmPath = join(binDir, "ocm");
+  await writeFile(ocmPath, `#!/bin/sh
+printf '%s\\n' "$*" >> "$KOVA_MOCK_OCM_LOG"
+case "$1:$2" in
+  runtime:build-local) echo 'dependency install failed' >&2; exit 1 ;;
+  runtime:remove) echo 'ocm: runtime "kova-local-mock" does not exist' >&2; exit 1 ;;
+  service:status) echo '{"running":false,"desiredRunning":false,"childPid":null,"gatewayPort":null,"gatewayState":"stopped"}'; exit 0 ;;
+  env:destroy) echo '{"destroyed":true}'; exit 0 ;;
+esac
+case "$1" in
+  --version) echo 'mock-ocm'; exit 0 ;;
+esac
+echo "unhandled mock ocm command: $*" >&2
+exit 2
+`, "utf8");
+  await chmod(ocmPath, 0o755);
+
+  const command = `node bin/kova.mjs run --target local-build:${quoteShell(repoDir)} --scenario fresh-install --execute --report-dir ${quoteShell(reportDir)} --json`;
+  const result = await runCommand(command, {
+    timeoutMs: 30000,
+    maxOutputChars: 1000000,
+    env: {
+      PATH: `${binDir}:${process.env.PATH}`,
+      KOVA_MOCK_OCM_LOG: ocmLog
+    }
+  });
+
+  try {
+    if (result.status !== 0) {
+      throw new Error(result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`);
+    }
+    const receipt = JSON.parse(result.stdout);
+    const report = JSON.parse(await readFile(receipt.jsonPath, "utf8"));
+    const log = await readFile(ocmLog, "utf8");
+    assertEqual(report.summary?.statuses?.BLOCKED, 1, "failed local-build scenario status");
+    assertEqual(report.targetCleanup?.status, "already-absent", "already absent local-build target cleanup status");
+    if (!/runtime remove kova-local-\d+ --json/.test(log)) {
+      throw new Error(`runtime remove was not called after failed build; log:\n${log}`);
+    }
+    return {
+      id: "local-build-runtime-already-absent-cleanup",
+      status: "PASS",
+      command,
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "local-build-runtime-already-absent-cleanup",
       status: "FAIL",
       command,
       durationMs: result.durationMs,

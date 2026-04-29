@@ -686,10 +686,12 @@ async function cleanupTargetRuntimeIfNeeded(targetPlan, records, options) {
   }
 
   const result = await runCommand(command, { timeoutMs: options.timeoutMs });
+  const cleanupStatus = classifyTargetRuntimeCleanup(result);
   return {
-    status: result.status === 0 ? "removed" : "remove-failed",
+    status: cleanupStatus.status,
     runtimeName: targetPlan.runtimeName,
     command,
+    reason: cleanupStatus.reason,
     result: {
       status: result.status,
       durationMs: result.durationMs,
@@ -698,6 +700,22 @@ async function cleanupTargetRuntimeIfNeeded(targetPlan, records, options) {
       stderr: result.stderr
     }
   };
+}
+
+function classifyTargetRuntimeCleanup(result) {
+  if (result.status === 0) {
+    return { status: "removed" };
+  }
+
+  const output = `${result.stdout}\n${result.stderr}`;
+  if (/\bruntime\b[\s\S]*\bdoes not exist\b/i.test(output) || /\bnot found\b/i.test(output)) {
+    return {
+      status: "already-absent",
+      reason: "target runtime was not present when cleanup ran"
+    };
+  }
+
+  return { status: "remove-failed" };
 }
 
 function positiveIntegerFlag(flags, key, defaultValue) {
