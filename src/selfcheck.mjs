@@ -6,6 +6,13 @@ import { summarizeCpuProfiles } from "./collectors/node-profiles.mjs";
 import { summarizeHeapProfiles } from "./collectors/heap.mjs";
 import { evaluateRecord } from "./evaluator.mjs";
 import { evaluateGate } from "./gate.mjs";
+import {
+  comparePerformanceToBaseline,
+  loadBaselineStore,
+  saveBaselineStore,
+  updateBaselineStore
+} from "./performance/baselines.mjs";
+import { buildPerformanceSummary } from "./performance/stats.mjs";
 import { loadProcessRoles } from "./registries/process-roles.mjs";
 import { validateStateShape } from "./registries/states.mjs";
 import { validateRegistryReferences } from "./registries/validate.mjs";
@@ -51,6 +58,9 @@ export async function runSelfCheck(flags = {}) {
       assertEqual(data.entries.length, 1, "matrix include filter count");
       assertEqual(data.controls?.requestedParallel, 2, "matrix requested parallel");
     }));
+    checks.push(await jsonCommandCheck("matrix-plan-repeat-json", "node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --include scenario:fresh-install --repeat 3 --json", (data) => {
+      assertEqual(data.controls?.repeat, 3, "matrix repeat control");
+    }));
     checks.push(await jsonCommandCheck("diagnostic-profile-plan-json", "node bin/kova.mjs matrix plan --profile diagnostic --target local-build:/tmp/openclaw --include scenario:release-runtime-startup --json", (data) => {
       assertEqual(data.schemaVersion, "kova.matrix.plan.v1", "diagnostic matrix plan schema");
       assertEqual(data.profile?.id, "diagnostic", "diagnostic profile id");
@@ -72,6 +82,11 @@ export async function runSelfCheck(flags = {}) {
       "node bin/kova.mjs run --target runtime:stable --scenario fresh-install --timeout-ms 0 --json",
       "--timeout-ms must be a positive integer"
     ));
+    checks.push(await failingCommandCheck(
+      "baseline-requires-execute",
+      "node bin/kova.mjs run --target runtime:stable --scenario fresh-install --baseline --json",
+      "--baseline and --save-baseline require --execute"
+    ));
     checks.push(await jsonCommandCheck("cleanup-json", "node bin/kova.mjs cleanup envs --json", (data) => {
       assertEqual(data.schemaVersion, "kova.cleanup.envs.v1", "cleanup schema");
       assertEqual(data.execute, false, "cleanup execute flag");
@@ -80,6 +95,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await diagnosticsTimelineCheck());
     checks.push(await diagnosticsOpenSpanCheck());
     checks.push(diagnosticsTimelineEvaluationCheck());
+    checks.push(await performanceBaselineCheck(tmp));
     checks.push(readinessClassificationCheck());
     checks.push(await resourceRoleAttributionCheck(tmp));
     checks.push(roleThresholdEvaluationCheck());
@@ -115,11 +131,12 @@ export async function runSelfCheck(flags = {}) {
 
     const receiptCheck = await jsonCommandCheck(
       "dry-run-report-json",
-      `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --report-dir ${quoteShell(tmp)} --json`,
+      `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --repeat 2 --report-dir ${quoteShell(tmp)} --json`,
       (data) => {
         assertEqual(data.schemaVersion, "kova.run.receipt.v1", "run receipt schema");
         assertEqual(data.mode, "dry-run", "run mode");
-        assertEqual(data.summary?.statuses?.["DRY-RUN"], 1, "dry-run count");
+        assertEqual(data.summary?.statuses?.["DRY-RUN"], 2, "dry-run repeat count");
+        assertEqual(data.performance?.repeat, 2, "run receipt repeat");
         assertString(data.jsonPath, "json report path");
       }
     );
@@ -246,6 +263,115 @@ function gatePartialFailureCheck() {
       message: error.message
     };
   }
+}
+
+async function performanceBaselineCheck(tmp) {
+  try {
+    const platform = { os: "darwin", arch: "arm64", release: "test", node: "v24.0.0" };
+    const targetPlan = { kind: "local-build" };
+    const baselineReport = syntheticPerformanceReport({
+      runId: "baseline",
+      platform,
+      target: "local-build:/tmp/openclaw",
+      records: [
+        syntheticPerformanceRecord(1, { timeToHealthReadyMs: 1000, peakRssMb: 400, cpuPercentMax: 20, eventLoopDelayMs: 100, agentTurnMs: 2000 }),
+        syntheticPerformanceRecord(2, { timeToHealthReadyMs: 1200, peakRssMb: 420, cpuPercentMax: 22, eventLoopDelayMs: 110, agentTurnMs: 2200 }),
+        syntheticPerformanceRecord(3, { timeToHealthReadyMs: 1100, peakRssMb: 410, cpuPercentMax: 21, eventLoopDelayMs: 105, agentTurnMs: 2100 })
+      ]
+    });
+    baselineReport.performance = buildPerformanceSummary(baselineReport.records, { repeat: 3 });
+
+    const baselinePath = join(tmp, "baselines.json");
+    const savedStore = updateBaselineStore(await loadBaselineStore(baselinePath), baselineReport, { targetPlan });
+    await saveBaselineStore(baselinePath, savedStore);
+    const loadedStore = await loadBaselineStore(baselinePath);
+    assertEqual(Object.keys(loadedStore.entries).length, 1, "baseline entry count");
+
+    const currentReport = syntheticPerformanceReport({
+      runId: "current",
+      platform,
+      target: "local-build:/tmp/openclaw",
+      records: [
+        syntheticPerformanceRecord(1, { timeToHealthReadyMs: 1800, peakRssMb: 500, cpuPercentMax: 30, eventLoopDelayMs: 180, agentTurnMs: 3000 }),
+        syntheticPerformanceRecord(2, { timeToHealthReadyMs: 1900, peakRssMb: 510, cpuPercentMax: 31, eventLoopDelayMs: 190, agentTurnMs: 3100 }),
+        syntheticPerformanceRecord(3, { timeToHealthReadyMs: 2000, peakRssMb: 520, cpuPercentMax: 32, eventLoopDelayMs: 200, agentTurnMs: 3200 })
+      ]
+    });
+    currentReport.performance = buildPerformanceSummary(currentReport.records, { repeat: 3 });
+    assertEqual(currentReport.performance.groups[0].metrics.timeToHealthReadyMs.median, 1900, "performance median");
+    assertEqual(currentReport.performance.groups[0].metrics.timeToHealthReadyMs.p95, 1990, "performance p95");
+
+    const comparison = comparePerformanceToBaseline(currentReport, loadedStore, {
+      targetPlan,
+      regressionThresholds: {
+        startupRegressionPercent: 10,
+        rssRegressionPercent: 10,
+        cpuRegressionPercent: 10,
+        eventLoopRegressionPercent: 10,
+        agentLatencyRegressionPercent: 10
+      }
+    });
+    assertEqual(comparison.ok, false, "baseline comparison regression");
+    assertEqual(comparison.regressions.some((regression) => regression.metric === "timeToHealthReadyMs"), true, "startup regression present");
+
+    const gate = evaluateGate({
+      mode: "execution",
+      controls: {},
+      platform,
+      baseline: { path: baselinePath, comparison },
+      records: currentReport.records
+    }, {
+      id: "perf-gate",
+      gate: {
+        id: "perf-gate",
+        blocking: [{ scenario: "fresh-install", state: "fresh" }]
+      }
+    });
+    assertEqual(gate.verdict, "DO_NOT_SHIP", "performance regression gate verdict");
+    assertEqual(gate.cards.some((card) => card.kind === "performance-regression"), true, "performance regression gate card");
+
+    return {
+      id: "performance-baseline-regression",
+      status: "PASS",
+      command: "evaluate synthetic repeat performance baseline",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "performance-baseline-regression",
+      status: "FAIL",
+      command: "evaluate synthetic repeat performance baseline",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function syntheticPerformanceReport({ runId, platform, target, records }) {
+  return {
+    schemaVersion: "kova.report.v1",
+    generatedAt: "2026-04-29T00:00:00.000Z",
+    runId,
+    mode: "execution",
+    target,
+    platform,
+    records
+  };
+}
+
+function syntheticPerformanceRecord(index, measurements) {
+  return {
+    scenario: "fresh-install",
+    surface: "fresh-install",
+    title: "Fresh Install",
+    status: "PASS",
+    target: "local-build:/tmp/openclaw",
+    state: { id: "fresh", title: "Fresh" },
+    repeat: { index, total: 3 },
+    envName: `kova-fresh-install-r${index}`,
+    measurements,
+    phases: []
+  };
 }
 
 async function gateDryRunCheck(tmp) {
@@ -1146,7 +1272,9 @@ function validateReport(report) {
   try {
     assertEqual(report.schemaVersion, "kova.report.v1", "report schema");
     assertEqual(report.mode, "dry-run", "report mode");
-    assertEqual(report.summary?.statuses?.["DRY-RUN"], 1, "report dry-run count");
+    assertEqual(report.summary?.statuses?.["DRY-RUN"], 2, "report dry-run count");
+    assertEqual(report.performance?.repeat, 2, "report repeat count");
+    assertEqual(report.performance?.groupCount, 1, "report performance group count");
     assertArrayNotEmpty(report.records, "report records");
     const dirs = report.records[0]?.collectorArtifactDirs;
     assertEqual(dirs?.schemaVersion, "kova.collectorArtifactDirs.v1", "collector artifact dirs schema");

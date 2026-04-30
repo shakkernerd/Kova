@@ -35,6 +35,10 @@ export function renderMarkdownReport(report) {
     lines.push(...formatGateSection(report.gate));
   }
 
+  if (report.performance) {
+    lines.push(...formatPerformanceSection(report.performance, report.baseline));
+  }
+
   if (report.targetCleanup) {
     lines.push("## Target Cleanup");
     lines.push("");
@@ -401,6 +405,7 @@ export function renderReportSummary(report, options = {}) {
     from: report.from ?? null,
     platform: report.platform,
     gate: report.gate ?? null,
+    performance: summarizePerformance(report.performance, report.baseline),
     failureBrief: buildFailureBrief(report),
     statuses: report.summary?.statuses ?? summarizeRecords(records).statuses,
     scenarios: records.map((record) => {
@@ -487,6 +492,53 @@ function summarizeMeasurements(measurements) {
     nodeHeapTopFunction: measurements.nodeHeapTopFunction ?? null,
     nodeHeapTopFunctionMb: measurements.nodeHeapTopFunctionMb ?? null,
     diagnosticCorrelation: measurements.diagnosticCorrelation ?? null
+  };
+}
+
+function formatPerformanceSection(performance, baseline) {
+  const lines = [
+    "## Performance",
+    "",
+    `- Repeat: ${performance.repeat ?? "unknown"}`,
+    `- Groups: ${performance.groupCount ?? 0}`,
+    `- Unstable groups: ${performance.unstableGroupCount ?? 0}`
+  ];
+
+  if (baseline?.comparison) {
+    lines.push(`- Baseline regressions: ${baseline.comparison.regressionCount}`);
+    lines.push(`- Missing baselines: ${baseline.comparison.missingBaselineCount}`);
+    for (const regression of baseline.comparison.regressions.slice(0, 6)) {
+      lines.push(`- Regression: ${regression.scenario}/${regression.state ?? "none"} ${regression.message}`);
+    }
+  }
+  if (baseline?.saved) {
+    lines.push(`- Baseline saved: ${baseline.saved.path}`);
+  }
+
+  for (const group of (performance.groups ?? []).slice(0, 8)) {
+    const metricText = compactPerformanceMetrics(group.metrics).slice(0, 5)
+      .map((metric) => `${metric.id} median ${metric.median}${metric.unit} p95 ${metric.p95}${metric.unit} max ${metric.max}${metric.unit}${metric.classification === "unstable" ? " unstable" : ""}`)
+      .join("; ");
+    lines.push(`- ${group.scenario}/${group.state ?? "none"}: ${group.sampleCount} sample(s)${metricText ? `; ${metricText}` : ""}`);
+  }
+
+  lines.push("");
+  return lines;
+}
+
+function summarizePerformance(performance, baseline) {
+  if (!performance) {
+    return null;
+  }
+  return {
+    schemaVersion: performance.schemaVersion,
+    repeat: performance.repeat ?? null,
+    groupCount: performance.groupCount ?? 0,
+    unstableGroupCount: performance.unstableGroupCount ?? 0,
+    baselineRegressionCount: baseline?.comparison?.regressionCount ?? null,
+    missingBaselineCount: baseline?.comparison?.missingBaselineCount ?? null,
+    savedBaselinePath: baseline?.saved?.path ?? null,
+    regressions: baseline?.comparison?.regressions?.slice(0, 10) ?? []
   };
 }
 
@@ -671,6 +723,22 @@ function compactKeySpans(keySpans) {
   return Object.values(keySpans ?? {})
     .filter((span) => (span.count ?? 0) > 0 || (span.openCount ?? 0) > 0)
     .toSorted((left, right) => (right.maxDurationMs ?? 0) - (left.maxDurationMs ?? 0) || (right.openCount ?? 0) - (left.openCount ?? 0));
+}
+
+function compactPerformanceMetrics(metrics = {}) {
+  const preferred = [
+    "timeToHealthReadyMs",
+    "peakRssMb",
+    "cpuPercentMax",
+    "openclawEventLoopMaxMs",
+    "agentTurnMs",
+    "runtimeDepsStagingMs"
+  ];
+  const byId = new Map(Object.entries(metrics).map(([id, metric]) => [id, { id, ...metric }]));
+  return [
+    ...preferred.map((id) => byId.get(id)).filter(Boolean),
+    ...[...byId.values()].filter((metric) => !preferred.includes(metric.id))
+  ];
 }
 
 function compactRolePeaks(measurements) {

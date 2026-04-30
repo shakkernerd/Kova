@@ -12,6 +12,7 @@ export const processRolesDir = join(repoRoot, "process-roles");
 export const kovaHome = resolveKovaHome();
 export const reportsDir = join(kovaHome, "reports");
 export const artifactsDir = join(kovaHome, "artifacts");
+export const baselinesDir = join(kovaHome, "baselines");
 
 function resolveKovaHome() {
   if (process.env.KOVA_HOME) {

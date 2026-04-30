@@ -15,7 +15,7 @@ export function createRunId() {
 }
 
 export function buildDryRunRecord(scenario, context) {
-  const envName = envNameFor(scenario.id, context.state?.id, context.runId);
+  const envName = envNameFor(scenario.id, context.state?.id, context.runId, context.repeat);
   const artifactDir = join(artifactsDir, context.runId, envName);
 
   return {
@@ -26,6 +26,7 @@ export function buildDryRunRecord(scenario, context) {
     target: context.target,
     from: context.from ?? null,
     state: stateSummary(context.state),
+    repeat: repeatSummary(context.repeat),
     envName,
     likelyOwner: "OpenClaw",
     objective: scenario.objective,
@@ -46,7 +47,7 @@ export function buildSkippedRecord(scenario, context, reason) {
 }
 
 export async function executeScenario(scenario, context) {
-  const envName = envNameFor(scenario.id, context.state?.id, context.runId);
+  const envName = envNameFor(scenario.id, context.state?.id, context.runId, context.repeat);
   assertKovaEnvName(envName, "generated env");
   const artifactDir = join(artifactsDir, context.runId, envName);
   const record = buildDryRunRecord(scenario, context);
@@ -583,9 +584,23 @@ function safeSegment(value) {
   return String(value ?? "phase").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "phase";
 }
 
-function envNameFor(scenarioId, stateId, runId) {
+function envNameFor(scenarioId, stateId, runId, repeat = null) {
   const stateSegment = stateId ? `${stateId}-` : "";
-  return `kova-${scenarioId}-${stateSegment}${runId.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+  const repeatSegment = repeat?.total > 1 ? `r${repeat.index}-` : "";
+  return `kova-${scenarioId}-${stateSegment}${repeatSegment}${runId.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+}
+
+function repeatSummary(repeat) {
+  if (!repeat) {
+    return {
+      index: 1,
+      total: 1
+    };
+  }
+  return {
+    index: repeat.index,
+    total: repeat.total
+  };
 }
 
 function stateSummary(state) {

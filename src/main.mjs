@@ -6,6 +6,14 @@ import { compareReports, renderCompareFixerSummary, renderCompareSummary } from 
 import { parseFlags, printHelp, required, resolveFromCwd } from "./cli.mjs";
 import { evaluateGate, preflightGateRun } from "./gate.mjs";
 import { buildCoverage } from "./matrix/coverage.mjs";
+import {
+  comparePerformanceToBaseline,
+  loadBaselineStore,
+  resolveBaselinePath,
+  saveBaselineStore,
+  updateBaselineStore
+} from "./performance/baselines.mjs";
+import { buildPerformanceSummary } from "./performance/stats.mjs";
 import { platformInfo } from "./platform.mjs";
 import { repoRoot, reportsDir } from "./paths.mjs";
 import { loadProcessRoles } from "./registries/process-roles.mjs";
@@ -264,15 +272,30 @@ async function readReport(path) {
   return JSON.parse(await readFile(resolveFromCwd(path), "utf8"));
 }
 
+async function loadRegressionThresholds(flags) {
+  if (!flags.regression_thresholds) {
+    return null;
+  }
+  if (flags.regression_thresholds === true) {
+    throw new Error("--regression-thresholds requires a JSON file path");
+  }
+  return JSON.parse(await readFile(resolveFromCwd(String(flags.regression_thresholds)), "utf8"));
+}
+
 async function matrixRun(flags) {
   const registry = await loadRegistryContext();
   const profile = await loadProfile(required(flags.profile, "--profile"));
   const target = required(flags.target, "--target");
+  validateBaselineExecutionFlags(flags);
   const targetPlan = resolveTarget(target, "target");
   validateProfileTarget(profile, targetPlan);
   const fromPlan = flags.from ? resolveTarget(flags.from, "from") : null;
   const entries = applyMatrixControls(await expandProfile(profile), flags, platformInfo());
   const controls = matrixControlSummary(flags, targetPlan);
+  const regressionThresholds = await loadRegressionThresholds(flags);
+  const baselinePath = resolveBaselinePath(flags.baseline);
+  const saveBaselinePath = resolveBaselinePath(flags.save_baseline);
+  const baselineStore = baselinePath ? await loadBaselineStore(baselinePath) : null;
   preflightGateRun({ entries, flags });
   for (const entry of entries.filter((item) => !item.skipReason)) {
     validateScenarioRun(entry.scenario, flags);
@@ -292,6 +315,7 @@ async function matrixRun(flags) {
       state: entry.state,
       sourceEnv: flags.source_env,
       runId,
+      controls,
       execute: flags.execute === true,
       keepEnv: flags.keep_env === true,
       retainOnFailure: flags.retain_on_failure === true,
@@ -311,32 +335,28 @@ async function matrixRun(flags) {
     };
 
     if (entry.skipReason) {
-      return buildSkippedRecord(entry.scenario, context, entry.skipReason);
+      return buildRepeatRecords(entry, context, (iterationContext) => buildSkippedRecord(entry.scenario, iterationContext, entry.skipReason));
     }
 
-    if (context.execute) {
-      return executeScenario(entry.scenario, context);
-    }
-    return buildDryRunRecord(entry.scenario, context);
+    return buildRepeatRecords(entry, context, async (iterationContext) =>
+      iterationContext.execute
+        ? executeScenario(entry.scenario, iterationContext)
+        : buildDryRunRecord(entry.scenario, iterationContext)
+    );
   };
 
   const records = flags.execute === true
     ? await runMatrixEntries(entries, runEntry, controls)
-    : await Promise.all(entries.map((entry) => runEntry(entry)));
+    : (await Promise.all(entries.map((entry) => runEntry(entry)))).flat();
   const targetCleanup = await cleanupTargetRuntimeIfNeeded(targetPlan, records, {
     execute: flags.execute === true,
     timeoutMs: positiveIntegerFlag(flags, "timeout_ms", 120000)
   });
-  const gate = flags.gate === true
-    ? evaluateGate({
-      mode: flags.execute === true ? "execution" : "dry-run",
-      controls,
-      records
-    }, profile)
-    : null;
-
-  await mkdir(reportRoot, { recursive: true });
-  const report = {
+  const performance = buildPerformanceSummary(records, {
+    repeat: controls.repeat,
+    regressionThresholds
+  });
+  const reportBase = {
     schemaVersion: reportSchemaVersion,
     generatedAt: new Date().toISOString(),
     runId,
@@ -352,10 +372,42 @@ async function matrixRun(flags) {
     state: null,
     platform: platformInfo(),
     targetCleanup,
-    gate,
+    performance,
+    baseline: null,
+    gate: null,
     summary: summarizeRecords(records),
     records
   };
+  const baselineComparison = comparePerformanceToBaseline(reportBase, baselineStore, { targetPlan, regressionThresholds });
+  if (baselineComparison) {
+    reportBase.baseline = {
+      path: baselinePath,
+      comparison: baselineComparison
+    };
+  }
+  const gate = flags.gate === true
+    ? evaluateGate({
+      mode: flags.execute === true ? "execution" : "dry-run",
+      controls,
+      performance,
+      baseline: reportBase.baseline,
+      records
+    }, profile)
+    : null;
+
+  await mkdir(reportRoot, { recursive: true });
+  const report = {
+    ...reportBase,
+    gate
+  };
+  if (saveBaselinePath) {
+    const existingStore = await loadBaselineStore(saveBaselinePath);
+    const updatedStore = updateBaselineStore(existingStore, report, { targetPlan });
+    report.baseline = {
+      ...(report.baseline ?? {}),
+      saved: await saveBaselineStore(saveBaselinePath, updatedStore)
+    };
+  }
   await writeFile(reportPath, renderMarkdownReport(report), "utf8");
   await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   const bundle = await bundleReport(jsonPath, { outputDir: reportRoot });
@@ -376,6 +428,7 @@ async function matrixRun(flags) {
       checksumPath: bundle.checksumPath,
       retainedGateArtifacts,
       gate: summarizeGateReceipt(gate),
+      performance: summarizePerformanceReceipt(report.performance, report.baseline),
       summary: report.summary
     }, null, 2));
     failGateIfNeeded(gate);
@@ -535,6 +588,7 @@ function resolveEntryTimeout(entry, flags) {
 
 function matrixControlSummary(flags, targetPlan) {
   const requestedParallel = positiveIntegerFlag(flags, "parallel", 1);
+  const repeat = positiveIntegerFlag(flags, "repeat", 1);
   const failFast = flags.fail_fast === true;
   const parallel = failFast || targetPlan.kind === "local-build" ? 1 : requestedParallel;
   return {
@@ -545,9 +599,27 @@ function matrixControlSummary(flags, targetPlan) {
     requestedParallel,
     parallel,
     parallelAdjusted: parallel !== requestedParallel,
+    repeat,
+    baseline: flags.baseline ? resolveBaselinePath(flags.baseline) : null,
+    saveBaseline: flags.save_baseline ? resolveBaselinePath(flags.save_baseline) : null,
     gate: flags.gate === true,
     bundle: true
   };
+}
+
+async function buildRepeatRecords(entry, context, callback) {
+  const total = positiveIntegerValue(context.controls?.repeat ?? 1, "repeat");
+  const records = [];
+  for (let index = 1; index <= total; index += 1) {
+    records.push(await callback({
+      ...context,
+      repeat: {
+        index,
+        total
+      }
+    }));
+  }
+  return records;
 }
 
 function failGateIfNeeded(gate) {
@@ -576,13 +648,28 @@ function summarizeGateReceipt(gate) {
   };
 }
 
+function summarizePerformanceReceipt(performance, baseline) {
+  if (!performance) {
+    return null;
+  }
+  return {
+    schemaVersion: performance.schemaVersion,
+    repeat: performance.repeat,
+    groupCount: performance.groupCount,
+    unstableGroupCount: performance.unstableGroupCount,
+    baselineRegressionCount: baseline?.comparison?.regressionCount ?? null,
+    missingBaselineCount: baseline?.comparison?.missingBaselineCount ?? null,
+    savedBaselinePath: baseline?.saved?.path ?? null
+  };
+}
+
 async function runMatrixEntries(entries, runEntry, controls) {
   if (controls.parallel <= 1) {
     const records = [];
     for (const entry of entries) {
-      const record = await runEntry(entry);
-      records.push(record);
-      if (controls.failFast && (record.status === "FAIL" || record.status === "BLOCKED")) {
+      const entryRecords = await runEntry(entry);
+      records.push(...entryRecords);
+      if (controls.failFast && entryRecords.some((record) => record.status === "FAIL" || record.status === "BLOCKED")) {
         break;
       }
     }
@@ -600,7 +687,7 @@ async function runMatrixEntries(entries, runEntry, controls) {
   }
 
   await Promise.all(Array.from({ length: controls.parallel }, () => worker()));
-  return records.filter(Boolean);
+  return records.filter(Boolean).flat();
 }
 
 function profileSummary(profile) {
@@ -697,6 +784,7 @@ async function run(flags) {
   if (flags.execute === true && !flags.scenario) {
     throw new Error("--execute requires --scenario so real runs stay deliberate");
   }
+  validateBaselineExecutionFlags(flags);
 
   const targetPlan = resolveTarget(target, "target");
   const fromPlan = flags.from ? resolveTarget(flags.from, "from") : null;
@@ -710,6 +798,11 @@ async function run(flags) {
   const runId = createRunId();
   const reportPath = join(reportRoot, `${runId}.md`);
   const jsonPath = join(reportRoot, `${runId}.json`);
+  const repeat = positiveIntegerFlag(flags, "repeat", 1);
+  const regressionThresholds = await loadRegressionThresholds(flags);
+  const baselinePath = resolveBaselinePath(flags.baseline);
+  const saveBaselinePath = resolveBaselinePath(flags.save_baseline);
+  const baselineStore = baselinePath ? await loadBaselineStore(baselinePath) : null;
   const context = {
     target,
     targetPlan,
@@ -738,16 +831,26 @@ async function run(flags) {
   const records = [];
 
   for (const scenario of scenarios) {
-    if (context.execute) {
-      records.push(await executeScenario(scenario, context));
-    } else {
-      records.push(buildDryRunRecord(scenario, context));
+    for (let index = 1; index <= repeat; index += 1) {
+      const iterationContext = {
+        ...context,
+        repeat: {
+          index,
+          total: repeat
+        }
+      };
+      if (iterationContext.execute) {
+        records.push(await executeScenario(scenario, iterationContext));
+      } else {
+        records.push(buildDryRunRecord(scenario, iterationContext));
+      }
     }
   }
   const targetCleanup = await cleanupTargetRuntimeIfNeeded(targetPlan, records, {
     execute: context.execute,
     timeoutMs: context.timeoutMs
   });
+  const performance = buildPerformanceSummary(records, { repeat, regressionThresholds });
 
   await mkdir(reportRoot, { recursive: true });
   const report = {
@@ -764,9 +867,31 @@ async function run(flags) {
     },
     platform: platformInfo(),
     targetCleanup,
+    controls: {
+      repeat,
+      baseline: baselinePath,
+      saveBaseline: saveBaselinePath
+    },
+    performance,
+    baseline: null,
     summary: summarizeRecords(records),
     records
   };
+  const baselineComparison = comparePerformanceToBaseline(report, baselineStore, { targetPlan, regressionThresholds });
+  if (baselineComparison) {
+    report.baseline = {
+      path: baselinePath,
+      comparison: baselineComparison
+    };
+  }
+  if (saveBaselinePath) {
+    const existingStore = await loadBaselineStore(saveBaselinePath);
+    const updatedStore = updateBaselineStore(existingStore, report, { targetPlan });
+    report.baseline = {
+      ...(report.baseline ?? {}),
+      saved: await saveBaselineStore(saveBaselinePath, updatedStore)
+    };
+  }
   await writeFile(reportPath, renderMarkdownReport(report), "utf8");
   await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
@@ -779,6 +904,7 @@ async function run(flags) {
       runId,
       reportPath,
       jsonPath,
+      performance: summarizePerformanceReceipt(report.performance, report.baseline),
       summary: report.summary
     }, null, 2));
     return;
@@ -796,6 +922,12 @@ function resolveRunTimeout(scenarios, flags) {
     .map((scenario) => scenario.timeoutMs)
     .filter((timeout) => typeof timeout === "number");
   return scenarioTimeouts.length === 0 ? 120000 : Math.max(...scenarioTimeouts);
+}
+
+function validateBaselineExecutionFlags(flags) {
+  if ((flags.baseline || flags.save_baseline) && flags.execute !== true) {
+    throw new Error("--baseline and --save-baseline require --execute so baseline evidence comes from real OpenClaw runs");
+  }
 }
 
 async function cleanupTargetRuntimeIfNeeded(targetPlan, records, options) {

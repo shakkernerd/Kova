@@ -36,6 +36,14 @@ kova.report.v1
     "node": "v24.13.0"
   },
   "targetCleanup": null,
+  "performance": {
+    "schemaVersion": "kova.performance.v1",
+    "repeat": 3,
+    "groupCount": 1,
+    "unstableGroupCount": 0,
+    "groups": []
+  },
+  "baseline": null,
   "gate": null,
   "summary": {
     "total": 1,
@@ -57,6 +65,14 @@ matrix receipt also includes bundle and checksum paths after bundling.
 `gate` is normally `null`. When `kova matrix run --gate` is used, it contains
 the release gate verdict, blocking/warning counts, required scenario policy, and
 failure cards.
+
+`performance` is present on run and matrix reports. It keeps individual scenario
+records untouched and adds aggregate stats grouped by scenario, surface, and
+state.
+
+`baseline` is normally `null`. When `--baseline` is used, it contains the
+baseline store path and comparison results. When `--save-baseline` is used, it
+also contains the saved baseline receipt.
 
 ## Record
 
@@ -200,6 +216,42 @@ Timeline-derived measurements include:
 Open required spans are failures for diagnostic source-build runs because they
 usually mean OpenClaw started a critical operation and never reported completion.
 
+## Performance
+
+Repeat execution is controlled with `--repeat <n>`. Kova keeps every individual
+record in `records` and computes aggregate stats in `performance.groups`.
+
+Aggregate metric fields include:
+
+- `count`
+- `min`
+- `median`
+- `p95`
+- `max`
+- `mean`
+- `variance`
+- `stddev`
+- `relativeStddevPercent`
+- `absoluteSpreadPercent`
+- `classification`: `stable` or `unstable`
+- `samples`
+
+Current aggregate metrics include startup readiness, TCP listening, RSS, CPU,
+event-loop delay, agent turn latency, health p95, and runtime dependency
+staging.
+
+Baseline stores use schema `kova.baselines.v1`. Baseline read/write requires
+`--execute` so stored evidence comes from real OpenClaw runs, not dry-run plans.
+Entries are keyed by platform, target kind, surface, state, and scenario, so
+Kova can compare the same OpenClaw execution surface under the same user state
+instead of comparing unrelated commands.
+
+Baseline comparison uses schema `kova.baselineComparison.v1`. Regressions are
+reported by metric with baseline median, current median, p95 values, threshold
+percent, and increase percent. Release gates treat baseline regressions as
+blocking performance regressions, so a functional pass can still become
+`DO_NOT_SHIP` when OpenClaw gets materially slower or heavier.
+
 ## Run Receipt
 
 `kova run --json` prints a receipt instead of text paths:
@@ -211,6 +263,14 @@ usually mean OpenClaw started a critical operation and never reported completion
   "runId": "kova-2026-04-29T000000Z",
   "reportPath": "/path/to/report.md",
   "jsonPath": "/path/to/report.json",
+  "performance": {
+    "repeat": 3,
+    "groupCount": 1,
+    "unstableGroupCount": 0,
+    "baselineRegressionCount": 0,
+    "missingBaselineCount": 0,
+    "savedBaselinePath": "/path/to/baselines.json"
+  },
   "summary": {
     "total": 1,
     "statuses": {

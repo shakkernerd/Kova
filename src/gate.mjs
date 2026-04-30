@@ -76,6 +76,10 @@ export function evaluateGate(report, profile) {
     cards.push(buildRecordCard(record, severity));
   }
 
+  for (const regression of report.baseline?.comparison?.regressions ?? []) {
+    cards.push(buildPerformanceRegressionCard(regression));
+  }
+
   const blockingCards = cards.filter((card) => card.severity === "blocking");
   const warningCards = cards.filter((card) => card.severity === "warning");
   const infoCards = cards.filter((card) => card.severity === "info");
@@ -321,6 +325,31 @@ function buildRecordCard(record, severity) {
     failedCommand: failed?.command ?? null,
     violations: violations.map((violation) => violation.message),
     measurements: summarizeGateMeasurements(record.measurements)
+  };
+}
+
+function buildPerformanceRegressionCard(regression) {
+  return {
+    severity: "blocking",
+    kind: "performance-regression",
+    scenario: regression.scenario ?? null,
+    state: regression.state ?? null,
+    status: "REGRESSED",
+    title: "Performance Regression",
+    summary: regression.message,
+    expected: `<= ${regression.thresholdPercent}% regression`,
+    actual: `${regression.increasePercent}% regression`,
+    impact: "OpenClaw functionally passed but became slower or heavier than the accepted baseline.",
+    likelyOwner: "OpenClaw",
+    failedCommand: null,
+    violations: [regression.message],
+    measurements: {
+      metric: regression.metric,
+      baselineMedian: regression.baselineMedian,
+      currentMedian: regression.currentMedian,
+      baselineP95: regression.baselineP95,
+      currentP95: regression.currentP95
+    }
   };
 }
 
