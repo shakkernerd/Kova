@@ -1,6 +1,13 @@
 import { access, mkdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import { checkCommand, runCommand } from "./commands.mjs";
+import {
+  externalCliFromChoice,
+  externalCliVerificationSummary,
+  impliedExternalCliForProvider,
+  resolveExternalCliName,
+  verifyExternalCliAuth
+} from "./external-cli-auth.mjs";
 import { platformInfo } from "./platform.mjs";
 import { artifactsDir, credentialsDir, liveEnvPath, providersPath, reportsDir } from "./paths.mjs";
 import { configureCredentialProvider, ensureCredentialStore } from "./auth.mjs";
@@ -104,12 +111,21 @@ async function configureAuthFromFlags(flags, options = {}) {
   const method = setupAuthMethod(flags, options.defaultMethod ?? "mock");
   const provider = normalizeProvider(flags.provider ? String(flags.provider) : "openai");
   const envVar = flags.env_var ? String(flags.env_var) : undefined;
+  const externalCli = method === "external-cli"
+    ? resolveExternalCliName(provider, flags.external_cli ? String(flags.external_cli) : undefined)
+    : undefined;
+  const verification = method === "external-cli"
+    ? await verifyExternalCliAuth(externalCli)
+    : null;
+  if (verification && !verification.verified) {
+    throw new Error(`external-cli ${externalCli} is not usable: ${verification.reason}`);
+  }
   const summary = await configureCredentialProvider({
     provider,
     method,
     envVar,
     value: flags.value ? String(flags.value) : undefined,
-    externalCli: flags.external_cli ? String(flags.external_cli) : undefined,
+    externalCli,
     fallbackPolicy: flags.fallback_policy ? String(flags.fallback_policy) : "mock"
   });
   return {
@@ -117,6 +133,8 @@ async function configureAuthFromFlags(flags, options = {}) {
     mode: method === "skip" ? "skip" : method === "mock" ? "mock" : "live",
     method,
     provider,
+    externalCli: externalCli ?? null,
+    verification: verification ? externalCliVerificationSummary(verification) : null,
     envVar: envVar ?? defaultEnvVarForProvider(provider),
     credentials: summary
   };
@@ -163,6 +181,9 @@ async function interactiveAuthSetup(flags) {
   console.log("  6. skip");
   const choice = (await prompt("Auth method [mock]: ")).trim().toLowerCase();
   const method = methodFromChoice(choice);
+  const externalCli = method === "external-cli"
+    ? await promptExternalCli(provider)
+    : undefined;
   const envVar = method === "api-key" || method === "env-only"
     ? (await prompt(`Env var [${defaultEnvVarForProvider(provider)}]: `)).trim() || defaultEnvVarForProvider(provider)
     : undefined;
@@ -173,9 +194,23 @@ async function interactiveAuthSetup(flags) {
     ...flags,
     auth: method,
     provider,
+    external_cli: externalCli,
     env_var: envVar,
     value: value || undefined
   }, { defaultMethod: "mock" });
+}
+
+async function promptExternalCli(provider) {
+  const implied = impliedExternalCliForProvider(provider);
+  if (implied) {
+    return implied;
+  }
+  console.log("");
+  console.log("Choose external CLI:");
+  console.log("  1. codex");
+  console.log("  2. claude");
+  const choice = (await prompt("External CLI [codex]: ")).trim().toLowerCase();
+  return externalCliFromChoice(choice || "codex");
 }
 
 function methodFromChoice(choice) {
@@ -374,6 +409,9 @@ async function directoryCheck(id, path) {
 
 async function credentialStoreCheck(auth) {
   try {
+    if (auth?.method === "external-cli" && auth?.verification?.verified !== true) {
+      throw new Error(`external-cli ${auth?.externalCli ?? "unknown"} is not verified`);
+    }
     const summary = await ensureCredentialStore();
     return {
       id: "credentials",
@@ -382,7 +420,7 @@ async function credentialStoreCheck(auth) {
       path: credentialsDir,
       providersPath,
       liveEnvPath,
-      message: `${auth?.provider ?? summary.defaultProvider} ${auth?.method ?? summary.providers?.[summary.defaultProvider]?.method ?? "mock"}`
+      message: credentialStoreMessage(auth, summary)
     };
   } catch (error) {
     return {
@@ -395,6 +433,15 @@ async function credentialStoreCheck(auth) {
       message: error.message
     };
   }
+}
+
+function credentialStoreMessage(auth, summary) {
+  const provider = auth?.provider ?? summary.defaultProvider;
+  const method = auth?.method ?? summary.providers?.[summary.defaultProvider]?.method ?? "mock";
+  if (method === "external-cli") {
+    return `${provider} external-cli ${auth.externalCli} verified`;
+  }
+  return `${provider} ${method}`;
 }
 
 function defaultEnvVarForProvider(providerId) {

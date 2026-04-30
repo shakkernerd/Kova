@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { join } from "node:path";
 import { credentialsDir, liveEnvPath, providersPath, repoRoot } from "./paths.mjs";
 import { quoteShell } from "./commands.mjs";
+import { externalCliVerificationSummary, verifyExternalCliAuth } from "./external-cli-auth.mjs";
 
 export const authModes = ["mock", "live", "skip"];
 export const credentialMethods = ["mock", "api-key", "env-only", "external-cli", "oauth", "skip"];
@@ -67,7 +68,7 @@ export async function resolveRunAuthContext(flags = {}) {
   }
 
   const store = await loadCredentialStore();
-  const live = liveCredentialStatus(store);
+  const live = await verifyLiveCredentialStatus(liveCredentialStatus(store));
   if (requestedMode === "live" && !live.available) {
     throw new Error(`--auth live requires configured live credentials: ${live.reason}`);
   }
@@ -117,10 +118,18 @@ export function scenarioAuthPolicy(context, scenario, state) {
       mode: "live",
       providerId,
       source: live.method,
+      externalCli: live.externalCli ?? null,
       setup: true,
       commandEnv: env,
       redactionValues: [...(context.auth?.redactionValues ?? []), ...secretValues(env)],
-      summary: authDisplay({ mode: "live", providerId, source: live.method, setup: true, envVars: live.envVars })
+      summary: authDisplay({
+        mode: "live",
+        providerId,
+        source: live.method,
+        externalCli: live.externalCli ?? null,
+        setup: true,
+        envVars: live.envVars
+      })
     };
   }
 
@@ -201,6 +210,7 @@ export function authDisplay(policy) {
     mode: policy.mode,
     providerId: policy.providerId ?? null,
     source: policy.source,
+    externalCli: policy.externalCli ?? null,
     setup: policy.setup === true,
     envVars: policy.envVars ?? [],
     secretValues: "redacted"
@@ -216,6 +226,8 @@ export function authReportSummary(authContext) {
       available: authContext.live.available,
       providerId: authContext.live.providerId,
       method: authContext.live.method,
+      externalCli: authContext.live.externalCli ?? null,
+      verification: authContext.live.verification ?? null,
       envVars: authContext.live.envVars,
       reason: authContext.live.reason
     }
@@ -369,6 +381,7 @@ function liveCredentialStatus(store) {
       available: true,
       providerId: provider.id,
       method: provider.method,
+      externalCli: provider.externalCli ?? null,
       envVars,
       reason: "configured"
     };
@@ -377,8 +390,29 @@ function liveCredentialStatus(store) {
     available: false,
     providerId: defaultId,
     method: providers[defaultId]?.method ?? "mock",
+    externalCli: providers[defaultId]?.externalCli ?? null,
     envVars: providers[defaultId]?.envVars ?? [],
     reason: "no live provider configured"
+  };
+}
+
+async function verifyLiveCredentialStatus(status) {
+  if (status.method !== "external-cli") {
+    return status;
+  }
+  if (!status.externalCli) {
+    return {
+      ...status,
+      available: false,
+      reason: "external-cli provider has no externalCli value"
+    };
+  }
+  const verification = await verifyExternalCliAuth(status.externalCli);
+  return {
+    ...status,
+    available: verification.verified,
+    reason: verification.verified ? "configured" : `external-cli ${status.externalCli} is not usable: ${verification.reason}`,
+    verification: externalCliVerificationSummary(verification)
   };
 }
 
@@ -438,7 +472,10 @@ function configureMockAuthCommand(envName, dir) {
 
 function configureLiveAuthCommand(authPolicy, envName) {
   const envVar = authPolicy.summary.envVars?.[0] ?? defaultEnvVarForProvider(authPolicy.providerId);
-  return `ocm env exec ${quoteShell(envName)} -- node ${quoteShell(join(repoRoot, "support/configure-openclaw-live-auth.mjs"))} --provider ${quoteShell(authPolicy.providerId)} --env-var ${quoteShell(envVar)}`;
+  const externalCliArgs = authPolicy.source === "external-cli" && authPolicy.externalCli
+    ? ` --auth-method external-cli --external-cli ${quoteShell(authPolicy.externalCli)}`
+    : "";
+  return `ocm env exec ${quoteShell(envName)} -- node ${quoteShell(join(repoRoot, "support/configure-openclaw-live-auth.mjs"))} --provider ${quoteShell(authPolicy.providerId)} --env-var ${quoteShell(envVar)}${externalCliArgs}`;
 }
 
 function defaultEnvVarForProvider(providerId) {

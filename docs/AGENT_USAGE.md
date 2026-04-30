@@ -63,6 +63,9 @@ configured with `kova setup`.
 
 Interactive `kova setup` asks provider first and then auth method. Both prompts
 accept either the displayed number or the name.
+For `external-cli`, Kova must verify the selected CLI and auth evidence before
+setup passes. In non-interactive mode, ambiguous providers need
+`--external-cli codex|claude`.
 
 4. Execute one scenario explicitly:
 

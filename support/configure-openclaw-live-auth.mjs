@@ -5,6 +5,8 @@ import path from "node:path";
 const options = parseArgs(process.argv.slice(2));
 const provider = options.provider || "openai";
 const envVar = options.envVar || "OPENAI_API_KEY";
+const authMethod = options.authMethod || "env";
+const externalCli = options.externalCli || null;
 const model = options.model || defaultModel(provider);
 const providerKey = providerConfigKey(provider);
 
@@ -19,20 +21,28 @@ try {
   config = {};
 }
 
-config.models = {
-  ...(config.models || {}),
-  mode: "merge",
-  providers: {
-    ...(config.models?.providers || {}),
-    [providerKey]: {
-      ...(config.models?.providers?.[providerKey] || {}),
+const existingProvider = config.models?.providers?.[providerKey] || {};
+const providerConfig = authMethod === "external-cli"
+  ? {
+      ...withoutApiKey(existingProvider),
+      models: mergeModels(existingProvider.models, model)
+    }
+  : {
+      ...existingProvider,
       apiKey: {
         source: "env",
         provider: "default",
         id: envVar
       },
-      models: mergeModels(config.models?.providers?.[providerKey]?.models, model)
-    }
+      models: mergeModels(existingProvider.models, model)
+    };
+
+config.models = {
+  ...(config.models || {}),
+  mode: "merge",
+  providers: {
+    ...(config.models?.providers || {}),
+    [providerKey]: providerConfig
   }
 };
 
@@ -43,7 +53,14 @@ config.agents = {
     model: {
       ...(config.agents?.defaults?.model || {}),
       primary: `${providerKey}/${model.id}`
-    }
+    },
+    ...(authMethod === "external-cli" ? {
+      agentRuntime: {
+        ...(config.agents?.defaults?.agentRuntime || {}),
+        id: agentRuntimeForExternalCli(externalCli),
+        fallback: "none"
+      }
+    } : {})
   }
 };
 
@@ -56,7 +73,7 @@ function mergeModels(existing, modelConfig) {
 }
 
 function defaultModel(provider) {
-  if (provider === "anthropic") {
+  if (provider === "anthropic" || provider === "claude-cli") {
     return {
       id: "claude-sonnet-4-5",
       name: "claude-sonnet-4-5",
@@ -81,7 +98,25 @@ function providerConfigKey(provider) {
   if (provider === "openai-codex") {
     return "openai";
   }
+  if (provider === "claude-cli") {
+    return "anthropic";
+  }
   return provider;
+}
+
+function agentRuntimeForExternalCli(cli) {
+  if (cli === "codex") {
+    return "codex";
+  }
+  if (cli === "claude") {
+    return "claude-cli";
+  }
+  throw new Error(`unsupported external CLI runtime: ${cli || "<missing>"}`);
+}
+
+function withoutApiKey(provider) {
+  const { apiKey: _apiKey, ...rest } = provider || {};
+  return rest;
 }
 
 function parseArgs(args) {
@@ -101,7 +136,9 @@ function parseArgs(args) {
   }
   return {
     provider: parsed.provider,
-    envVar: parsed.envvar
+    envVar: parsed.envvar,
+    authMethod: parsed.authmethod,
+    externalCli: parsed.externalcli
   };
 }
 

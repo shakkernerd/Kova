@@ -51,6 +51,19 @@ export async function runSelfCheck(flags = {}) {
       "--auth live requires configured live credentials"
     ));
     checks.push(await interactiveSetupChoiceCheck(tmp));
+    checks.push(await externalCliSetupCheck(tmp));
+    checks.push(await externalCliOpenClawConfigCheck(tmp));
+    checks.push(await failingCommandCheck(
+      "setup-external-cli-requires-cli-choice",
+      `KOVA_HOME=${quoteShell(join(tmp, "ambiguous-external-cli-home"))} node bin/kova.mjs setup --non-interactive --provider openai --auth external-cli --json`,
+      "external-cli auth for provider openai requires --external-cli codex|claude"
+    ));
+    checks.push(await failingCommandCheck(
+      "setup-external-cli-verifies-auth",
+      `HOME=${quoteShell(join(tmp, "no-codex-auth"))} KOVA_HOME=${quoteShell(join(tmp, "missing-external-cli-auth-home"))} node bin/kova.mjs setup --non-interactive --provider openai-codex --auth external-cli --json`,
+      "external-cli codex is not usable"
+    ));
+    checks.push(await externalCliRunAuthVerificationCheck(tmp));
     checks.push(await jsonCommandCheck("plan-json", "node bin/kova.mjs plan --json", (data) => {
       assertEqual(data.schemaVersion, "kova.plan.v1", "plan schema");
       assertArrayNotEmpty(data.surfaces, "plan surfaces");
@@ -1316,6 +1329,128 @@ async function interactiveSetupChoiceCheck(tmp) {
       message: error.message
     };
   }
+}
+
+async function externalCliSetupCheck(tmp) {
+  const home = join(tmp, "external-cli-home");
+  const fakeBin = join(tmp, "fake-bin");
+  const kovaHome = join(tmp, "external-cli-kova-home");
+  await mkdir(join(home, ".codex"), { recursive: true });
+  await mkdir(fakeBin, { recursive: true });
+  const fakeCodex = join(fakeBin, "codex");
+  await writeFile(join(home, ".codex", "auth.json"), "{\"tokens\":{\"access_token\":\"redacted\"}}\n", "utf8");
+  await writeFile(fakeCodex, "#!/bin/sh\nexit 0\n", "utf8");
+  await chmod(fakeCodex, 0o755);
+
+  const command = [
+    `HOME=${quoteShell(home)}`,
+    `PATH=${quoteShell(`${fakeBin}:${process.env.PATH ?? ""}`)}`,
+    `KOVA_HOME=${quoteShell(kovaHome)}`,
+    "node bin/kova.mjs setup --non-interactive --provider openai-codex --auth external-cli --json"
+  ].join(" ");
+  const result = await runCommand(command, { timeoutMs: 30000, maxOutputChars: 1000000 });
+  try {
+    if (result.status !== 0) {
+      throw new Error(result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`);
+    }
+    const data = JSON.parse(result.stdout);
+    assertEqual(data.schemaVersion, "kova.setup.v1", "external cli setup schema");
+    assertEqual(data.auth?.provider, "openai-codex", "external cli provider");
+    assertEqual(data.auth?.method, "external-cli", "external cli method");
+    assertEqual(data.auth?.externalCli, "codex", "external cli name");
+    assertEqual(data.auth?.verification?.verified, true, "external cli verification");
+    const credential = data.checks?.find((check) => check.id === "credentials");
+    if (!credential || !credential.message.includes("external-cli codex verified")) {
+      throw new Error(`credential check did not report verified external CLI: ${credential?.message ?? "missing"}`);
+    }
+    return {
+      id: "setup-external-cli-verification",
+      status: "PASS",
+      command,
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "setup-external-cli-verification",
+      status: "FAIL",
+      command,
+      durationMs: result.durationMs,
+      message: error.message
+    };
+  }
+}
+
+async function externalCliOpenClawConfigCheck(tmp) {
+  const home = join(tmp, "external-cli-config-home");
+  const command = [
+    `OPENCLAW_HOME=${quoteShell(home)}`,
+    "node support/configure-openclaw-live-auth.mjs --provider openai-codex --auth-method external-cli --external-cli codex"
+  ].join(" ");
+  const result = await runCommand(command, { timeoutMs: 30000, maxOutputChars: 1000000 });
+  try {
+    if (result.status !== 0) {
+      throw new Error(result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`);
+    }
+    const config = JSON.parse(await readFile(join(home, ".openclaw", "openclaw.json"), "utf8"));
+    assertEqual(config.agents?.defaults?.model?.primary, "openai/gpt-5.5", "external cli model ref");
+    assertEqual(config.agents?.defaults?.agentRuntime?.id, "codex", "external cli runtime id");
+    assertEqual(config.agents?.defaults?.agentRuntime?.fallback, "none", "external cli runtime fallback");
+    if (config.models?.providers?.openai?.apiKey !== undefined) {
+      throw new Error("external CLI config must not write env apiKey config");
+    }
+    return {
+      id: "external-cli-openclaw-config",
+      status: "PASS",
+      command,
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "external-cli-openclaw-config",
+      status: "FAIL",
+      command,
+      durationMs: result.durationMs,
+      message: error.message
+    };
+  }
+}
+
+async function externalCliRunAuthVerificationCheck(tmp) {
+  const home = join(tmp, "stale-external-cli-home");
+  const kovaHome = join(tmp, "stale-external-cli-kova-home");
+  const credentials = join(kovaHome, "credentials");
+  await mkdir(credentials, { recursive: true });
+  await writeFile(join(credentials, "providers.json"), `${JSON.stringify({
+    schemaVersion: "kova.credentials.providers.v1",
+    defaultProvider: "openai-codex",
+    providers: {
+      "openai-codex": {
+        id: "openai-codex",
+        method: "external-cli",
+        envVars: [],
+        externalCli: "codex",
+        fallbackPolicy: "mock",
+        configuredAt: new Date().toISOString()
+      }
+    }
+  }, null, 2)}\n`, "utf8");
+  await writeFile(join(credentials, "live.env"), "", { encoding: "utf8", mode: 0o600 });
+  const command = [
+    `HOME=${quoteShell(home)}`,
+    `KOVA_HOME=${quoteShell(kovaHome)}`,
+    "node bin/kova.mjs run --target runtime:stable --scenario fresh-install --auth live --json"
+  ].join(" ");
+  const result = await runCommand(command, { timeoutMs: 30000, maxOutputChars: 1000000 });
+  const output = `${result.stdout}\n${result.stderr}`;
+  return {
+    id: "run-external-cli-revalidates-auth",
+    status: result.status !== 0 && output.includes("external-cli codex is not usable") ? "PASS" : "FAIL",
+    command,
+    durationMs: result.durationMs,
+    message: result.status !== 0 && output.includes("external-cli codex is not usable")
+      ? ""
+      : `expected stale external CLI failure, got status ${result.status}: ${output.trim()}`
+  };
 }
 
 async function failingCommandCheck(id, command, expectedMessage) {

@@ -64,6 +64,7 @@ Notes:
   --repeat records independent samples and computes aggregate performance stats.
   --auth defaults to mock so every disposable env has deliberate model auth unless a scenario opts out.
   setup provider/auth choices accept either numbers from the prompt or names such as openai, anthropic, env-only, api-key.
+  external-cli setup verifies the selected CLI binary and local auth evidence before credentials are stored.
   --baseline compares executed aggregates against a Kova baseline store; without a path it uses the default store.
   --save-baseline writes executed aggregates into the selected baseline store.
   --deep-profile enables Node CPU/heap/trace profiling, OpenClaw timeline envs,
