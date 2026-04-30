@@ -79,9 +79,12 @@ Matrix runs automatically produce a bundle path in the JSON receipt.
 Filtered gate slices are reject-only: a selected blocking scenario failure means
 `DO_NOT_SHIP`, while a passing partial slice remains `BLOCKED` because it cannot
 approve the full release gate.
+Non-ship gates retain a durable artifact directory under
+`artifacts/release-gates/<runId>/`.
 
 5. Read the generated JSON report first. Use the Markdown report for the human
-summary.
+summary. For failures, start with `failureBrief` in `report summarize --json`
+or the `Failure Brief` section from `report paste`.
 
 6. Produce a compact handoff when needed:
 
@@ -130,7 +133,8 @@ node bin/kova.mjs run --target runtime:stable --scenario fresh-install --execute
 ```
 
 Otherwise, Kova should clean up temporary envs automatically.
-If cleanup is interrupted, inspect stale Kova envs with:
+Cleanup retries transient shutdown races before reporting failure. If cleanup is
+still interrupted, inspect stale Kova envs with:
 
 ```sh
 node bin/kova.mjs cleanup envs --json

@@ -85,11 +85,16 @@ node bin/kova.mjs matrix run --profile release --target local-build:/path/to/ope
 `--gate` evaluates the selected profile against its gate policy and adds a
 ship/no-ship verdict to the report. The verdict is `SHIP`, `DO_NOT_SHIP`, or
 `BLOCKED`. Non-ship verdicts exit non-zero after writing the Markdown/JSON
-report and artifact bundle.
+report and artifact bundle. Non-ship gates also retain a durable copy under
+`artifacts/release-gates/<runId>/`.
 
 Filtered gate slices are reject-only. If a selected blocking scenario fails,
 the verdict is `DO_NOT_SHIP`; if the selected slice passes but required gate
 coverage is missing, the verdict is `BLOCKED` rather than `SHIP`.
+
+Release gates check required scenario/state/platform coverage, not only command
+exit status. `report paste` and `report summarize --json` include a concise
+failure brief with exact evidence and a fixer-ready prompt.
 
 Gateway readiness is classified. Kova polls TCP listening and `/health` until a
 hard deadline, while separately enforcing the scenario readiness threshold.
@@ -135,6 +140,10 @@ node bin/kova.mjs run \
   --target npm:2026.4.27 \
   --execute
 ```
+
+Executed scenarios refuse to mutate non-`kova-` env targets. A durable env such
+as `Violet` can be used only as clone source state; Kova mutates the generated
+disposable clone.
 
 ## Reports
 

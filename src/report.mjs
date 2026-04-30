@@ -21,7 +21,7 @@ export function renderMarkdownReport(report) {
     ""
   ];
   if (report.gate) {
-    lines.push(...formatReleaseDecisionSection(report.gate, report.outputPaths));
+    lines.push(...formatReleaseDecisionSection(report.gate, report.outputPaths, report.retainedGateArtifacts));
   }
 
   lines.push(
@@ -47,6 +47,9 @@ export function renderMarkdownReport(report) {
     if (report.targetCleanup.result) {
       lines.push(`- Exit: ${report.targetCleanup.result.status}`);
       lines.push(`- Duration: ${report.targetCleanup.result.durationMs}ms`);
+      if (report.targetCleanup.result.attempts?.length > 1) {
+        lines.push(`- Attempts: ${report.targetCleanup.result.attempts.length}`);
+      }
     }
     lines.push("");
   }
@@ -197,6 +200,9 @@ export function renderMarkdownReport(report) {
       lines.push(`- cleanup command: \`${record.cleanupResult.command}\``);
       lines.push(`- cleanup status: ${record.cleanupResult.status}`);
       lines.push(`- cleanup duration: ${record.cleanupResult.durationMs}ms`);
+      if (record.cleanupResult.attempts?.length > 1) {
+        lines.push(`- cleanup attempts: ${record.cleanupResult.attempts.length}`);
+      }
       if (record.cleanupResult.stderr.trim()) {
         lines.push("");
         lines.push("Cleanup stderr:");
@@ -361,6 +367,7 @@ export function renderReportSummary(report, options = {}) {
     from: report.from ?? null,
     platform: report.platform,
     gate: report.gate ?? null,
+    failureBrief: buildFailureBrief(report),
     statuses: report.summary?.statuses ?? summarizeRecords(records).statuses,
     scenarios: records.map((record) => {
       const failed = firstFailedCommand(record);
@@ -455,7 +462,8 @@ export function renderPasteSummary(report) {
     lines.push(`Gate: ${report.gate.verdict}`);
     lines.push(`Blocking: ${report.gate.blockingCount}`);
     lines.push(`Warnings: ${report.gate.warningCount}`);
-    for (const card of report.gate.cards ?? []) {
+    const visibleCards = (report.gate.cards ?? []).filter((card) => card.severity !== "info");
+    for (const card of visibleCards) {
       lines.push("");
       lines.push(`${card.severity.toUpperCase()}: ${card.scenario ?? "gate"}${card.state ? `/${card.state}` : ""}`);
       lines.push(`Summary: ${card.summary}`);
@@ -467,6 +475,29 @@ export function renderPasteSummary(report) {
         lines.push(`Command: ${card.failedCommand}`);
       }
     }
+    if ((report.gate.infoCount ?? 0) > 0) {
+      lines.push("");
+      lines.push(`Info cards omitted: ${report.gate.infoCount}. See JSON report for full gate coverage details.`);
+    }
+    lines.push("");
+  }
+
+  const brief = buildFailureBrief(report);
+  if (brief) {
+    lines.push("Failure Brief");
+    lines.push("");
+    lines.push(`Decision: ${brief.decision}`);
+    lines.push(`Primary blocker: ${brief.primaryBlocker}`);
+    lines.push(`Why: ${brief.why}`);
+    if (brief.evidence.length > 0) {
+      lines.push("Evidence:");
+      for (const item of brief.evidence) {
+        lines.push(`- ${item}`);
+      }
+    }
+    lines.push(`Likely owner: ${brief.likelyOwner}`);
+    lines.push("Paste to fixer:");
+    lines.push(brief.fixerPrompt);
     lines.push("");
   }
 
@@ -510,6 +541,82 @@ export function renderPasteSummary(report) {
   return lines.join("\n");
 }
 
+function buildFailureBrief(report) {
+  const records = report.records ?? [];
+  const blockingCards = (report.gate?.cards ?? []).filter((card) => card.severity === "blocking");
+  const primaryCard = blockingCards.find((card) => card.kind === "openclaw-failure") ?? blockingCards[0] ?? null;
+  const failedRecord = primaryCard
+    ? records.find((record) => record.scenario === primaryCard.scenario && (record.state?.id ?? null) === (primaryCard.state ?? null))
+    : records.find((record) => record.status === "FAIL" || record.status === "BLOCKED");
+
+  if (!primaryCard && !failedRecord) {
+    return null;
+  }
+
+  const measurements = failedRecord?.measurements ?? primaryCard?.measurements ?? {};
+  const violations = failedRecord?.violations?.map((violation) => violation.message) ?? primaryCard?.violations ?? [];
+  const primaryBlocker = [
+    primaryCard?.scenario ?? failedRecord?.scenario ?? "unknown",
+    primaryCard?.state ?? failedRecord?.state?.id ?? null
+  ].filter(Boolean).join("/");
+  const why = primaryCard?.summary ?? violations[0] ?? summarizeFailureReason(firstFailedCommand(failedRecord ?? {})) ?? "scenario failed";
+  const evidence = briefEvidence(measurements, violations);
+  const likelyOwner = primaryCard?.likelyOwner ?? failedRecord?.likelyOwner ?? "OpenClaw";
+
+  return {
+    decision: report.gate?.verdict ?? failedRecord?.status ?? "FAIL",
+    primaryBlocker,
+    why,
+    evidence,
+    likelyOwner,
+    fixerPrompt: buildFixerPrompt({ report, primaryBlocker, why, measurements, evidence, likelyOwner })
+  };
+}
+
+function briefEvidence(measurements, violations) {
+  const items = [];
+  if (measurements.timeToHealthReadyMs !== null && measurements.timeToHealthReadyMs !== undefined) {
+    items.push(`timeToHealthReadyMs: ${measurements.timeToHealthReadyMs}`);
+  }
+  if (measurements.timeToListeningMs !== null && measurements.timeToListeningMs !== undefined) {
+    items.push(`timeToListeningMs: ${measurements.timeToListeningMs}`);
+  }
+  if (measurements.peakRssMb !== null && measurements.peakRssMb !== undefined) {
+    items.push(`peakRssMb: ${measurements.peakRssMb}`);
+  }
+  if (measurements.cpuPercentMax !== null && measurements.cpuPercentMax !== undefined) {
+    items.push(`cpuPercentMax: ${measurements.cpuPercentMax}`);
+  }
+  if (measurements.missingDependencyErrors !== null && measurements.missingDependencyErrors !== undefined) {
+    items.push(`missingDependencyErrors: ${measurements.missingDependencyErrors}`);
+  }
+  if (measurements.pluginLoadFailures !== null && measurements.pluginLoadFailures !== undefined) {
+    items.push(`pluginLoadFailures: ${measurements.pluginLoadFailures}`);
+  }
+  for (const violation of violations.slice(0, 3)) {
+    if (!items.includes(violation)) {
+      items.push(violation);
+    }
+  }
+  return items.slice(0, 8);
+}
+
+function buildFixerPrompt({ report, primaryBlocker, why, measurements, evidence, likelyOwner }) {
+  const parts = [
+    `Investigate OpenClaw release gate failure ${primaryBlocker}.`,
+    `Kova decision was ${report.gate?.verdict ?? "FAIL"} on ${report.platform?.os ?? "unknown"}-${report.platform?.arch ?? "unknown"}.`,
+    `Primary evidence: ${why}.`
+  ];
+  if (evidence.length > 0) {
+    parts.push(`Measurements: ${evidence.join("; ")}.`);
+  }
+  if (measurements.missingDependencyErrors === 0 && measurements.pluginLoadFailures === 0) {
+    parts.push("Dependency/plugin load errors were zero, so focus on startup, memory, CPU, gateway readiness, runtime deps staging, provider/model load, and UI asset initialization.");
+  }
+  parts.push(`Likely owner area: ${likelyOwner}.`);
+  return parts.join(" ");
+}
+
 function formatGateSection(gate) {
   const lines = [
     "## Release Gate",
@@ -546,7 +653,7 @@ function formatGateSection(gate) {
   return lines;
 }
 
-function formatReleaseDecisionSection(gate, outputPaths) {
+function formatReleaseDecisionSection(gate, outputPaths, retainedGateArtifacts) {
   const lines = [
     "## Release Decision",
     "",
@@ -560,6 +667,11 @@ function formatReleaseDecisionSection(gate, outputPaths) {
   }
   if (outputPaths?.json) {
     lines.push(`- JSON report: ${outputPaths.json}`);
+  }
+  if (retainedGateArtifacts?.outputDir) {
+    lines.push(`- Retained gate artifacts: ${retainedGateArtifacts.outputDir}`);
+  } else if (retainedGateArtifacts?.status === "pending") {
+    lines.push("- Retained gate artifacts: pending");
   }
 
   const topCards = (gate.cards ?? [])
@@ -597,6 +709,9 @@ function firstFailedCommand(record) {
 }
 
 function summarizeFailureReason(result) {
+  if (!result) {
+    return null;
+  }
   const output = (result.stderr?.trim() || result.stdout?.trim() || "").trim();
   if (!output) {
     return result.timedOut ? "command timed out" : `command exited with status ${result.status}`;

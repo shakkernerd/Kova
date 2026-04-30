@@ -4,6 +4,28 @@
   "objective": "Broad OpenClaw release confidence across install, upgrade, bundled plugins, model/provider, UI, failure, soak, and platform smoke scenarios.",
   "gate": {
     "id": "openclaw-release",
+    "coverage": {
+      "platforms": {
+        "blocking": ["darwin-arm64"],
+        "warning": ["linux-x64", "linux-arm64", "wsl2"]
+      },
+      "states": {
+        "blocking": ["fresh", "onboarded-user", "old-release-user", "plugin-index", "many-bundled-plugins"]
+      },
+      "scenarios": {
+        "blocking": [
+          "release-runtime-startup",
+          "fresh-install",
+          "upgrade-existing-user",
+          "bundled-runtime-deps",
+          "plugin-lifecycle",
+          "provider-models",
+          "dashboard-readiness",
+          "tui-responsiveness",
+          "gateway-performance"
+        ]
+      }
+    },
     "blocking": [
       { "scenario": "release-runtime-startup", "state": "fresh" },
       { "scenario": "fresh-install", "state": "fresh" },

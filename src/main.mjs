@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
-import { bundleReport } from "./artifacts.mjs";
+import { bundleReport, retainGateArtifacts } from "./artifacts.mjs";
 import { quoteShell, runCommand } from "./commands.mjs";
 import { compareReports, renderCompareFixerSummary, renderCompareSummary } from "./compare.mjs";
 import { parseFlags, printHelp, required, resolveFromCwd } from "./cli.mjs";
@@ -316,6 +316,9 @@ async function matrixRun(flags) {
   await writeFile(reportPath, renderMarkdownReport(report), "utf8");
   await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
   const bundle = await bundleReport(jsonPath, { outputDir: reportRoot });
+  const retainedGateArtifacts = gate && gate.verdict !== "SHIP"
+    ? await retainFailedGateArtifacts(report, reportPath, jsonPath, bundle)
+    : null;
 
   if (flags.json) {
     console.log(JSON.stringify({
@@ -328,6 +331,7 @@ async function matrixRun(flags) {
       jsonPath,
       bundlePath: bundle.outputPath,
       checksumPath: bundle.checksumPath,
+      retainedGateArtifacts,
       gate: summarizeGateReceipt(gate),
       summary: report.summary
     }, null, 2));
@@ -338,10 +342,27 @@ async function matrixRun(flags) {
   console.log(`Kova matrix ${report.mode} report written: ${relative(process.cwd(), reportPath)}`);
   console.log(`Kova matrix ${report.mode} data written: ${relative(process.cwd(), jsonPath)}`);
   console.log(`Kova matrix bundle written: ${relative(process.cwd(), bundle.outputPath)}`);
+  if (retainedGateArtifacts) {
+    console.log(`Kova failed gate artifacts retained: ${relative(process.cwd(), retainedGateArtifacts.outputDir)}`);
+  }
   if (gate) {
     console.log(`Kova gate verdict: ${gate.verdict}`);
   }
   failGateIfNeeded(gate);
+}
+
+async function retainFailedGateArtifacts(report, reportPath, jsonPath, bundle) {
+  report.retainedGateArtifacts = {
+    status: "pending"
+  };
+  await writeFile(reportPath, renderMarkdownReport(report), "utf8");
+  await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  const retained = await retainGateArtifacts(jsonPath, bundle);
+  report.retainedGateArtifacts = retained;
+  await writeFile(reportPath, renderMarkdownReport(report), "utf8");
+  await writeFile(jsonPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  await retainGateArtifacts(jsonPath, bundle, { outputDir: retained.outputDir });
+  return retained;
 }
 
 async function expandProfile(profile) {
@@ -737,7 +758,7 @@ async function cleanupTargetRuntimeIfNeeded(targetPlan, records, options) {
     };
   }
 
-  const result = await runCommand(command, { timeoutMs: options.timeoutMs });
+  const result = await runCleanupCommand(command, { timeoutMs: options.timeoutMs });
   const cleanupStatus = classifyTargetRuntimeCleanup(result);
   return {
     status: cleanupStatus.status,
@@ -752,6 +773,42 @@ async function cleanupTargetRuntimeIfNeeded(targetPlan, records, options) {
       stderr: result.stderr
     }
   };
+}
+
+async function runCleanupCommand(command, options) {
+  const attempts = [];
+  const delays = [0, 1000, 2000];
+  for (const [index, delayMs] of delays.entries()) {
+    if (delayMs > 0) {
+      await sleep(delayMs);
+    }
+    const result = await runCommand(command, options);
+    attempts.push(result);
+    if (result.status === 0 || !isRetryableCleanupFailure(result) || index === delays.length - 1) {
+      return {
+        ...result,
+        attempts: attempts.map((attempt) => ({
+          status: attempt.status,
+          durationMs: attempt.durationMs,
+          timedOut: attempt.timedOut,
+          stdout: attempt.stdout,
+          stderr: attempt.stderr
+        }))
+      };
+    }
+  }
+}
+
+function isRetryableCleanupFailure(result) {
+  if (result.timedOut) {
+    return true;
+  }
+  const output = `${result.stdout}\n${result.stderr}`;
+  return /busy|running|shutting down|in use|resource temporarily unavailable|timed out|timeout|econnrefused|connection refused/i.test(output);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function classifyTargetRuntimeCleanup(result) {

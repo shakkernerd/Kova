@@ -81,6 +81,10 @@ Important fields:
   `failure`
 - `cleanupResult`: cleanup command evidence
 
+`cleanupResult.attempts` is present when cleanup retry evidence is available.
+Markdown stays concise and shows the attempt count only when more than one
+attempt was needed.
+
 ## Phase Result
 
 Executed phases include:
@@ -165,6 +169,16 @@ reason, violations, and a small measurement summary. Agents should use this
 before reading the full report when they only need pass/fail and high-signal
 performance evidence.
 
+When a report contains failures, the structured summary also includes
+`failureBrief` with:
+
+- `decision`
+- `primaryBlocker`
+- `why`
+- compact `evidence`
+- `likelyOwner`
+- `fixerPrompt`
+
 ## Matrix Receipt
 
 `kova matrix run --json` prints a receipt for one combined profile report:
@@ -183,6 +197,7 @@ performance evidence.
   "jsonPath": "/path/to/report.json",
   "bundlePath": "/path/to/bundle.tar.gz",
   "checksumPath": "/path/to/bundle.tar.gz.sha256",
+  "retainedGateArtifacts": null,
   "summary": {
     "total": 4,
     "statuses": {
@@ -227,6 +242,18 @@ the existing matrix runner and adds:
   "infoCount": 0,
   "required": [],
   "warning": [],
+  "coverage": {
+    "platforms": {
+      "blocking": ["darwin-arm64"],
+      "warning": ["linux-x64", "linux-arm64", "wsl2"]
+    },
+    "states": {
+      "blocking": ["fresh"]
+    },
+    "scenarios": {
+      "blocking": ["release-runtime-startup"]
+    }
+  },
   "cards": []
 }
 ```
@@ -243,10 +270,27 @@ Filtered gate slices are partial. They can produce `DO_NOT_SHIP` when a selected
 blocking scenario fails, but they cannot produce `SHIP` because required gate
 coverage is missing. A passing filtered slice remains `BLOCKED`.
 
+Release profiles may define explicit platform/state/scenario coverage. Missing
+blocking coverage prevents `SHIP`; missing warning coverage creates warning
+cards. Platform coverage keys include `darwin-arm64`, `linux-x64`,
+`linux-arm64`, and `wsl2` where detectable.
+
 Gate cards are concise fixer records. They include severity, scenario/state,
 status, summary, expected/actual, impact, likely owner, failed command when
 available, violation text, and compact measurements. The matrix receipt includes
 only the gate verdict/count summary; the full cards live in the JSON report.
+
+For non-ship gate runs, Kova retains a durable copy under
+`artifacts/release-gates/<runId>/`:
+
+```text
+report.md
+report.json
+paste-summary.txt
+<runId>-bundle.tar.gz
+<runId>-bundle.tar.gz.sha256
+retained-artifacts.json
+```
 
 ## Compare Report
 

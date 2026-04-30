@@ -15,6 +15,7 @@ export function evaluateGate(report, profile) {
   const records = report.records ?? [];
   const cards = [];
   const partial = isPartialGate(report);
+  const missingRequired = [];
 
   if (report.mode !== "execution") {
     cards.push({
@@ -33,7 +34,6 @@ export function evaluateGate(report, profile) {
   }
 
   const recordKeys = new Set(records.map(recordKey));
-  const missingRequired = [];
   for (const required of policy.blocking) {
     if (!recordKeys.has(policyKey(required))) {
       missingRequired.push(required);
@@ -53,6 +53,17 @@ export function evaluateGate(report, profile) {
           ? "This partial run can reject a release if selected scenarios fail, but it cannot approve the full release gate."
           : "The release gate is incomplete and cannot approve the OpenClaw build.",
         likelyOwner: "Kova"
+      });
+    }
+  }
+
+  for (const card of buildCoverageCards(report, policy, partial)) {
+    cards.push(card);
+    if (card.severity === "blocking" || card.severity === "info") {
+      missingRequired.push({
+        scenario: card.scenario,
+        state: card.state,
+        coverage: card.coverage
       });
     }
   }
@@ -98,6 +109,7 @@ export function evaluateGate(report, profile) {
     infoCount: infoCards.length,
     required: policy.blocking,
     warning: policy.warning,
+    coverage: policy.coverage,
     cards
   };
 }
@@ -117,8 +129,114 @@ function normalizeGatePolicy(profile) {
   return {
     id: typeof gate.id === "string" && gate.id ? gate.id : `${profile?.id ?? "matrix"}-gate`,
     blocking,
-    warning
+    warning,
+    coverage: normalizeCoveragePolicy(gate.coverage)
   };
+}
+
+function normalizeCoveragePolicy(coverage) {
+  const input = coverage && typeof coverage === "object" ? coverage : {};
+  return {
+    platforms: normalizeCoverageSet(input.platforms),
+    states: normalizeCoverageSet(input.states),
+    scenarios: normalizeCoverageSet(input.scenarios)
+  };
+}
+
+function normalizeCoverageSet(value) {
+  const input = value && typeof value === "object" ? value : {};
+  return {
+    blocking: normalizeStringList(input.blocking),
+    warning: normalizeStringList(input.warning)
+  };
+}
+
+function normalizeStringList(value) {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.length > 0) : [];
+}
+
+function buildCoverageCards(report, policy, partial) {
+  const cards = [];
+  const records = report.records ?? [];
+  const platformKeys = platformCoverageKeys(report.platform);
+  const scenarioKeys = new Set(records.map((record) => record.scenario).filter(Boolean));
+  const stateKeys = new Set(records.map((record) => record.state?.id).filter(Boolean));
+
+  addCoverageCards(cards, {
+    kind: "platform",
+    expected: policy.coverage.platforms,
+    observed: platformKeys,
+    partial,
+    statusText: report.platform ? `${report.platform.os}/${report.platform.arch}` : "unknown platform"
+  });
+  addCoverageCards(cards, {
+    kind: "scenario",
+    expected: policy.coverage.scenarios,
+    observed: scenarioKeys,
+    partial,
+    statusText: `${scenarioKeys.size} scenario(s) present`
+  });
+  addCoverageCards(cards, {
+    kind: "state",
+    expected: policy.coverage.states,
+    observed: stateKeys,
+    partial,
+    statusText: `${stateKeys.size} state(s) present`
+  });
+
+  return cards;
+}
+
+function addCoverageCards(cards, { kind, expected, observed, partial, statusText }) {
+  for (const value of expected.blocking) {
+    if (observed.has(value)) {
+      continue;
+    }
+    cards.push(coverageCard({ severity: partial ? "info" : "blocking", kind, value, partial, statusText }));
+  }
+  for (const value of expected.warning) {
+    if (observed.has(value)) {
+      continue;
+    }
+    cards.push(coverageCard({ severity: "warning", kind, value, partial, statusText }));
+  }
+}
+
+function coverageCard({ severity, kind, value, partial, statusText }) {
+  const filtered = partial && severity === "info";
+  return {
+    severity,
+    kind: filtered ? "filtered-required-coverage" : "missing-required-coverage",
+    coverage: kind,
+    scenario: kind === "scenario" ? value : null,
+    state: kind === "state" ? value : null,
+    status: "MISSING",
+    title: `Required ${kind} Coverage Missing`,
+    summary: filtered
+      ? `Required release gate ${kind} coverage ${value} was not present because this was a filtered gate slice.`
+      : `Required release gate ${kind} coverage ${value} was not present in the report.`,
+    expected: `${kind} coverage ${value}`,
+    actual: statusText,
+    impact: filtered
+      ? "This partial run can reject a release if selected scenarios fail, but it cannot approve the full release gate."
+      : "The release gate is incomplete and cannot approve the OpenClaw build.",
+    likelyOwner: "Kova"
+  };
+}
+
+function platformCoverageKeys(platform) {
+  if (!platform) {
+    return new Set();
+  }
+  const keys = [
+    platform.os,
+    platform.arch,
+    `${platform.os}-${platform.arch}`
+  ];
+  if (platform.os === "linux" && /microsoft|wsl/i.test(String(platform.release ?? ""))) {
+    keys.push("wsl2");
+  }
+  return new Set(keys.filter(Boolean));
 }
 
 function normalizePolicyEntries(entries) {

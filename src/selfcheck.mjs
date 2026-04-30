@@ -5,7 +5,9 @@ import { quoteShell, runCommand } from "./commands.mjs";
 import { summarizeCpuProfiles } from "./cpuprofile.mjs";
 import { evaluateRecord } from "./evaluator.mjs";
 import { evaluateGate } from "./gate.mjs";
+import { assertSafeScenarioCommand } from "./safety.mjs";
 import { parseTimelineText } from "./timeline.mjs";
+import { renderReportSummary } from "./report.mjs";
 
 export async function runSelfCheck(flags = {}) {
   const checks = [];
@@ -110,6 +112,7 @@ export async function runSelfCheck(flags = {}) {
     ));
     checks.push(await gateDryRunCheck(tmp));
     checks.push(gatePartialFailureCheck());
+    checks.push(safetyGuardCheck());
     checks.push(await failingCommandCheck(
       "gate-preflight-source-env",
       `node bin/kova.mjs matrix run --profile release --target runtime:stable --execute --gate --report-dir ${quoteShell(tmp)} --json`,
@@ -229,6 +232,13 @@ async function gateDryRunCheck(tmp) {
     assertEqual(data.gate?.ok, false, "gate dry-run ok");
     const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
     assertEqual(report.gate?.cards?.some((card) => card.kind === "not-executed"), true, "gate not-executed card");
+    const summary = renderReportSummary(report, { structured: true });
+    assertString(summary.failureBrief?.fixerPrompt, "failure brief fixer prompt");
+    assertString(data.retainedGateArtifacts?.outputDir, "retained gate artifact dir");
+    assertString(data.retainedGateArtifacts?.pasteSummaryPath, "retained paste summary path");
+    const retained = JSON.parse(await readFile(`${data.retainedGateArtifacts.outputDir}/retained-artifacts.json`, "utf8"));
+    assertEqual(retained.verdict, "BLOCKED", "retained artifact verdict");
+    await rm(data.retainedGateArtifacts.outputDir, { recursive: true, force: true });
     return {
       id: "gate-dry-run-blocked",
       status: "PASS",
@@ -241,6 +251,34 @@ async function gateDryRunCheck(tmp) {
       status: "FAIL",
       command,
       durationMs: result.durationMs,
+      message: error.message
+    };
+  }
+}
+
+function safetyGuardCheck() {
+  try {
+    assertSafeScenarioCommand("ocm start kova-safe-test --runtime stable --json", {}, "kova-safe-test");
+    assertSafeScenarioCommand("ocm env clone 'Team Env' kova-safe-test --json", { sourceEnv: "Team Env" }, "kova-safe-test");
+    let blocked = false;
+    try {
+      assertSafeScenarioCommand("ocm env destroy Violet --yes", {}, "kova-safe-test");
+    } catch (error) {
+      blocked = /refusing to mutate non-Kova/.test(error.message);
+    }
+    assertEqual(blocked, true, "durable env mutation blocked");
+    return {
+      id: "durable-env-mutation-guard",
+      status: "PASS",
+      command: "evaluate synthetic command guard cases",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "durable-env-mutation-guard",
+      status: "FAIL",
+      command: "evaluate synthetic command guard cases",
+      durationMs: 0,
       message: error.message
     };
   }

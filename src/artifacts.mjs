@@ -93,6 +93,55 @@ export async function bundleReport(reportPath, options = {}) {
   }
 }
 
+export async function retainGateArtifacts(reportPath, bundle, options = {}) {
+  const sourceJsonPath = resolve(reportPath);
+  const report = JSON.parse(await readFile(sourceJsonPath, "utf8"));
+  if (!report.runId) {
+    throw new Error("report is missing runId");
+  }
+
+  const outputRoot = options.outputDir
+    ? resolve(options.outputDir)
+    : join(artifactsDir, "release-gates", sanitize(report.runId));
+  await mkdir(outputRoot, { recursive: true });
+
+  const markdownPath = siblingMarkdownPath(sourceJsonPath);
+  const retainedJsonPath = join(outputRoot, "report.json");
+  const retainedMarkdownPath = join(outputRoot, "report.md");
+  const retainedPastePath = join(outputRoot, "paste-summary.txt");
+  await cp(sourceJsonPath, retainedJsonPath);
+  if (existsSync(markdownPath)) {
+    await cp(markdownPath, retainedMarkdownPath);
+  }
+  await writeFile(retainedPastePath, renderPasteSummary(report), "utf8");
+
+  let retainedBundlePath = null;
+  let retainedChecksumPath = null;
+  if (bundle?.outputPath && existsSync(bundle.outputPath)) {
+    retainedBundlePath = join(outputRoot, basename(bundle.outputPath));
+    await cp(bundle.outputPath, retainedBundlePath);
+  }
+  if (bundle?.checksumPath && existsSync(bundle.checksumPath)) {
+    retainedChecksumPath = join(outputRoot, basename(bundle.checksumPath));
+    await cp(bundle.checksumPath, retainedChecksumPath);
+  }
+
+  const receipt = {
+    schemaVersion: "kova.releaseGate.retainedArtifacts.v1",
+    generatedAt: new Date().toISOString(),
+    runId: report.runId,
+    verdict: report.gate?.verdict ?? null,
+    outputDir: outputRoot,
+    reportPath: retainedMarkdownPath,
+    jsonPath: retainedJsonPath,
+    pasteSummaryPath: retainedPastePath,
+    bundlePath: retainedBundlePath,
+    checksumPath: retainedChecksumPath
+  };
+  await writeFile(join(outputRoot, "retained-artifacts.json"), `${JSON.stringify(receipt, null, 2)}\n`, "utf8");
+  return receipt;
+}
+
 function siblingMarkdownPath(path) {
   const extension = extname(path);
   const base = extension ? basename(path, extension) : basename(path);
