@@ -2,18 +2,48 @@
   "id": "gateway-already-running",
   "title": "Gateway Already Running",
   "objective": "A user state that forces an extra restart cycle after provisioning, used to detect restart race and port reuse issues.",
-  "tags": ["gateway", "restart", "service"],
+  "tags": [
+    "gateway",
+    "restart",
+    "service"
+  ],
   "setup": [
     {
       "id": "restart-running-gateway",
       "title": "Restart Running Gateway",
       "intent": "Ask OCM to restart an already running gateway before the next phase.",
-      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start"],
+      "afterPhases": [
+        "provision",
+        "cold-start",
+        "baseline",
+        "gateway",
+        "start"
+      ],
       "commands": [
         "ocm service restart {env}",
         "ocm service status {env} --json"
       ],
-      "evidence": ["gateway restart completed", "service status after restart"]
+      "evidence": [
+        "gateway restart completed",
+        "service status after restart"
+      ]
     }
+  ],
+  "traits": [
+    "service-state",
+    "existing-user"
+  ],
+  "compatibleSurfaces": [
+    "gateway-performance"
+  ],
+  "incompatibleSurfaces": [],
+  "riskArea": "gateway-restart",
+  "ownerArea": "gateway",
+  "setupEvidence": [
+    "gateway restart completed",
+    "service status after restart"
+  ],
+  "cleanupGuarantees": [
+    "disposable env cleanup removes state fixture files"
   ]
 }

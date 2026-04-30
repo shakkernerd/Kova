@@ -89,7 +89,7 @@ function validateCoverage(coverage, prefix, errors) {
     errors.push(`${prefix} must be an object`);
     return;
   }
-  for (const key of ["surfaces", "scenarios", "states", "platforms"]) {
+  for (const key of ["surfaces", "scenarios", "states", "traits", "stateSurfaces", "platforms"]) {
     const value = coverage[key];
     if (value === undefined) {
       continue;

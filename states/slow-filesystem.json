@@ -2,17 +2,50 @@
   "id": "slow-filesystem",
   "title": "Slow Filesystem Pressure",
   "objective": "A user state that creates many small plugin metadata files, used to expose synchronous metadata scans on slow filesystems such as WSL2.",
-  "tags": ["filesystem", "plugins", "wsl2", "performance"],
+  "tags": [
+    "filesystem",
+    "plugins",
+    "wsl2",
+    "performance"
+  ],
   "setup": [
     {
       "id": "write-many-plugin-manifests",
       "title": "Write Many Plugin Manifests",
       "intent": "Create a dense plugin metadata tree to make synchronous scans visible.",
-      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start", "clone"],
+      "afterPhases": [
+        "provision",
+        "cold-start",
+        "baseline",
+        "gateway",
+        "start",
+        "clone"
+      ],
       "commands": [
         "ocm env exec {env} -- node -e 'const fs=require(\"fs\"), path=require(\"path\"); const home=process.env.OPENCLAW_HOME; const root=path.join(home,\"plugins\",\"kova-slow-fs\"); for (let i=0; i<250; i++) { const dir=path.join(root,`plugin-${i}`); fs.mkdirSync(dir,{recursive:true}); fs.writeFileSync(path.join(dir,\"manifest.json\"),JSON.stringify({id:`kova-slow-fs-${i}`,name:`Kova Slow FS ${i}`,version:\"0.0.0\",runtimeDependencies:[\"zod\"]},null,2)); fs.writeFileSync(path.join(dir,\"package.json\"),JSON.stringify({name:`kova-slow-fs-${i}`,version:\"0.0.0\"},null,2)); }'"
       ],
-      "evidence": ["many plugin manifest files exist"]
+      "evidence": [
+        "many plugin manifest files exist"
+      ]
     }
+  ],
+  "traits": [
+    "filesystem-pressure",
+    "platform-specific",
+    "plugin-pressure",
+    "performance-pressure"
+  ],
+  "compatibleSurfaces": [
+    "cross-platform-smoke",
+    "gateway-performance"
+  ],
+  "incompatibleSurfaces": [],
+  "riskArea": "sync-filesystem-scan",
+  "ownerArea": "gateway",
+  "setupEvidence": [
+    "many plugin manifest files exist"
+  ],
+  "cleanupGuarantees": [
+    "disposable env cleanup removes state fixture files"
   ]
 }

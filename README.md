@@ -65,6 +65,9 @@ planned OpenClaw scenario.
 surfaces declare process roles and required metrics, and profile coverage gaps
 are visible before a run starts.
 
+States are validated contracts too. A profile cannot pair a scenario with a
+state that is incompatible with the scenario's surface.
+
 Real execution is explicit:
 
 ```sh

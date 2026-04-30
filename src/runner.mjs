@@ -20,6 +20,7 @@ export function buildDryRunRecord(scenario, context) {
 
   return {
     scenario: scenario.id,
+    surface: scenario.surface,
     title: scenario.title,
     status: "DRY-RUN",
     target: context.target,
@@ -593,7 +594,10 @@ function stateSummary(state) {
   return {
     id: state.id,
     title: state.title,
-    objective: state.objective
+    objective: state.objective,
+    traits: state.traits ?? [],
+    riskArea: state.riskArea ?? null,
+    ownerArea: state.ownerArea ?? null
   };
 }
 

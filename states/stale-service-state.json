@@ -2,18 +2,48 @@
   "id": "stale-service-state",
   "title": "Stale Service State",
   "objective": "A user state that stops the gateway after provisioning, used to verify scenarios detect and recover from stale service state.",
-  "tags": ["gateway", "service", "recovery"],
+  "tags": [
+    "gateway",
+    "service",
+    "recovery"
+  ],
   "setup": [
     {
       "id": "stop-gateway",
       "title": "Stop Gateway",
       "intent": "Stop the OCM-managed gateway to simulate stale service state.",
-      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start"],
+      "afterPhases": [
+        "provision",
+        "cold-start",
+        "baseline",
+        "gateway",
+        "start"
+      ],
       "commands": [
         "ocm service stop {env}",
         "ocm service status {env} --json"
       ],
-      "evidence": ["gateway stopped", "service state captured"]
+      "evidence": [
+        "gateway stopped",
+        "service state captured"
+      ]
     }
+  ],
+  "traits": [
+    "service-state",
+    "failure-state"
+  ],
+  "compatibleSurfaces": [
+    "gateway-performance"
+  ],
+  "incompatibleSurfaces": [],
+  "riskArea": "service-recovery",
+  "ownerArea": "gateway",
+  "setupEvidence": [
+    "gateway stopped",
+    "service state captured"
+  ],
+  "cleanupGuarantees": [
+    "disposable env cleanup removes state fixture files"
   ]
 }

@@ -2,17 +2,48 @@
   "id": "model-auth-missing",
   "title": "Model Auth Missing",
   "objective": "A user state with providers configured but no credentials, used to verify model discovery reports missing auth quickly and keeps the gateway responsive.",
-  "tags": ["models", "providers", "auth", "failure"],
+  "tags": [
+    "models",
+    "providers",
+    "auth",
+    "failure"
+  ],
   "setup": [
     {
       "id": "write-missing-auth-config",
       "title": "Write Missing Auth Config",
       "intent": "Create provider config that references missing credentials.",
-      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start", "clone"],
+      "afterPhases": [
+        "provision",
+        "cold-start",
+        "baseline",
+        "gateway",
+        "start",
+        "clone"
+      ],
       "commands": [
         "ocm env exec {env} -- node -e 'const fs=require(\"fs\"), path=require(\"path\"); const home=process.env.OPENCLAW_HOME; fs.mkdirSync(path.join(home,\"config\"),{recursive:true}); fs.writeFileSync(path.join(home,\"config\",\"providers.json\"),JSON.stringify({schemaVersion:\"kova.fixture.providers.v1\",providers:{openai:{auth:\"env\",env:\"KOVA_MISSING_OPENAI_KEY\",configured:false},anthropic:{auth:\"env\",env:\"KOVA_MISSING_ANTHROPIC_KEY\",configured:false}}},null,2));'"
       ],
-      "evidence": ["provider config references missing auth"]
+      "evidence": [
+        "provider config references missing auth"
+      ]
     }
+  ],
+  "traits": [
+    "provider-pressure",
+    "missing-auth",
+    "failure-state"
+  ],
+  "compatibleSurfaces": [
+    "provider-models"
+  ],
+  "incompatibleSurfaces": [],
+  "riskArea": "provider-auth",
+  "ownerArea": "providers",
+  "setupEvidence": [
+    "provider config references missing auth"
+  ],
+  "cleanupGuarantees": [
+    "disposable env cleanup removes state fixture files"
   ]
 }

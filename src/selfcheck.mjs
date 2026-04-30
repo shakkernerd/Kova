@@ -7,6 +7,8 @@ import { summarizeHeapProfiles } from "./heapprofile.mjs";
 import { evaluateRecord } from "./evaluator.mjs";
 import { evaluateGate } from "./gate.mjs";
 import { loadProcessRoles } from "./registries/process-roles.mjs";
+import { validateStateShape } from "./registries/states.mjs";
+import { validateRegistryReferences } from "./registries/validate.mjs";
 import { assertSafeScenarioCommand } from "./safety.mjs";
 import { parseTimelineText } from "./timeline.mjs";
 import { renderReportSummary } from "./report.mjs";
@@ -68,6 +70,8 @@ export async function runSelfCheck(flags = {}) {
     checks.push(readinessClassificationCheck());
     checks.push(await resourceRoleAttributionCheck(tmp));
     checks.push(roleThresholdEvaluationCheck());
+    checks.push(stateRegistryValidationCheck());
+    checks.push(scenarioStateCompatibilityCheck());
     checks.push(await cpuProfileParserCheck());
     checks.push(await heapProfileParserCheck());
     checks.push(await jsonCommandCheck(
@@ -707,6 +711,199 @@ function roleThresholdEvaluationCheck() {
       id: "resource-role-thresholds",
       status: "FAIL",
       command: "evaluate synthetic role resource thresholds",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function stateRegistryValidationCheck() {
+  try {
+    let rejectedTrait = false;
+    try {
+      validateStateShape({
+        id: "bad-state",
+        title: "Bad State",
+        objective: "Invalid state fixture",
+        tags: [],
+        traits: ["not-a-real-trait"],
+        compatibleSurfaces: [],
+        incompatibleSurfaces: [],
+        riskArea: "test",
+        ownerArea: "test",
+        setupEvidence: ["evidence"],
+        cleanupGuarantees: ["cleanup"],
+        setup: []
+      }, "bad-state.json");
+    } catch (error) {
+      rejectedTrait = /unknown trait/.test(error.message);
+    }
+    assertEqual(rejectedTrait, true, "unknown state trait rejected");
+
+    let rejectedEvidence = false;
+    try {
+      validateStateShape({
+        id: "bad-evidence-state",
+        title: "Bad Evidence State",
+        objective: "Invalid state fixture evidence",
+        tags: [],
+        traits: ["fresh-user"],
+        compatibleSurfaces: [],
+        incompatibleSurfaces: [],
+        riskArea: "test",
+        ownerArea: "test",
+        setupEvidence: [],
+        cleanupGuarantees: [],
+        setup: []
+      }, "bad-evidence-state.json");
+    } catch (error) {
+      rejectedEvidence = /setupEvidence must not be empty/.test(error.message) &&
+        /cleanupGuarantees must not be empty/.test(error.message);
+    }
+    assertEqual(rejectedEvidence, true, "empty state evidence rejected");
+
+    let rejectedSurface = false;
+    try {
+      validateRegistryReferences({
+        scenarios: [{
+          id: "scenario",
+          surface: "known-surface",
+          states: [],
+          targetKinds: [],
+          processRoles: []
+        }],
+        states: [{
+          id: "state",
+          traits: ["fresh-user"],
+          compatibleSurfaces: ["missing-surface"],
+          incompatibleSurfaces: []
+        }],
+        profiles: [],
+        surfaces: [{
+          id: "known-surface",
+          processRoles: [],
+          requiredStates: [],
+          targetKinds: []
+        }],
+        processRoles: []
+      });
+    } catch (error) {
+      rejectedSurface = /compatibleSurfaces references unknown surface/.test(error.message);
+    }
+    assertEqual(rejectedSurface, true, "unknown compatible surface rejected");
+
+    let rejectedCoveragePair = false;
+    try {
+      validateRegistryReferences({
+        scenarios: [{
+          id: "scenario",
+          surface: "known-surface",
+          states: [],
+          targetKinds: [],
+          processRoles: []
+        }],
+        states: [{
+          id: "state",
+          traits: ["fresh-user"],
+          compatibleSurfaces: ["other-surface"],
+          incompatibleSurfaces: ["known-surface"]
+        }],
+        profiles: [{
+          id: "profile",
+          entries: [],
+          gate: {
+            coverage: {
+              stateSurfaces: {
+                blocking: ["known-surface:state"]
+              }
+            }
+          }
+        }],
+        surfaces: [
+          {
+            id: "known-surface",
+            processRoles: [],
+            requiredStates: [],
+            targetKinds: []
+          },
+          {
+            id: "other-surface",
+            processRoles: [],
+            requiredStates: [],
+            targetKinds: []
+          }
+        ],
+        processRoles: []
+      });
+    } catch (error) {
+      rejectedCoveragePair = /explicitly incompatible state\/surface pair/.test(error.message) ||
+        /state compatible surfaces/.test(error.message);
+    }
+    assertEqual(rejectedCoveragePair, true, "invalid coverage state/surface pair rejected");
+
+    return {
+      id: "state-registry-validation",
+      status: "PASS",
+      command: "evaluate synthetic invalid state contracts",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "state-registry-validation",
+      status: "FAIL",
+      command: "evaluate synthetic invalid state contracts",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function scenarioStateCompatibilityCheck() {
+  try {
+    let rejected = false;
+    try {
+      validateRegistryReferences({
+        scenarios: [{
+          id: "upgrade-existing-user",
+          surface: "upgrade-existing-user",
+          states: [],
+          targetKinds: [],
+          processRoles: []
+        }],
+        states: [{
+          id: "fresh",
+          traits: ["fresh-user"],
+          compatibleSurfaces: ["fresh-install"],
+          incompatibleSurfaces: ["upgrade-existing-user"]
+        }],
+        profiles: [{
+          id: "bad-profile",
+          entries: [{ scenario: "upgrade-existing-user", state: "fresh" }]
+        }],
+        surfaces: [{
+          id: "upgrade-existing-user",
+          processRoles: [],
+          requiredStates: ["old-release-user"],
+          targetKinds: []
+        }],
+        processRoles: []
+      });
+    } catch (error) {
+      rejected = /pairs scenario 'upgrade-existing-user' with state 'fresh'/.test(error.message) ||
+        /explicitly incompatible surface/.test(error.message);
+    }
+    assertEqual(rejected, true, "invalid scenario/state profile pairing rejected");
+    return {
+      id: "scenario-state-compatibility",
+      status: "PASS",
+      command: "evaluate synthetic invalid scenario/state pairing",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "scenario-state-compatibility",
+      status: "FAIL",
+      command: "evaluate synthetic invalid scenario/state pairing",
       durationMs: 0,
       message: error.message
     };

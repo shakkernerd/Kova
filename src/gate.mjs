@@ -137,9 +137,12 @@ function normalizeGatePolicy(profile) {
 function normalizeCoveragePolicy(coverage) {
   const input = coverage && typeof coverage === "object" ? coverage : {};
   return {
+    surfaces: normalizeCoverageSet(input.surfaces),
     platforms: normalizeCoverageSet(input.platforms),
     states: normalizeCoverageSet(input.states),
-    scenarios: normalizeCoverageSet(input.scenarios)
+    traits: normalizeCoverageSet(input.traits),
+    scenarios: normalizeCoverageSet(input.scenarios),
+    stateSurfaces: normalizeCoverageSet(input.stateSurfaces)
   };
 }
 
@@ -161,7 +164,23 @@ function buildCoverageCards(report, policy, partial) {
   const platformKeys = platformCoverageKeys(report.platform);
   const scenarioKeys = new Set(records.map((record) => record.scenario).filter(Boolean));
   const stateKeys = new Set(records.map((record) => record.state?.id).filter(Boolean));
+  const surfaceKeys = new Set(records.map((record) => record.surface ?? record.measurements?.surface).filter(Boolean));
+  const traitKeys = new Set(records.flatMap((record) => record.state?.traits ?? []).filter(Boolean));
+  const stateSurfaceKeys = new Set(records
+    .map((record) => {
+      const surface = record.surface ?? record.measurements?.surface;
+      const state = record.state?.id;
+      return surface && state ? `${surface}:${state}` : null;
+    })
+    .filter(Boolean));
 
+  addCoverageCards(cards, {
+    kind: "surface",
+    expected: policy.coverage.surfaces,
+    observed: surfaceKeys,
+    partial,
+    statusText: `${surfaceKeys.size} surface(s) present`
+  });
   addCoverageCards(cards, {
     kind: "platform",
     expected: policy.coverage.platforms,
@@ -182,6 +201,20 @@ function buildCoverageCards(report, policy, partial) {
     observed: stateKeys,
     partial,
     statusText: `${stateKeys.size} state(s) present`
+  });
+  addCoverageCards(cards, {
+    kind: "trait",
+    expected: policy.coverage.traits,
+    observed: traitKeys,
+    partial,
+    statusText: `${traitKeys.size} state trait(s) present`
+  });
+  addCoverageCards(cards, {
+    kind: "state-surface",
+    expected: policy.coverage.stateSurfaces,
+    observed: stateSurfaceKeys,
+    partial,
+    statusText: `${stateSurfaceKeys.size} state/surface pair(s) present`
   });
 
   return cards;
@@ -209,7 +242,7 @@ function coverageCard({ severity, kind, value, partial, statusText }) {
     kind: filtered ? "filtered-required-coverage" : "missing-required-coverage",
     coverage: kind,
     scenario: kind === "scenario" ? value : null,
-    state: kind === "state" ? value : null,
+    state: kind === "state" ? value : stateFromCoverage(kind, value),
     status: "MISSING",
     title: `Required ${kind} Coverage Missing`,
     summary: filtered
@@ -222,6 +255,13 @@ function coverageCard({ severity, kind, value, partial, statusText }) {
       : "The release gate is incomplete and cannot approve the OpenClaw build.",
     likelyOwner: "Kova"
   };
+}
+
+function stateFromCoverage(kind, value) {
+  if (kind !== "state-surface") {
+    return null;
+  }
+  return String(value).split(":")[1] ?? null;
 }
 
 function platformCoverageKeys(platform) {

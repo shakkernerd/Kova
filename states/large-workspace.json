@@ -2,17 +2,47 @@
   "id": "large-workspace",
   "title": "Large Workspace",
   "objective": "A user state with many workspace files, used to detect synchronous filesystem scans and startup stalls.",
-  "tags": ["workspace", "filesystem", "performance"],
+  "tags": [
+    "workspace",
+    "filesystem",
+    "performance"
+  ],
   "setup": [
     {
       "id": "write-large-workspace",
       "title": "Write Large Workspace",
       "intent": "Create many workspace files with nested directories.",
-      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start", "clone"],
+      "afterPhases": [
+        "provision",
+        "cold-start",
+        "baseline",
+        "gateway",
+        "start",
+        "clone"
+      ],
       "commands": [
         "ocm env exec {env} -- node -e 'const fs=require(\"fs\"), path=require(\"path\"); const home=process.env.OPENCLAW_HOME; const root=path.join(home,\"workspace\",\"kova-large\"); for (let d=0; d<30; d++) { const dir=path.join(root,`dir-${d}`); fs.mkdirSync(dir,{recursive:true}); for (let f=0; f<30; f++) fs.writeFileSync(path.join(dir,`file-${f}.md`),`# Kova ${d}/${f}\\n`.repeat(20)); }'"
       ],
-      "evidence": ["large workspace tree exists"]
+      "evidence": [
+        "large workspace tree exists"
+      ]
     }
+  ],
+  "traits": [
+    "filesystem-pressure",
+    "performance-pressure",
+    "workspace-pressure"
+  ],
+  "compatibleSurfaces": [
+    "soak"
+  ],
+  "incompatibleSurfaces": [],
+  "riskArea": "workspace-scan",
+  "ownerArea": "gateway",
+  "setupEvidence": [
+    "large workspace tree exists"
+  ],
+  "cleanupGuarantees": [
+    "disposable env cleanup removes state fixture files"
   ]
 }

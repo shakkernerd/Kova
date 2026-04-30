@@ -181,13 +181,20 @@ run, or matrix output if a scenario references an unknown surface, a surface
 references an unknown process role, or a profile references an unknown
 scenario/state/surface.
 
+Every state must declare traits, compatible surfaces, incompatible surfaces,
+risk area, owner area, setup evidence, and cleanup guarantees. Registry
+validation rejects unknown state traits, unknown surface references, and profile
+entries that pair a scenario with a state that is not allowed for the scenario's
+surface.
+
 Plan JSON includes `coverage`:
 
 - `surfaces`: each surface with scenario count and mapped scenarios
 - `scenarioSurfaceMap`: direct scenario-to-surface mappings
 - `surfacesWithoutScenarios`: declared surfaces with no scenario yet
 - `profiles`: per-profile selected surfaces, scenarios, states, required
-  coverage, coverage gaps, and state trait coverage
+  coverage, coverage gaps, state trait coverage, state/surface pairs, and
+  trait/surface coverage
 
 ## Summary Output
 
@@ -278,6 +285,15 @@ the existing matrix runner and adds:
     "states": {
       "blocking": ["fresh"]
     },
+    "traits": {
+      "blocking": ["fresh-user"]
+    },
+    "stateSurfaces": {
+      "blocking": ["release-runtime-startup:fresh"]
+    },
+    "surfaces": {
+      "blocking": ["release-runtime-startup"]
+    },
     "scenarios": {
       "blocking": ["release-runtime-startup"]
     }
@@ -298,10 +314,10 @@ Filtered gate slices are partial. They can produce `DO_NOT_SHIP` when a selected
 blocking scenario fails, but they cannot produce `SHIP` because required gate
 coverage is missing. A passing filtered slice remains `BLOCKED`.
 
-Release profiles may define explicit platform/state/scenario coverage. Missing
-blocking coverage prevents `SHIP`; missing warning coverage creates warning
-cards. Platform coverage keys include `darwin-arm64`, `linux-x64`,
-`linux-arm64`, and `wsl2` where detectable.
+Release profiles may define explicit platform/surface/scenario/state/trait and
+state-surface coverage. Missing blocking coverage prevents `SHIP`; missing
+warning coverage creates warning cards. Platform coverage keys include
+`darwin-arm64`, `linux-x64`, `linux-arm64`, and `wsl2` where detectable.
 
 Gate cards are concise fixer records. They include severity, scenario/state,
 status, summary, expected/actual, impact, likely owner, failed command when

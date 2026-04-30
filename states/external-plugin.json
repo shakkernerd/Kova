@@ -2,17 +2,49 @@
   "id": "external-plugin",
   "title": "External Plugin Installed",
   "objective": "A user state with a local external plugin fixture installed, used to exercise non-bundled plugin lifecycle behavior.",
-  "tags": ["plugins", "external", "lifecycle"],
+  "tags": [
+    "plugins",
+    "external",
+    "lifecycle"
+  ],
   "setup": [
     {
       "id": "write-external-plugin",
       "title": "Write External Plugin Fixture",
       "intent": "Create a minimal external plugin with manifest and package metadata.",
-      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start", "clone"],
+      "afterPhases": [
+        "provision",
+        "cold-start",
+        "baseline",
+        "gateway",
+        "start",
+        "clone"
+      ],
       "commands": [
         "ocm env exec {env} -- node -e 'const fs=require(\"fs\"), path=require(\"path\"); const home=process.env.OPENCLAW_HOME; const root=path.join(home,\"plugins\",\"kova-external-plugin\"); fs.mkdirSync(root,{recursive:true}); fs.writeFileSync(path.join(root,\"manifest.json\"),JSON.stringify({id:\"kova-external-plugin\",name:\"Kova External Plugin\",version:\"0.0.0\",entry:\"index.js\"},null,2)); fs.writeFileSync(path.join(root,\"package.json\"),JSON.stringify({name:\"kova-external-plugin\",version:\"0.0.0\",main:\"index.js\"},null,2)); fs.writeFileSync(path.join(root,\"index.js\"),\"export default {};\\n\");'"
       ],
-      "evidence": ["external plugin fixture exists"]
+      "evidence": [
+        "external plugin fixture exists"
+      ]
     }
+  ],
+  "traits": [
+    "existing-user",
+    "external-plugin",
+    "plugin-pressure"
+  ],
+  "compatibleSurfaces": [
+    "plugin-lifecycle",
+    "plugin-external-install",
+    "plugin-update"
+  ],
+  "incompatibleSurfaces": [],
+  "riskArea": "external-plugin-lifecycle",
+  "ownerArea": "plugins",
+  "setupEvidence": [
+    "external plugin fixture exists"
+  ],
+  "cleanupGuarantees": [
+    "disposable env cleanup removes state fixture files"
   ]
 }

@@ -34,6 +34,7 @@ function profileCoverage(profile, { scenarios, states }) {
   const entryScenarios = new Set();
   const entryStates = new Set();
   const entrySurfaces = new Set();
+  const entryStateSurfaces = new Set();
 
   for (const entry of profile.entries ?? []) {
     entryScenarios.add(entry.scenario);
@@ -41,12 +42,16 @@ function profileCoverage(profile, { scenarios, states }) {
     const scenario = scenarioById.get(entry.scenario);
     if (scenario?.surface) {
       entrySurfaces.add(scenario.surface);
+      entryStateSurfaces.add(`${scenario.surface}:${entry.state}`);
     }
   }
 
   const requiredSurfaces = coverageIds(profile, "surfaces");
   const requiredScenarios = coverageIds(profile, "scenarios");
   const requiredStates = coverageIds(profile, "states");
+  const requiredTraits = coverageIds(profile, "traits");
+  const requiredStateSurfaces = coverageIds(profile, "stateSurfaces");
+  const coveredTraits = coveredStateTraits(profile, states);
 
   return {
     id: profile.id,
@@ -54,18 +59,36 @@ function profileCoverage(profile, { scenarios, states }) {
     surfaces: [...entrySurfaces].sort(),
     states: [...entryStates].sort(),
     scenarios: [...entryScenarios].sort(),
+    stateSurfaces: [...entryStateSurfaces].sort(),
     required: {
       surfaces: requiredSurfaces,
       scenarios: requiredScenarios,
-      states: requiredStates
+      states: requiredStates,
+      traits: requiredTraits,
+      stateSurfaces: requiredStateSurfaces
     },
     gaps: {
       surfaces: requiredSurfaces.filter((id) => !entrySurfaces.has(id)),
       scenarios: requiredScenarios.filter((id) => !entryScenarios.has(id)),
-      states: requiredStates.filter((id) => !entryStates.has(id))
+      states: requiredStates.filter((id) => !entryStates.has(id)),
+      traits: requiredTraits.filter((id) => !coveredTraits.has(id)),
+      stateSurfaces: requiredStateSurfaces.filter((id) => !entryStateSurfaces.has(id))
     },
-    stateTraitCoverage: stateTraitCoverage(profile, states)
+    stateTraitCoverage: stateTraitCoverage(profile, states),
+    stateSurfaceCoverage: stateSurfaceCoverage(profile, { scenarios, states }),
+    traitSurfaceCoverage: traitSurfaceCoverage(profile, { scenarios, states })
   };
+}
+
+function coveredStateTraits(profile, states) {
+  const stateById = new Map(states.map((state) => [state.id, state]));
+  const traits = new Set();
+  for (const entry of profile.entries ?? []) {
+    for (const trait of stateById.get(entry.state)?.traits ?? []) {
+      traits.add(trait);
+    }
+  }
+  return traits;
 }
 
 function stateTraitCoverage(profile, states) {
@@ -81,6 +104,46 @@ function stateTraitCoverage(profile, states) {
   return Object.fromEntries([...traits.entries()]
     .toSorted(([left], [right]) => left.localeCompare(right))
     .map(([trait, ids]) => [trait, [...ids].sort()]));
+}
+
+function stateSurfaceCoverage(profile, { scenarios, states }) {
+  const scenarioById = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
+  const stateById = new Map(states.map((state) => [state.id, state]));
+  const surfaces = new Map();
+  for (const entry of profile.entries ?? []) {
+    const surface = scenarioById.get(entry.scenario)?.surface;
+    const state = stateById.get(entry.state);
+    if (!surface || !state) {
+      continue;
+    }
+    const list = surfaces.get(surface) ?? new Set();
+    list.add(state.id);
+    surfaces.set(surface, list);
+  }
+  return Object.fromEntries([...surfaces.entries()]
+    .toSorted(([left], [right]) => left.localeCompare(right))
+    .map(([surface, ids]) => [surface, [...ids].sort()]));
+}
+
+function traitSurfaceCoverage(profile, { scenarios, states }) {
+  const scenarioById = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
+  const stateById = new Map(states.map((state) => [state.id, state]));
+  const traits = new Map();
+  for (const entry of profile.entries ?? []) {
+    const surface = scenarioById.get(entry.scenario)?.surface;
+    const state = stateById.get(entry.state);
+    if (!surface || !state) {
+      continue;
+    }
+    for (const trait of state.traits ?? []) {
+      const list = traits.get(trait) ?? new Set();
+      list.add(surface);
+      traits.set(trait, list);
+    }
+  }
+  return Object.fromEntries([...traits.entries()]
+    .toSorted(([left], [right]) => left.localeCompare(right))
+    .map(([trait, surfaces]) => [trait, [...surfaces].sort()]));
 }
 
 function coverageIds(profile, key) {

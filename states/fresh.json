@@ -2,7 +2,36 @@
   "id": "fresh",
   "title": "Fresh OpenClaw User",
   "objective": "A new isolated OpenClaw home with no intentional state mutations beyond normal scenario provisioning.",
-  "tags": ["fresh", "baseline"],
-  "setup": []
+  "tags": [
+    "fresh",
+    "baseline"
+  ],
+  "setup": [],
+  "traits": [
+    "fresh-user",
+    "baseline"
+  ],
+  "compatibleSurfaces": [
+    "release-runtime-startup",
+    "fresh-install",
+    "bundled-plugin-startup",
+    "plugin-external-install",
+    "plugin-remove",
+    "plugin-update",
+    "plugin-bad-manifest",
+    "plugin-missing-runtime-deps",
+    "dashboard",
+    "tui"
+  ],
+  "incompatibleSurfaces": [
+    "upgrade-existing-user"
+  ],
+  "riskArea": "baseline",
+  "ownerArea": "runtime-startup",
+  "setupEvidence": [
+    "state is intentionally empty before scenario provisioning"
+  ],
+  "cleanupGuarantees": [
+    "disposable env cleanup removes state fixture files"
+  ]
 }
-

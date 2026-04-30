@@ -2,17 +2,55 @@
   "id": "old-release-user",
   "title": "Old Release User",
   "objective": "A generated old-release-shaped user state for upgrade scenarios, with legacy version markers and pre-plugin-index paths.",
-  "tags": ["existing-user", "upgrade", "old-release"],
+  "tags": [
+    "existing-user",
+    "upgrade",
+    "old-release"
+  ],
   "setup": [
     {
       "id": "write-old-release-markers",
       "title": "Write Old Release Markers",
       "intent": "Create legacy state markers that migrations should tolerate or upgrade.",
-      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start", "clone", "source-runtime"],
+      "afterPhases": [
+        "provision",
+        "cold-start",
+        "baseline",
+        "gateway",
+        "start",
+        "clone",
+        "source-runtime"
+      ],
       "commands": [
         "ocm env exec {env} -- node -e 'const fs=require(\"fs\"), path=require(\"path\"); const home=process.env.OPENCLAW_HOME; fs.mkdirSync(path.join(home,\"config\"),{recursive:true}); fs.mkdirSync(path.join(home,\"plugins\"),{recursive:true}); fs.writeFileSync(path.join(home,\"config\",\"version.json\"),JSON.stringify({schemaVersion:\"kova.fixture.old-release.v1\",release:\"2026.4.20\",channel:\"stable\"},null,2)); fs.writeFileSync(path.join(home,\"plugins\",\"legacy-index.json\"),JSON.stringify({plugins:[\"browser\",\"openai\",\"anthropic\"]},null,2));'"
       ],
-      "evidence": ["legacy version marker exists", "legacy plugin index exists"]
+      "evidence": [
+        "legacy version marker exists",
+        "legacy plugin index exists"
+      ]
     }
-  ]
+  ],
+  "traits": [
+    "existing-user",
+    "old-release",
+    "migration-state"
+  ],
+  "compatibleSurfaces": [
+    "upgrade-existing-user"
+  ],
+  "incompatibleSurfaces": [],
+  "riskArea": "release-upgrade",
+  "ownerArea": "upgrade",
+  "setupEvidence": [
+    "legacy version marker exists",
+    "legacy plugin index exists"
+  ],
+  "cleanupGuarantees": [
+    "disposable env cleanup removes state fixture files"
+  ],
+  "source": {
+    "kind": "synthetic-old-release",
+    "release": "2026.4.20",
+    "note": "legacy plugin index and version markers"
+  }
 }

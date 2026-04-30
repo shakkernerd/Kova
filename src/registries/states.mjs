@@ -1,5 +1,33 @@
 import { statesDir } from "../paths.mjs";
-import { assertNoShapeErrors, loadJsonRegistry, requireArray, requireKebabId, requireString } from "./validate.mjs";
+import { assertNoShapeErrors, loadJsonRegistry, requireArray, requireKebabId, requireObject, requireString } from "./validate.mjs";
+
+export const knownStateTraits = [
+  "agent-state",
+  "baseline",
+  "channel-state",
+  "config-state",
+  "configured-auth",
+  "existing-user",
+  "external-plugin",
+  "failure-state",
+  "filesystem-pressure",
+  "fresh-user",
+  "memory-pressure",
+  "migration-state",
+  "missing-auth",
+  "mock-provider",
+  "old-release",
+  "onboarded-user",
+  "performance-pressure",
+  "platform-specific",
+  "plugin-pressure",
+  "provider-pressure",
+  "runtime-deps",
+  "service-state",
+  "session-state",
+  "upgraded-user",
+  "workspace-pressure"
+];
 
 export async function loadStates(selectedId) {
   return loadJsonRegistry({
@@ -22,6 +50,13 @@ export function validateStateShape(state, sourceName = "state") {
   requireString(state, "title", errors);
   requireString(state, "objective", errors);
   requireArray(state, "tags", errors);
+  requireArray(state, "traits", errors);
+  requireArray(state, "compatibleSurfaces", errors);
+  requireArray(state, "incompatibleSurfaces", errors);
+  requireString(state, "riskArea", errors);
+  requireString(state, "ownerArea", errors);
+  requireArray(state, "setupEvidence", errors);
+  requireArray(state, "cleanupGuarantees", errors);
   if (state.prepare !== undefined) {
     requireArray(state, "prepare", errors);
   }
@@ -35,9 +70,43 @@ export function validateStateShape(state, sourceName = "state") {
   validateSteps(state.cleanup, "cleanup", errors, { phaseBinding: false });
   validateStringArray(state.compatibleSurfaces, "compatibleSurfaces", errors, { optional: true });
   validateStringArray(state.incompatibleSurfaces, "incompatibleSurfaces", errors, { optional: true });
-  validateStringArray(state.traits, "traits", errors, { optional: true });
+  validateStringArray(state.traits, "traits", errors);
+  validateStringArray(state.setupEvidence, "setupEvidence", errors, { nonEmpty: true });
+  validateStringArray(state.cleanupGuarantees, "cleanupGuarantees", errors, { nonEmpty: true });
+  validateKnownTraits(state.traits, errors);
+  if (state.source !== undefined) {
+    validateSource(state.source, errors);
+  }
 
   assertNoShapeErrors(errors, sourceName);
+}
+
+function validateKnownTraits(traits, errors) {
+  if (!Array.isArray(traits)) {
+    return;
+  }
+  const known = new Set(knownStateTraits);
+  for (const [index, trait] of traits.entries()) {
+    if (typeof trait === "string" && !known.has(trait)) {
+      errors.push(`traits[${index}] references unknown trait '${trait}'`);
+    }
+  }
+}
+
+function validateSource(source, errors) {
+  requireObject({ source }, "source", errors);
+  if (!source || typeof source !== "object" || Array.isArray(source)) {
+    return;
+  }
+  requireKebabId(source, "kind", errors, "source");
+  for (const [key, value] of Object.entries(source)) {
+    if (key === "kind") {
+      continue;
+    }
+    if (typeof value !== "string" || value.length === 0) {
+      errors.push(`source.${key} must be a non-empty string`);
+    }
+  }
 }
 
 function validateSteps(steps, key, errors, options) {

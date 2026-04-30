@@ -3,7 +3,7 @@
   "title": "Fresh Install",
   "ownerArea": "runtime-startup",
   "description": "Create a disposable fresh OpenClaw home and verify gateway, plugins, models, logs, and baseline resource use.",
-  "requiredStates": ["fresh", "onboarded-user", "plugin-index"],
+  "requiredStates": ["fresh", "onboarded-user", "plugin-index", "old-config-keys", "large-memory-session", "corrupted-config", "missing-plugin-index"],
   "targetKinds": ["npm", "channel", "runtime", "local-build"],
   "requiredMetrics": ["gatewayReadyMs", "statusMs", "pluginsListMs", "modelsListMs", "peakRssMb"],
   "processRoles": ["gateway", "command-tree", "status-cli", "plugin-cli", "model-cli"],

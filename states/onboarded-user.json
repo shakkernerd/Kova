@@ -2,17 +2,49 @@
   "id": "onboarded-user",
   "title": "Onboarded OpenClaw User",
   "objective": "A user state that looks past first-run onboarding, with gateway, profile, and plugin folders already present.",
-  "tags": ["existing-user", "onboarding", "config"],
+  "tags": [
+    "existing-user",
+    "onboarding",
+    "config"
+  ],
   "setup": [
     {
       "id": "write-onboarding-markers",
       "title": "Write Onboarding Markers",
       "intent": "Create common first-run completion markers and baseline user folders.",
-      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start", "clone"],
+      "afterPhases": [
+        "provision",
+        "cold-start",
+        "baseline",
+        "gateway",
+        "start",
+        "clone"
+      ],
       "commands": [
         "ocm env exec {env} -- node -e 'const fs=require(\"fs\"), path=require(\"path\"); const home=process.env.OPENCLAW_HOME; const dirs=[\"plugins\",\".openclaw/plugins\",\"sessions\",\"workspace\",\"config\"]; for (const dir of dirs) fs.mkdirSync(path.join(home,dir),{recursive:true}); const state={schemaVersion:\"kova.fixture.onboarding.v1\",onboarded:true,createdAt:new Date().toISOString()}; for (const rel of [\"onboarding.json\",\".openclaw/onboarding.json\",\"config/onboarding.json\"]) fs.writeFileSync(path.join(home,rel),JSON.stringify(state,null,2));'"
       ],
-      "evidence": ["onboarding marker files exist", "baseline user folders exist"]
+      "evidence": [
+        "onboarding marker files exist",
+        "baseline user folders exist"
+      ]
     }
+  ],
+  "traits": [
+    "existing-user",
+    "onboarded-user",
+    "config-state"
+  ],
+  "compatibleSurfaces": [
+    "fresh-install"
+  ],
+  "incompatibleSurfaces": [],
+  "riskArea": "onboarding-migration",
+  "ownerArea": "runtime-startup",
+  "setupEvidence": [
+    "onboarding marker files exist",
+    "baseline user folders exist"
+  ],
+  "cleanupGuarantees": [
+    "disposable env cleanup removes state fixture files"
   ]
 }

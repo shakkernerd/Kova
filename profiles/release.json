@@ -12,6 +12,31 @@
       "states": {
         "blocking": ["fresh", "onboarded-user", "old-release-user", "plugin-index", "many-bundled-plugins"]
       },
+      "traits": {
+        "blocking": ["fresh-user", "existing-user", "old-release", "plugin-pressure", "provider-pressure"],
+        "warning": ["filesystem-pressure", "memory-pressure", "failure-state"]
+      },
+      "stateSurfaces": {
+        "blocking": [
+          "release-runtime-startup:fresh",
+          "fresh-install:fresh",
+          "fresh-install:onboarded-user",
+          "upgrade-existing-user:old-release-user",
+          "bundled-runtime-deps:missing-plugin-index",
+          "plugin-lifecycle:plugin-index",
+          "plugin-lifecycle:external-plugin",
+          "gateway-performance:many-bundled-plugins",
+          "agent-message:mock-openai-provider",
+          "provider-models:model-auth-missing",
+          "dashboard:fresh",
+          "tui:fresh"
+        ],
+        "warning": [
+          "failure-containment:broken-plugin-deps",
+          "soak:large-workspace",
+          "cross-platform-smoke:slow-filesystem"
+        ]
+      },
       "surfaces": {
         "blocking": [
           "release-runtime-startup",

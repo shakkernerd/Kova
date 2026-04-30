@@ -2,17 +2,50 @@
   "id": "broken-plugin-deps",
   "title": "Broken Plugin Dependencies",
   "objective": "A user state with an installed plugin manifest that references missing runtime dependencies, used to verify diagnostics and containment.",
-  "tags": ["plugins", "runtime-deps", "failure"],
+  "tags": [
+    "plugins",
+    "runtime-deps",
+    "failure"
+  ],
   "setup": [
     {
       "id": "write-broken-plugin",
       "title": "Write Broken Plugin Fixture",
       "intent": "Install a deliberately broken local plugin fixture inside the disposable env.",
-      "afterPhases": ["provision", "cold-start", "baseline", "gateway", "start", "clone"],
+      "afterPhases": [
+        "provision",
+        "cold-start",
+        "baseline",
+        "gateway",
+        "start",
+        "clone"
+      ],
       "commands": [
         "ocm env exec {env} -- node -e 'const fs=require(\"fs\"), path=require(\"path\"); const home=process.env.OPENCLAW_HOME; const root=path.join(home,\"plugins\",\"kova-broken-plugin\"); fs.mkdirSync(root,{recursive:true}); fs.writeFileSync(path.join(root,\"manifest.json\"),JSON.stringify({id:\"kova-broken-plugin\",name:\"Kova Broken Plugin\",version:\"0.0.0\",runtimeDependencies:[\"kova-definitely-missing-dep\"]},null,2)); fs.writeFileSync(path.join(root,\"package.json\"),JSON.stringify({name:\"kova-broken-plugin\",version:\"0.0.0\",dependencies:{\"kova-definitely-missing-dep\":\"0.0.0\"}},null,2)); fs.writeFileSync(path.join(root,\"index.js\"),\"require(\\\"kova-definitely-missing-dep\\\");\\n\");'"
       ],
-      "evidence": ["broken plugin manifest exists", "missing dependency is intentional"]
+      "evidence": [
+        "broken plugin manifest exists",
+        "missing dependency is intentional"
+      ]
     }
+  ],
+  "traits": [
+    "failure-state",
+    "plugin-pressure",
+    "runtime-deps"
+  ],
+  "compatibleSurfaces": [
+    "plugin-lifecycle",
+    "failure-containment"
+  ],
+  "incompatibleSurfaces": [],
+  "riskArea": "plugin-runtime-deps",
+  "ownerArea": "plugins",
+  "setupEvidence": [
+    "broken plugin manifest exists",
+    "missing dependency is intentional"
+  ],
+  "cleanupGuarantees": [
+    "disposable env cleanup removes state fixture files"
   ]
 }
