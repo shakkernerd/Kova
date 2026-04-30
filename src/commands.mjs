@@ -28,7 +28,10 @@ export function runCommand(command, options = {}) {
     });
 
     const sampler = options.resourceSample
-      ? startResourceSampler(child.pid, options.resourceSample)
+      ? startResourceSampler(child.pid, {
+        ...options.resourceSample,
+        rootCommand: command
+      })
       : null;
     let stdout = "";
     let stderr = "";
@@ -98,6 +101,7 @@ function truncate(value, limit = 20000) {
 function startResourceSampler(rootPid, options) {
   const startedAt = Date.now();
   const intervalMs = Math.max(250, Number(options.intervalMs ?? 1000));
+  const roleMatchers = compileRoleMatchers(options.processRoles ?? []);
   const samples = [];
   let gatewayPid = null;
   let gatewayRefreshSample = 0;
@@ -132,25 +136,41 @@ function startResourceSampler(rootPid, options) {
     }
 
     const treePids = collectProcessTreePids(allProcesses, rootPid);
+    const gatewayTreePids = gatewayPid === null ? new Set() : collectProcessTreePids(allProcesses, gatewayPid);
     const tracked = [];
     const seen = new Set();
 
     for (const process of allProcesses) {
-      let role = null;
+      const roles = new Set();
       if (treePids.has(process.pid)) {
-        role = "command-tree";
+        roles.add("command-tree");
       }
       if (gatewayPid !== null && process.pid === gatewayPid) {
-        role = role ? `${role},gateway` : "gateway";
+        roles.add("gateway");
       }
-      if (!role) {
+      if (gatewayTreePids.has(process.pid)) {
+        roles.add("gateway-tree");
+      }
+      if (roles.size > 0) {
+        for (const role of matchingRegistryRoles(process, options.rootCommand, roleMatchers)) {
+          roles.add(role);
+        }
+      }
+      if (roles.size === 1 && roles.has("command-tree")) {
+        roles.add("uncategorized");
+      }
+      if (roles.size === 1 && roles.has("gateway-tree")) {
+        roles.add("uncategorized");
+      }
+      if (roles.size === 0) {
         continue;
       }
       if (seen.has(process.pid)) {
         continue;
       }
       seen.add(process.pid);
-      tracked.push({ ...process, role });
+      const sortedRoles = [...roles].sort();
+      tracked.push({ ...process, roles: sortedRoles, role: sortedRoles.join(",") });
     }
 
     samples.push({
@@ -161,6 +181,45 @@ function startResourceSampler(rootPid, options) {
       processes: tracked
     });
   }
+}
+
+function compileRoleMatchers(roles) {
+  return roles.map((role) => ({
+    id: role.id,
+    commandPatterns: compilePatterns(role.commandPatterns ?? []),
+    processPatterns: compilePatterns(role.processPatterns ?? [])
+  })).filter((role) => typeof role.id === "string" && role.id.length > 0);
+}
+
+function compilePatterns(patterns) {
+  return patterns
+    .filter((pattern) => typeof pattern === "string" && pattern.length > 0)
+    .map((pattern) => {
+      try {
+        return { raw: pattern, regex: new RegExp(pattern, "i") };
+      } catch {
+        return { raw: pattern, regex: null };
+      }
+    });
+}
+
+function matchingRegistryRoles(process, rootCommand, roleMatchers) {
+  const roles = [];
+  for (const role of roleMatchers) {
+    if (role.id === "command-tree" || role.id === "gateway" || role.id === "gateway-tree") {
+      continue;
+    }
+    if (matchesAny(role.processPatterns, process.command) || matchesAny(role.commandPatterns, rootCommand) ||
+      matchesAny(role.commandPatterns, process.command)) {
+      roles.push(role.id);
+    }
+  }
+  return roles;
+}
+
+function matchesAny(patterns, value) {
+  const text = String(value ?? "");
+  return patterns.some((pattern) => pattern.regex ? pattern.regex.test(text) : text.includes(pattern.raw));
 }
 
 function listProcesses() {
@@ -247,16 +306,18 @@ function summarizeSamples(samples) {
   let peakRssSample = null;
   let peakCpuSample = null;
   const byPid = new Map();
+  const byRole = new Map();
 
   for (const sample of samples) {
     const totalRssMb = roundNumber(sample.processes.reduce((total, process) => total + process.rssMb, 0));
     const totalCpuPercent = roundNumber(sample.processes.reduce((total, process) => total + process.cpuPercent, 0));
     const commandTreeRssMb = roundNumber(sample.processes
-      .filter((process) => process.role.includes("command-tree"))
+      .filter((process) => process.roles?.includes("command-tree") || process.role.includes("command-tree"))
       .reduce((total, process) => total + process.rssMb, 0));
     const gatewayRssMb = roundNumber(sample.processes
-      .filter((process) => process.role.includes("gateway"))
+      .filter((process) => process.roles?.includes("gateway") || process.role.includes("gateway"))
       .reduce((total, process) => total + process.rssMb, 0));
+    updateRolePeaks(byRole, sample);
 
     peakTotalRssMb = maxNullable(peakTotalRssMb, totalRssMb);
     maxTotalCpuPercent = maxNullable(maxTotalCpuPercent, totalCpuPercent);
@@ -283,13 +344,15 @@ function summarizeSamples(samples) {
       const existing = byPid.get(process.pid) ?? {
         pid: process.pid,
         command: process.command,
+        roles: process.roles ?? process.role.split(",").filter(Boolean),
         role: process.role,
         peakRssMb: 0,
         maxCpuPercent: 0,
         firstSeenMs: sample.elapsedMs,
         lastSeenMs: sample.elapsedMs
       };
-      existing.role = mergeRoles(existing.role, process.role);
+      existing.roles = mergeRoleArrays(existing.roles, process.roles ?? process.role.split(",").filter(Boolean));
+      existing.role = existing.roles.join(",");
       existing.command = process.command;
       existing.peakRssMb = Math.max(existing.peakRssMb, process.rssMb);
       existing.maxCpuPercent = Math.max(existing.maxCpuPercent, process.cpuPercent);
@@ -303,6 +366,10 @@ function summarizeSamples(samples) {
     peakRssMb: roundNumber(process.peakRssMb),
     maxCpuPercent: roundNumber(process.maxCpuPercent)
   }));
+  const roleSummaries = Object.fromEntries([...byRole.entries()]
+    .toSorted(([left], [right]) => left.localeCompare(right))
+    .map(([role, summary]) => [role, finalizeRoleSummary(summary)]));
+  const roleList = Object.entries(roleSummaries).map(([role, summary]) => ({ role, ...summary }));
 
   return {
     schemaVersion: "kova.resourceSamples.v1",
@@ -312,10 +379,91 @@ function summarizeSamples(samples) {
     maxTotalCpuPercent,
     peakCommandTreeRssMb,
     peakGatewayRssMb,
+    byRole: roleSummaries,
+    topRolesByRss: roleList.toSorted((left, right) => (right.peakRssMb ?? 0) - (left.peakRssMb ?? 0)).slice(0, 8),
+    topRolesByCpu: roleList.toSorted((left, right) => (right.maxCpuPercent ?? 0) - (left.maxCpuPercent ?? 0)).slice(0, 8),
     peakRssSample,
     peakCpuSample,
     topByRss: processSummaries.toSorted((left, right) => right.peakRssMb - left.peakRssMb).slice(0, 5),
     topByCpu: processSummaries.toSorted((left, right) => right.maxCpuPercent - left.maxCpuPercent).slice(0, 5)
+  };
+}
+
+function updateRolePeaks(byRole, sample) {
+  const totals = new Map();
+  for (const process of sample.processes) {
+    for (const role of process.roles ?? process.role.split(",").filter(Boolean)) {
+      const total = totals.get(role) ?? {
+        rssMb: 0,
+        cpuPercent: 0,
+        processCount: 0,
+        topRssProcess: null,
+        topCpuProcess: null
+      };
+      total.rssMb += process.rssMb;
+      total.cpuPercent += process.cpuPercent;
+      total.processCount += 1;
+      if (!total.topRssProcess || process.rssMb > total.topRssProcess.rssMb) {
+        total.topRssProcess = process;
+      }
+      if (!total.topCpuProcess || process.cpuPercent > total.topCpuProcess.cpuPercent) {
+        total.topCpuProcess = process;
+      }
+      totals.set(role, total);
+    }
+  }
+
+  for (const [role, total] of totals.entries()) {
+    const existing = byRole.get(role) ?? {
+      role,
+      peakRssMb: null,
+      maxCpuPercent: null,
+      peakRssAtMs: null,
+      peakCpuAtMs: null,
+      peakProcessCount: 0,
+      peakRssProcess: null,
+      peakCpuProcess: null
+    };
+    const rssMb = roundNumber(total.rssMb);
+    const cpuPercent = roundNumber(total.cpuPercent);
+    if (existing.peakRssMb === null || rssMb > existing.peakRssMb) {
+      existing.peakRssMb = rssMb;
+      existing.peakRssAtMs = sample.elapsedMs;
+      existing.peakProcessCount = total.processCount;
+      existing.peakRssProcess = compactProcess(total.topRssProcess);
+    }
+    if (existing.maxCpuPercent === null || cpuPercent > existing.maxCpuPercent) {
+      existing.maxCpuPercent = cpuPercent;
+      existing.peakCpuAtMs = sample.elapsedMs;
+      existing.peakCpuProcess = compactProcess(total.topCpuProcess);
+    }
+    byRole.set(role, existing);
+  }
+}
+
+function finalizeRoleSummary(summary) {
+  return {
+    peakRssMb: summary.peakRssMb,
+    maxCpuPercent: summary.maxCpuPercent,
+    peakRssAtMs: summary.peakRssAtMs,
+    peakCpuAtMs: summary.peakCpuAtMs,
+    peakProcessCount: summary.peakProcessCount,
+    peakRssProcess: summary.peakRssProcess,
+    peakCpuProcess: summary.peakCpuProcess
+  };
+}
+
+function compactProcess(process) {
+  if (!process) {
+    return null;
+  }
+  return {
+    pid: process.pid,
+    roles: process.roles ?? process.role.split(",").filter(Boolean),
+    role: process.role,
+    rssMb: process.rssMb,
+    cpuPercent: process.cpuPercent,
+    command: process.command
   };
 }
 
@@ -326,9 +474,9 @@ function sampleInterval(samples) {
   return Math.max(1, samples[1].elapsedMs - samples[0].elapsedMs);
 }
 
-function mergeRoles(left, right) {
-  const roles = new Set(`${left},${right}`.split(",").filter(Boolean));
-  return [...roles].join(",");
+function mergeRoleArrays(left, right) {
+  const roles = new Set([...(left ?? []), ...(right ?? [])].filter(Boolean));
+  return [...roles].sort();
 }
 
 function maxNullable(left, right) {

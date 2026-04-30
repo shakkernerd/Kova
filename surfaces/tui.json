@@ -8,6 +8,10 @@
   "requiredMetrics": ["tuiSmokeMs", "gatewayReadyMs", "statusMs", "inputLagMs", "pluginLoadFailures"],
   "processRoles": ["gateway", "command-tree", "tui-cli"],
   "thresholds": { "tuiSmokeMs": 15000, "gatewayReadyMs": 30000, "inputLagMs": 1000 },
+  "roleThresholds": {
+    "gateway": { "peakRssMb": 800, "maxCpuPercent": 250 },
+    "tui-cli": { "peakRssMb": 500, "maxCpuPercent": 200 }
+  },
   "diagnostics": {
     "timelineRequiredForSourceBuild": false,
     "expectedSpans": ["tui.attach", "tui.input", "gateway.websocket"]

@@ -1,0 +1,7 @@
+{
+  "id": "build-tooling",
+  "title": "Build Tooling",
+  "description": "OpenClaw build and postbuild tooling used by release-shaped local builds.",
+  "commandPatterns": ["build", "build-local", "postbuild", "runtime-postbuild"],
+  "processPatterns": ["tsc", "vite", "rollup", "esbuild", "runtime-postbuild"]
+}

@@ -8,6 +8,11 @@
   "requiredMetrics": ["coldReadyMs", "warmReadyMs", "runtimeDepsStagingMs", "missingDependencyErrors"],
   "processRoles": ["gateway", "command-tree", "package-manager", "runtime-staging"],
   "thresholds": { "coldReadyMs": 45000, "warmReadyMs": 20000, "runtimeDepsStagingMs": 30000 },
+  "roleThresholds": {
+    "gateway": { "peakRssMb": 800, "maxCpuPercent": 250 },
+    "runtime-staging": { "peakRssMb": 900, "maxCpuPercent": 350 },
+    "package-manager": { "peakRssMb": 900, "maxCpuPercent": 350 }
+  },
   "diagnostics": {
     "timelineRequiredForSourceBuild": true,
     "expectedSpans": ["plugins.runtimeDeps", "plugins.runtimeDeps.install"]

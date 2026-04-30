@@ -8,6 +8,11 @@
   "requiredMetrics": ["gatewayReadyMs", "pluginsListMs", "missingDependencyErrors", "pluginLoadFailures"],
   "processRoles": ["gateway", "command-tree", "plugin-cli", "runtime-staging"],
   "thresholds": { "gatewayReadyMs": 30000, "pluginsListMs": 10000 },
+  "roleThresholds": {
+    "gateway": { "peakRssMb": 800, "maxCpuPercent": 250 },
+    "plugin-cli": { "peakRssMb": 600, "maxCpuPercent": 250 },
+    "runtime-staging": { "peakRssMb": 900, "maxCpuPercent": 350 }
+  },
   "diagnostics": {
     "timelineRequiredForSourceBuild": true,
     "expectedSpans": ["plugins.install", "plugins.registry.refresh", "plugins.load"]

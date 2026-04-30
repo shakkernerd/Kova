@@ -1,6 +1,7 @@
-export function evaluateRecord(record, scenario) {
+export function evaluateRecord(record, scenario, options = {}) {
   const originalStatus = record.status;
-  const thresholds = scenario.thresholds ?? {};
+  const thresholds = { ...(options.surface?.thresholds ?? {}), ...(scenario.thresholds ?? {}) };
+  const roleThresholds = mergeRoleThresholds(options.surface?.roleThresholds, scenario.thresholds?.roleThresholds);
   const violations = [];
   const allResults = collectResults(record);
   const resourceSummary = collectResourceSummary(allResults);
@@ -85,6 +86,7 @@ export function evaluateRecord(record, scenario) {
       message: `max CPU ${cpuPercentMax}% exceeded threshold ${thresholds.cpuPercentMax}%`
     });
   }
+  checkRoleThresholds(violations, resourceSummary.byRole, roleThresholds);
 
   const allowedMissingDependencyErrors =
     typeof thresholds.missingDependencyErrors === "number" ? thresholds.missingDependencyErrors : 0;
@@ -310,6 +312,9 @@ export function evaluateRecord(record, scenario) {
     resourceSampleArtifacts: resourceSummary.artifacts,
     resourcePeakCommandTreeRssMb: resourceSummary.peakCommandTreeRssMb,
     resourcePeakGatewayRssMb: resourceSummary.peakGatewayRssMb,
+    resourceByRole: resourceSummary.byRole,
+    resourceTopRolesByRss: resourceSummary.topRolesByRss,
+    resourceTopRolesByCpu: resourceSummary.topRolesByCpu,
     resourcePeakRssAtMs: resourceSummary.peakRssSample?.elapsedMs ?? null,
     resourcePeakCpuAtMs: resourceSummary.peakCpuSample?.elapsedMs ?? null,
     resourcePeakRssProcess: compactSampleProcess(resourceSummary.peakRssSample?.topProcess),
@@ -543,6 +548,48 @@ function checkDuration(violations, results, metric, threshold, predicate) {
   }
 }
 
+function checkRoleThresholds(violations, byRole, roleThresholds) {
+  for (const [role, thresholds] of Object.entries(roleThresholds)) {
+    const summary = byRole?.[role];
+    if (!summary) {
+      continue;
+    }
+    if (typeof thresholds.peakRssMb === "number" && typeof summary.peakRssMb === "number" &&
+      summary.peakRssMb > thresholds.peakRssMb) {
+      violations.push({
+        kind: "resource",
+        metric: `resourceByRole.${role}.peakRssMb`,
+        role,
+        expected: `<= ${thresholds.peakRssMb}`,
+        actual: summary.peakRssMb,
+        message: `${role} peak RSS ${summary.peakRssMb} MB exceeded threshold ${thresholds.peakRssMb} MB`
+      });
+    }
+    if (typeof thresholds.maxCpuPercent === "number" && typeof summary.maxCpuPercent === "number" &&
+      summary.maxCpuPercent > thresholds.maxCpuPercent) {
+      violations.push({
+        kind: "resource",
+        metric: `resourceByRole.${role}.maxCpuPercent`,
+        role,
+        expected: `<= ${thresholds.maxCpuPercent}`,
+        actual: summary.maxCpuPercent,
+        message: `${role} max CPU ${summary.maxCpuPercent}% exceeded threshold ${thresholds.maxCpuPercent}%`
+      });
+    }
+  }
+}
+
+function mergeRoleThresholds(base, override) {
+  const merged = {};
+  for (const [sourceRole, sourceThresholds] of Object.entries(base ?? {})) {
+    merged[sourceRole] = { ...sourceThresholds };
+  }
+  for (const [sourceRole, sourceThresholds] of Object.entries(override ?? {})) {
+    merged[sourceRole] = { ...(merged[sourceRole] ?? {}), ...sourceThresholds };
+  }
+  return merged;
+}
+
 function collectResults(record) {
   const results = [];
   for (const phase of record.phases ?? []) {
@@ -580,6 +627,7 @@ function collectResourceSummary(results) {
   let peakCpuSample = null;
   const artifacts = [];
   const byPid = new Map();
+  const byRole = new Map();
 
   for (const result of results) {
     const samples = result.resourceSamples;
@@ -591,6 +639,7 @@ function collectResourceSummary(results) {
     maxTotalCpuPercent = maxNullable(maxTotalCpuPercent, samples.maxTotalCpuPercent);
     peakCommandTreeRssMb = maxNullable(peakCommandTreeRssMb, samples.peakCommandTreeRssMb);
     peakGatewayRssMb = maxNullable(peakGatewayRssMb, samples.peakGatewayRssMb);
+    mergeRoleSummaries(byRole, samples.byRole ?? {});
     peakRssSample = maxSample(peakRssSample, samples.peakRssSample, "totalRssMb");
     peakCpuSample = maxSample(peakCpuSample, samples.peakCpuSample, "totalCpuPercent");
     if (samples.artifactPath) {
@@ -617,18 +666,50 @@ function collectResourceSummary(results) {
   }
 
   const processes = [...byPid.values()];
+  const roleSummaries = Object.fromEntries([...byRole.entries()]
+    .toSorted(([left], [right]) => left.localeCompare(right)));
+  const roleList = Object.entries(roleSummaries).map(([role, summary]) => ({ role, ...summary }));
   return {
     sampleCount,
     peakTotalRssMb,
     maxTotalCpuPercent,
     peakCommandTreeRssMb,
     peakGatewayRssMb,
+    byRole: roleSummaries,
+    topRolesByRss: roleList.toSorted((left, right) => (right.peakRssMb ?? 0) - (left.peakRssMb ?? 0)).slice(0, 8),
+    topRolesByCpu: roleList.toSorted((left, right) => (right.maxCpuPercent ?? 0) - (left.maxCpuPercent ?? 0)).slice(0, 8),
     peakRssSample,
     peakCpuSample,
     artifacts,
     topByRss: processes.toSorted((left, right) => right.peakRssMb - left.peakRssMb).slice(0, 5),
     topByCpu: processes.toSorted((left, right) => right.maxCpuPercent - left.maxCpuPercent).slice(0, 5)
   };
+}
+
+function mergeRoleSummaries(target, source) {
+  for (const [role, summary] of Object.entries(source)) {
+    const existing = target.get(role) ?? {
+      peakRssMb: null,
+      maxCpuPercent: null,
+      peakRssAtMs: null,
+      peakCpuAtMs: null,
+      peakProcessCount: 0,
+      peakRssProcess: null,
+      peakCpuProcess: null
+    };
+    if (typeof summary.peakRssMb === "number" && (existing.peakRssMb === null || summary.peakRssMb > existing.peakRssMb)) {
+      existing.peakRssMb = summary.peakRssMb;
+      existing.peakRssAtMs = summary.peakRssAtMs ?? null;
+      existing.peakProcessCount = summary.peakProcessCount ?? 0;
+      existing.peakRssProcess = summary.peakRssProcess ?? null;
+    }
+    if (typeof summary.maxCpuPercent === "number" && (existing.maxCpuPercent === null || summary.maxCpuPercent > existing.maxCpuPercent)) {
+      existing.maxCpuPercent = summary.maxCpuPercent;
+      existing.peakCpuAtMs = summary.peakCpuAtMs ?? null;
+      existing.peakCpuProcess = summary.peakCpuProcess ?? null;
+    }
+    target.set(role, existing);
+  }
 }
 
 function maxSample(current, candidate, key) {

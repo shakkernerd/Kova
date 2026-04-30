@@ -45,6 +45,31 @@ export function validateSurfaceShape(surface, sourceName = "surface") {
       errors.push("diagnostics.expectedSpans must be an array when set");
     }
   }
+  validateRoleThresholds(surface.roleThresholds, "roleThresholds", errors);
 
   assertNoShapeErrors(errors, sourceName);
+}
+
+function validateRoleThresholds(value, prefix, errors) {
+  if (value === undefined) {
+    return;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    errors.push(`${prefix} must be an object when set`);
+    return;
+  }
+  for (const [role, thresholds] of Object.entries(value)) {
+    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(role)) {
+      errors.push(`${prefix}.${role} must use a kebab-case process role id`);
+    }
+    if (!thresholds || typeof thresholds !== "object" || Array.isArray(thresholds)) {
+      errors.push(`${prefix}.${role} must be an object`);
+      continue;
+    }
+    for (const key of ["peakRssMb", "maxCpuPercent"]) {
+      if (thresholds[key] !== undefined && (typeof thresholds[key] !== "number" || thresholds[key] < 0)) {
+        errors.push(`${prefix}.${role}.${key} must be a non-negative number when set`);
+      }
+    }
+  }
 }

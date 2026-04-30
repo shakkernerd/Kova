@@ -8,6 +8,11 @@
   "requiredMetrics": ["gatewaySurvives", "diagnosticPresent", "statusAfterFailureMs", "pluginLoadFailures"],
   "processRoles": ["gateway", "command-tree", "plugin-cli", "model-cli", "doctor-cli"],
   "thresholds": { "statusAfterFailureMs": 10000 },
+  "roleThresholds": {
+    "gateway": { "peakRssMb": 850, "maxCpuPercent": 250 },
+    "plugin-cli": { "peakRssMb": 600, "maxCpuPercent": 250 },
+    "doctor-cli": { "peakRssMb": 700, "maxCpuPercent": 300 }
+  },
   "diagnostics": {
     "timelineRequiredForSourceBuild": true,
     "expectedSpans": ["gateway.error", "plugins.load", "config.normalize"]

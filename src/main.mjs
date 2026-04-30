@@ -264,7 +264,7 @@ async function readReport(path) {
 }
 
 async function matrixRun(flags) {
-  await loadRegistryContext();
+  const registry = await loadRegistryContext();
   const profile = await loadProfile(required(flags.profile, "--profile"));
   const target = required(flags.target, "--target");
   const targetPlan = resolveTarget(target, "target");
@@ -302,6 +302,8 @@ async function matrixRun(flags) {
       deepProfile: flags.deep_profile === true,
       profileOnFailure: flags.profile_on_failure === true,
       resourceSampleIntervalMs: profileIntegerFlag(flags, "resource_sample_interval_ms", flags.deep_profile === true ? 250 : 1000),
+      processRoles: registry.processRoles,
+      surfacesById: Object.fromEntries(registry.surfaces.map((surface) => [surface.id, surface])),
       targetSetup
     };
 
@@ -675,7 +677,7 @@ async function cleanupCommand(flags) {
 }
 
 async function run(flags) {
-  await loadRegistryContext();
+  const registry = await loadRegistryContext();
   const target = required(flags.target, "--target");
   if (flags.execute === true && !flags.scenario) {
     throw new Error("--execute requires --scenario so real runs stay deliberate");
@@ -714,6 +716,8 @@ async function run(flags) {
     deepProfile: flags.deep_profile === true,
     profileOnFailure: flags.profile_on_failure === true,
     resourceSampleIntervalMs: profileIntegerFlag(flags, "resource_sample_interval_ms", flags.deep_profile === true ? 250 : 1000),
+    processRoles: registry.processRoles,
+    surfacesById: Object.fromEntries(registry.surfaces.map((surface) => [surface.id, surface])),
     targetSetup: { completed: false }
   };
   const records = [];

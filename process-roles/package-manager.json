@@ -2,6 +2,6 @@
   "id": "package-manager",
   "title": "Package Manager",
   "description": "npm, pnpm, and install/update subprocesses that affect release-shaped OpenClaw runtimes and plugin dependencies.",
-  "commandPatterns": ["npm install", "pnpm install", "pnpm build"],
+  "commandPatterns": ["npm", "pnpm", "npm install", "pnpm install", "pnpm build"],
   "processPatterns": ["npm", "pnpm", "node.*postinstall"]
 }

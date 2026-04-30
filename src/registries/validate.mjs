@@ -44,6 +44,11 @@ export function validateRegistryReferences({ scenarios, states, profiles, surfac
         errors.push(`surface '${surface.id}' references unknown process role '${role}'`);
       }
     }
+    for (const role of Object.keys(surface.roleThresholds ?? {})) {
+      if (!processRoleIds.has(role)) {
+        errors.push(`surface '${surface.id}' roleThresholds references unknown process role '${role}'`);
+      }
+    }
     for (const state of surface.requiredStates ?? []) {
       if (!stateIds.has(state)) {
         errors.push(`surface '${surface.id}' references unknown required state '${state}'`);

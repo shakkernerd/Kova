@@ -8,6 +8,13 @@
   "requiredMetrics": ["upgradeMs", "gatewayReadyMs", "statusMs", "pluginIndexPresent", "doctorFixMs"],
   "processRoles": ["gateway", "command-tree", "runtime-management", "package-manager", "doctor-cli", "plugin-cli"],
   "thresholds": { "upgradeMs": 120000, "gatewayReadyMs": 45000, "statusMs": 10000 },
+  "roleThresholds": {
+    "gateway": { "peakRssMb": 850, "maxCpuPercent": 250 },
+    "runtime-management": { "peakRssMb": 900, "maxCpuPercent": 350 },
+    "package-manager": { "peakRssMb": 900, "maxCpuPercent": 350 },
+    "doctor-cli": { "peakRssMb": 700, "maxCpuPercent": 300 },
+    "plugin-cli": { "peakRssMb": 600, "maxCpuPercent": 250 }
+  },
   "diagnostics": {
     "timelineRequiredForSourceBuild": true,
     "expectedSpans": ["upgrade.apply", "doctor.fix", "plugins.index.migrate", "plugins.runtimeDeps"]

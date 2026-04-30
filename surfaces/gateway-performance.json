@@ -8,6 +8,11 @@
   "requiredMetrics": ["coldReadyMs", "warmReadyMs", "healthP95Ms", "peakRssMb", "eventLoopMaxMs"],
   "processRoles": ["gateway", "gateway-tree", "command-tree", "status-cli"],
   "thresholds": { "coldReadyMs": 30000, "warmReadyMs": 15000, "healthP95Ms": 1000, "peakRssMb": 900 },
+  "roleThresholds": {
+    "gateway": { "peakRssMb": 800, "maxCpuPercent": 250 },
+    "gateway-tree": { "peakRssMb": 1000, "maxCpuPercent": 300 },
+    "status-cli": { "peakRssMb": 500, "maxCpuPercent": 200 }
+  },
   "diagnostics": {
     "timelineRequiredForSourceBuild": true,
     "expectedSpans": ["gateway.startup", "health.ready", "eventLoop.delay"]

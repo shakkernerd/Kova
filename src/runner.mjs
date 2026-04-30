@@ -61,7 +61,7 @@ export async function executeScenario(scenario, context) {
     if (context.nodeProfile === true) {
       await mkdir(join(artifactDir, "node-profiles"), { recursive: true });
     }
-    const setupResults = await executeTargetSetup(context, envName);
+    const setupResults = await executeTargetSetup(context, envName, artifactDir);
     if (setupResults.length > 0) {
       record.phases.push({
         id: "target-setup",
@@ -133,7 +133,7 @@ export async function executeScenario(scenario, context) {
   } finally {
     record.finishedAt = new Date().toISOString();
     record.finalMetrics = await collectEnvMetrics(envName, metricOptions(context, scenario, null, artifactDir));
-    evaluateRecord(record, scenario);
+    evaluateRecord(record, scenario, evaluatorContext(context, scenario));
 
     if (shouldCaptureFailureDiagnostics(record, context)) {
       record.failureDiagnostics = await collectEnvMetrics(envName, {
@@ -173,7 +173,7 @@ export async function executeScenario(scenario, context) {
       attachNodeProfileMeasurements(record);
     }
 
-    evaluateRecord(record, scenario);
+    evaluateRecord(record, scenario, evaluatorContext(context, scenario));
   }
 
   return record;
@@ -466,7 +466,7 @@ function readinessHardTimeoutForPhase(scenario, phase, thresholdMs) {
   return Math.max(thresholdMs * 3, thresholdMs + 30000);
 }
 
-async function executeTargetSetup(context, envName) {
+async function executeTargetSetup(context, envName, artifactDir) {
   if (context.targetPlan.kind !== "local-build") {
     return [];
   }
@@ -477,7 +477,13 @@ async function executeTargetSetup(context, envName) {
   const results = [
     await runCommand(targetSetupCommand(context.targetPlan), {
       timeoutMs: context.timeoutMs,
-      env: { KOVA_ENV_NAME: envName }
+      env: { KOVA_ENV_NAME: envName },
+      resourceSample: context.resourceSampling === false ? null : {
+        envName,
+        intervalMs: context.resourceSampleIntervalMs,
+        processRoles: context.processRoles ?? [],
+        artifactPath: join(artifactDir, "resource-samples", "target-setup-1.jsonl")
+      }
     })
   ];
   if (results.every((result) => result.status === 0) && context.targetSetup) {
@@ -498,9 +504,16 @@ function runScenarioCommand(command, context, envName, artifactDir, phaseId, com
     resourceSample: context.resourceSampling === false ? null : {
       envName,
       intervalMs: context.resourceSampleIntervalMs,
+      processRoles: context.processRoles ?? [],
       artifactPath: join(artifactDir, "resource-samples", `${safeSegment(phaseId)}-${commandIndex + 1}.jsonl`)
     }
   });
+}
+
+function evaluatorContext(context, scenario) {
+  return {
+    surface: context.surfacesById?.[scenario.surface] ?? null
+  };
 }
 
 function diagnosticsEnv(context, envName, artifactDir) {

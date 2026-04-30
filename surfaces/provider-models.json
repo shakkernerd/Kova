@@ -8,6 +8,10 @@
   "requiredMetrics": ["modelsListMs", "statusAfterModelsMs", "gatewayResponsive", "providerTimeoutMentions"],
   "processRoles": ["gateway", "command-tree", "model-cli"],
   "thresholds": { "modelsListMs": 20000, "statusAfterModelsMs": 10000 },
+  "roleThresholds": {
+    "gateway": { "peakRssMb": 800, "maxCpuPercent": 250 },
+    "model-cli": { "peakRssMb": 700, "maxCpuPercent": 250 }
+  },
   "diagnostics": {
     "timelineRequiredForSourceBuild": true,
     "expectedSpans": ["providers.list", "models.list", "providers.timeout"]

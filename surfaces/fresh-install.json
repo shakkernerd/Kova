@@ -8,6 +8,12 @@
   "requiredMetrics": ["gatewayReadyMs", "statusMs", "pluginsListMs", "modelsListMs", "peakRssMb"],
   "processRoles": ["gateway", "command-tree", "status-cli", "plugin-cli", "model-cli"],
   "thresholds": { "gatewayReadyMs": 30000, "statusMs": 10000, "peakRssMb": 900 },
+  "roleThresholds": {
+    "gateway": { "peakRssMb": 800, "maxCpuPercent": 250 },
+    "status-cli": { "peakRssMb": 500, "maxCpuPercent": 200 },
+    "plugin-cli": { "peakRssMb": 600, "maxCpuPercent": 250 },
+    "model-cli": { "peakRssMb": 700, "maxCpuPercent": 250 }
+  },
   "diagnostics": {
     "timelineRequiredForSourceBuild": true,
     "expectedSpans": ["gateway.startup", "plugins.metadata", "providers.list"]

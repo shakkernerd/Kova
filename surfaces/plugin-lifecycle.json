@@ -8,6 +8,11 @@
   "requiredMetrics": ["pluginsListMs", "pluginUpdateDryRunMs", "restartReadyMs", "pluginLoadFailures"],
   "processRoles": ["gateway", "command-tree", "plugin-cli", "runtime-staging"],
   "thresholds": { "pluginsListMs": 10000, "pluginUpdateDryRunMs": 20000, "restartReadyMs": 30000 },
+  "roleThresholds": {
+    "gateway": { "peakRssMb": 800, "maxCpuPercent": 250 },
+    "plugin-cli": { "peakRssMb": 600, "maxCpuPercent": 250 },
+    "runtime-staging": { "peakRssMb": 900, "maxCpuPercent": 350 }
+  },
   "diagnostics": {
     "timelineRequiredForSourceBuild": true,
     "expectedSpans": ["plugins.registry.refresh", "plugins.update", "plugins.load"]

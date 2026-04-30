@@ -75,6 +75,12 @@ export function renderMarkdownReport(report) {
       lines.push(`- Resource samples: ${record.measurements.resourceSampleCount ?? "unknown"}`);
       lines.push(`- Command tree peak RSS: ${record.measurements.resourcePeakCommandTreeRssMb ?? "unknown"} MB`);
       lines.push(`- Gateway peak RSS: ${record.measurements.resourcePeakGatewayRssMb ?? "unknown"} MB`);
+      if (record.measurements.resourceTopRolesByRss?.length > 0 || record.measurements.resourceTopRolesByCpu?.length > 0) {
+        lines.push("- Resource by role:");
+        for (const role of compactRolePeaks(record.measurements).slice(0, 6)) {
+          lines.push(`  - ${role.role}: RSS ${role.peakRssMb ?? "unknown"} MB; CPU ${role.maxCpuPercent ?? "unknown"}%`);
+        }
+      }
       lines.push(`- Cold ready: ${record.measurements.coldReadyMs ?? "unknown"} ms`);
       lines.push(`- Warm ready: ${record.measurements.warmReadyMs ?? "unknown"} ms`);
       lines.push(`- Time to listening: ${record.measurements.timeToListeningMs ?? "unknown"} ms`);
@@ -170,6 +176,12 @@ export function renderMarkdownReport(report) {
             lines.push(`  - resource samples: ${result.resourceSamples.sampleCount}`);
             lines.push(`  - peak sampled RSS: ${result.resourceSamples.peakTotalRssMb ?? "unknown"} MB`);
             lines.push(`  - max sampled CPU: ${result.resourceSamples.maxTotalCpuPercent ?? "unknown"}%`);
+            if (result.resourceSamples.topRolesByRss?.length > 0 || result.resourceSamples.topRolesByCpu?.length > 0) {
+              const roles = compactRolePeaks(result.resourceSamples).slice(0, 4)
+                .map((role) => `${role.role} RSS ${role.peakRssMb ?? "unknown"} MB CPU ${role.maxCpuPercent ?? "unknown"}%`)
+                .join("; ");
+              lines.push(`  - role peaks: ${roles}`);
+            }
             if (result.resourceSamples.topByCpu?.length > 0) {
               const top = result.resourceSamples.topByCpu[0];
               lines.push(`  - top CPU: pid ${top.pid} ${top.maxCpuPercent}% ${top.role} ${shortCommand(top.command)}`);
@@ -444,6 +456,9 @@ function summarizeMeasurements(measurements) {
     missingDependencyErrors: measurements.missingDependencyErrors ?? null,
     pluginLoadFailures: measurements.pluginLoadFailures ?? null,
     resourceSampleCount: measurements.resourceSampleCount ?? null,
+    resourceByRole: measurements.resourceByRole ?? null,
+    resourceTopRolesByRss: measurements.resourceTopRolesByRss ?? null,
+    resourceTopRolesByCpu: measurements.resourceTopRolesByCpu ?? null,
     openclawTimelineAvailable: measurements.openclawTimelineAvailable ?? null,
     openclawSlowestSpanName: measurements.openclawSlowestSpanName ?? null,
     openclawSlowestSpanMs: measurements.openclawSlowestSpanMs ?? null,
@@ -522,7 +537,10 @@ export function renderPasteSummary(report) {
       lines.push(`Evidence: ${record.phases?.length ?? 0} phases recorded.`);
       if (record.measurements) {
         const runtimeDepsPlugin = record.measurements.runtimeDepsStagingPluginId ? ` (${record.measurements.runtimeDepsStagingPluginId})` : "";
-        lines.push(`Measurements: cold ready ${record.measurements.coldReadyMs ?? "unknown"}ms; warm ready ${record.measurements.warmReadyMs ?? "unknown"}ms; listening ${record.measurements.timeToListeningMs ?? "unknown"}ms; health ready ${record.measurements.timeToHealthReadyMs ?? "unknown"}ms; readiness ${record.measurements.readinessClassification ?? "unknown"}; peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; max CPU ${record.measurements.cpuPercentMax ?? "unknown"}%; samples ${record.measurements.resourceSampleCount ?? "unknown"}; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}; restarts ${record.measurements.gatewayRestartCount ?? "unknown"}; agent turn ${record.measurements.agentTurnMs ?? "not-run"}ms; provider/model timeouts ${record.measurements.providerTimeoutMentions ?? "unknown"}; event-loop signals ${record.measurements.eventLoopDelayMentions ?? "unknown"}; timeline ${record.measurements.openclawTimelineAvailable ? "available" : "unavailable"}; slowest span ${record.measurements.openclawSlowestSpanName ?? "unknown"} ${record.measurements.openclawSlowestSpanMs ?? "unknown"}ms; node profiles ${record.measurements.nodeCpuProfileCount ?? "unknown"}/${record.measurements.nodeHeapProfileCount ?? "unknown"}/${record.measurements.nodeTraceEventCount ?? "unknown"}; top CPU ${record.measurements.nodeProfileTopFunction ?? "unknown"} ${record.measurements.nodeProfileTopFunctionMs ?? "unknown"}ms; top heap ${record.measurements.nodeHeapTopFunction ?? "unknown"} ${record.measurements.nodeHeapTopFunctionMb ?? "unknown"}MB; runtime deps staging ${record.measurements.runtimeDepsStagingMs ?? "unknown"}ms${runtimeDepsPlugin}.`);
+        const roleText = compactRolePeaks(record.measurements).slice(0, 4)
+          .map((role) => `${role.role} ${role.peakRssMb ?? "?"}MB/${role.maxCpuPercent ?? "?"}%`)
+          .join(", ") || "unknown";
+        lines.push(`Measurements: cold ready ${record.measurements.coldReadyMs ?? "unknown"}ms; warm ready ${record.measurements.warmReadyMs ?? "unknown"}ms; listening ${record.measurements.timeToListeningMs ?? "unknown"}ms; health ready ${record.measurements.timeToHealthReadyMs ?? "unknown"}ms; readiness ${record.measurements.readinessClassification ?? "unknown"}; peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; max CPU ${record.measurements.cpuPercentMax ?? "unknown"}%; role peaks ${roleText}; samples ${record.measurements.resourceSampleCount ?? "unknown"}; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}; restarts ${record.measurements.gatewayRestartCount ?? "unknown"}; agent turn ${record.measurements.agentTurnMs ?? "not-run"}ms; provider/model timeouts ${record.measurements.providerTimeoutMentions ?? "unknown"}; event-loop signals ${record.measurements.eventLoopDelayMentions ?? "unknown"}; timeline ${record.measurements.openclawTimelineAvailable ? "available" : "unavailable"}; slowest span ${record.measurements.openclawSlowestSpanName ?? "unknown"} ${record.measurements.openclawSlowestSpanMs ?? "unknown"}ms; node profiles ${record.measurements.nodeCpuProfileCount ?? "unknown"}/${record.measurements.nodeHeapProfileCount ?? "unknown"}/${record.measurements.nodeTraceEventCount ?? "unknown"}; top CPU ${record.measurements.nodeProfileTopFunction ?? "unknown"} ${record.measurements.nodeProfileTopFunctionMs ?? "unknown"}ms; top heap ${record.measurements.nodeHeapTopFunction ?? "unknown"} ${record.measurements.nodeHeapTopFunctionMb ?? "unknown"}MB; runtime deps staging ${record.measurements.runtimeDepsStagingMs ?? "unknown"}ms${runtimeDepsPlugin}.`);
       }
     } else if (record.violations?.length > 0) {
       lines.push("Violations:");
@@ -599,6 +617,9 @@ function briefEvidence(measurements, violations) {
   if (measurements.cpuPercentMax !== null && measurements.cpuPercentMax !== undefined) {
     items.push(`cpuPercentMax: ${measurements.cpuPercentMax}`);
   }
+  for (const role of compactRolePeaks(measurements).slice(0, 3)) {
+    items.push(`${role.role}: ${role.peakRssMb ?? "unknown"}MB RSS, ${role.maxCpuPercent ?? "unknown"}% CPU`);
+  }
   if (measurements.resourcePeakCpuAtMs !== null && measurements.resourcePeakCpuAtMs !== undefined) {
     items.push(`resourcePeakCpuAtMs: ${measurements.resourcePeakCpuAtMs}`);
   }
@@ -623,6 +644,26 @@ function briefEvidence(measurements, violations) {
     }
   }
   return items.slice(0, 8);
+}
+
+function compactRolePeaks(measurements) {
+  const byRole = new Map();
+  for (const role of measurements?.resourceTopRolesByRss ?? []) {
+    byRole.set(role.role, { ...byRole.get(role.role), ...role });
+  }
+  for (const role of measurements?.resourceTopRolesByCpu ?? []) {
+    byRole.set(role.role, { ...byRole.get(role.role), ...role });
+  }
+  if (byRole.size === 0 && measurements?.resourceByRole) {
+    for (const [role, summary] of Object.entries(measurements.resourceByRole)) {
+      byRole.set(role, { role, ...summary });
+    }
+  }
+  return [...byRole.values()].toSorted((left, right) => {
+    const leftScore = Math.max(left.peakRssMb ?? 0, left.maxCpuPercent ?? 0);
+    const rightScore = Math.max(right.peakRssMb ?? 0, right.maxCpuPercent ?? 0);
+    return rightScore - leftScore;
+  });
 }
 
 function buildFixerPrompt({ report, primaryBlocker, why, measurements, evidence, likelyOwner }) {

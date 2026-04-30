@@ -6,6 +6,7 @@ import { summarizeCpuProfiles } from "./cpuprofile.mjs";
 import { summarizeHeapProfiles } from "./heapprofile.mjs";
 import { evaluateRecord } from "./evaluator.mjs";
 import { evaluateGate } from "./gate.mjs";
+import { loadProcessRoles } from "./registries/process-roles.mjs";
 import { assertSafeScenarioCommand } from "./safety.mjs";
 import { parseTimelineText } from "./timeline.mjs";
 import { renderReportSummary } from "./report.mjs";
@@ -65,6 +66,8 @@ export async function runSelfCheck(flags = {}) {
     }));
     checks.push(await diagnosticsTimelineCheck());
     checks.push(readinessClassificationCheck());
+    checks.push(await resourceRoleAttributionCheck(tmp));
+    checks.push(roleThresholdEvaluationCheck());
     checks.push(await cpuProfileParserCheck());
     checks.push(await heapProfileParserCheck());
     checks.push(await jsonCommandCheck(
@@ -590,6 +593,139 @@ function readinessClassificationCheck() {
       message: error.message
     };
   }
+}
+
+async function resourceRoleAttributionCheck(tmp) {
+  const command = "node -e 'setTimeout(() => {}, 650)'";
+  const artifactPath = join(tmp, "resource-role-attribution.jsonl");
+  const result = await runCommand(command, {
+    timeoutMs: 5000,
+    resourceSample: {
+      intervalMs: 250,
+      processRoles: await loadProcessRoles(),
+      artifactPath
+    }
+  });
+
+  try {
+    assertEqual(result.status, 0, "resource attribution command status");
+    assertEqual(result.resourceSamples?.schemaVersion, "kova.resourceSamples.v1", "resource schema");
+    assertEqual(Boolean(result.resourceSamples?.byRole?.["command-tree"]), true, "command-tree role");
+    assertEqual(Boolean(result.resourceSamples?.byRole?.uncategorized), true, "uncategorized role");
+    assertArrayNotEmpty(result.resourceSamples?.topRolesByRss, "top roles by RSS");
+    assertString(result.resourceSamples?.artifactPath, "resource artifact path");
+    return {
+      id: "resource-role-attribution",
+      status: "PASS",
+      command,
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "resource-role-attribution",
+      status: "FAIL",
+      command,
+      durationMs: result.durationMs,
+      message: error.message
+    };
+  }
+}
+
+function roleThresholdEvaluationCheck() {
+  try {
+    const record = {
+      scenario: "synthetic-role-threshold",
+      title: "Synthetic Role Threshold",
+      status: "PASS",
+      phases: [
+        {
+          id: "sample",
+          results: [
+            {
+              command: "synthetic",
+              status: 0,
+              durationMs: 1,
+              resourceSamples: {
+                schemaVersion: "kova.resourceSamples.v1",
+                sampleCount: 1,
+                peakTotalRssMb: 250,
+                maxTotalCpuPercent: 80,
+                byRole: {
+                  gateway: {
+                    peakRssMb: 250,
+                    maxCpuPercent: 80,
+                    peakRssAtMs: 10,
+                    peakCpuAtMs: 10,
+                    peakProcessCount: 1
+                  }
+                },
+                topRolesByRss: [{ role: "gateway", peakRssMb: 250, maxCpuPercent: 80 }],
+                topRolesByCpu: [{ role: "gateway", peakRssMb: 250, maxCpuPercent: 80 }],
+                topByRss: [],
+                topByCpu: []
+              }
+            }
+          ],
+          metrics: {
+            logs: zeroLogMetrics()
+          }
+        }
+      ],
+      finalMetrics: {
+        service: { gatewayState: "running" },
+        logs: zeroLogMetrics()
+      }
+    };
+    evaluateRecord(record, { thresholds: {} }, {
+      surface: {
+        thresholds: {},
+        roleThresholds: {
+          gateway: { peakRssMb: 100, maxCpuPercent: 50 }
+        }
+      }
+    });
+    assertEqual(record.status, "FAIL", "role threshold status");
+    assertEqual(record.measurements.resourceByRole.gateway.peakRssMb, 250, "gateway role RSS measurement");
+    assertEqual(
+      record.violations.some((violation) => violation.metric === "resourceByRole.gateway.peakRssMb"),
+      true,
+      "role RSS violation"
+    );
+    assertEqual(
+      record.violations.some((violation) => violation.metric === "resourceByRole.gateway.maxCpuPercent"),
+      true,
+      "role CPU violation"
+    );
+    return {
+      id: "resource-role-thresholds",
+      status: "PASS",
+      command: "evaluate synthetic role resource thresholds",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "resource-role-thresholds",
+      status: "FAIL",
+      command: "evaluate synthetic role resource thresholds",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function zeroLogMetrics() {
+  return {
+    missingDependencyErrors: 0,
+    pluginLoadFailures: 0,
+    metadataScanMentions: 0,
+    configNormalizationMentions: 0,
+    gatewayRestartMentions: 0,
+    providerLoadMentions: 0,
+    modelCatalogMentions: 0,
+    providerTimeoutMentions: 0,
+    eventLoopDelayMentions: 0,
+    v8DiagnosticMentions: 0
+  };
 }
 
 async function commandCheck(id, command) {

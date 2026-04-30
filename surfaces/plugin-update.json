@@ -8,6 +8,10 @@
   "requiredMetrics": ["pluginUpdateDryRunMs", "pluginsListMs", "missingDependencyErrors", "pluginLoadFailures"],
   "processRoles": ["gateway", "command-tree", "plugin-cli"],
   "thresholds": { "pluginsListMs": 10000, "pluginUpdateDryRunMs": 20000 },
+  "roleThresholds": {
+    "gateway": { "peakRssMb": 800, "maxCpuPercent": 250 },
+    "plugin-cli": { "peakRssMb": 600, "maxCpuPercent": 250 }
+  },
   "diagnostics": {
     "timelineRequiredForSourceBuild": true,
     "expectedSpans": ["plugins.update", "plugins.registry.refresh"]

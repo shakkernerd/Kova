@@ -8,6 +8,10 @@
   "requiredMetrics": ["gatewayReadyMs", "healthMs", "syncFsStallDetected", "peakRssMb"],
   "processRoles": ["gateway", "command-tree", "status-cli"],
   "thresholds": { "gatewayReadyMs": 45000, "healthMs": 5000 },
+  "roleThresholds": {
+    "gateway": { "peakRssMb": 800, "maxCpuPercent": 250 },
+    "status-cli": { "peakRssMb": 500, "maxCpuPercent": 200 }
+  },
   "diagnostics": {
     "timelineRequiredForSourceBuild": true,
     "expectedSpans": ["gateway.startup", "config.normalize", "plugins.metadata"]

@@ -123,6 +123,9 @@ Current metrics include:
 - optional Node CPU profile, heap profile, trace event artifact counts, top CPU
   self-time functions parsed from `.cpuprofile` artifacts, and top heap
   allocation functions parsed from `.heapprofile` artifacts
+- resource attribution by process role from `process-roles/*.json`, including
+  role peak RSS, role max CPU, peak timestamps, peak process counts, and top
+  role lists for RSS and CPU
 - diagnostic report and heap snapshot bytes when `--deep-profile` or explicit
   heap/report capture is enabled
 - diagnostic correlation findings for CPU/RSS peak windows, top profiler
@@ -133,6 +136,11 @@ Current metrics include:
   process failures
 - runtime dependency staging grouped by bundled plugin when OpenClaw emits
   `runtimeDeps.stage` spans with `pluginId` attributes
+
+Role-specific thresholds can fail a scenario separately from total process-tree
+thresholds. For example, a report can show that `gateway` exceeded memory while
+`package-manager` stayed normal, or that `package-manager` spiked during local
+runtime build without blaming the gateway.
 
 When OpenClaw emits `OPENCLAW_DIAGNOSTICS_TIMELINE_PATH`, Kova stores the raw
 JSONL timeline under the run artifacts and summarizes it in `metrics.timeline`.
