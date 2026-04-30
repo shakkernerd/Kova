@@ -1,0 +1,7 @@
+{
+  "id": "gateway",
+  "title": "Gateway",
+  "description": "The primary OpenClaw gateway service that exposes status, dashboard, websocket, plugin, and agent coordination surfaces.",
+  "commandPatterns": ["gateway run", "ocm start", "ocm service status"],
+  "processPatterns": ["openclaw-gateway", "node.*gateway"]
+}

@@ -1,0 +1,7 @@
+{
+  "id": "agent-process",
+  "title": "Agent Process",
+  "description": "Longer-running agent execution work spawned by OpenClaw while processing a turn.",
+  "commandPatterns": ["agent"],
+  "processPatterns": ["openclaw.*session", "openclaw.*agent"]
+}

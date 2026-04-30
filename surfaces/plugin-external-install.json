@@ -1,0 +1,15 @@
+{
+  "id": "plugin-external-install",
+  "title": "External Plugin Install",
+  "ownerArea": "plugins",
+  "description": "Install a real local external plugin and verify registry state, restart health, and dependency behavior.",
+  "requiredStates": ["fresh", "external-plugin"],
+  "targetKinds": ["npm", "channel", "runtime", "local-build"],
+  "requiredMetrics": ["gatewayReadyMs", "pluginsListMs", "missingDependencyErrors", "pluginLoadFailures"],
+  "processRoles": ["gateway", "command-tree", "plugin-cli", "runtime-staging"],
+  "thresholds": { "gatewayReadyMs": 30000, "pluginsListMs": 10000 },
+  "diagnostics": {
+    "timelineRequiredForSourceBuild": true,
+    "expectedSpans": ["plugins.install", "plugins.registry.refresh", "plugins.load"]
+  }
+}

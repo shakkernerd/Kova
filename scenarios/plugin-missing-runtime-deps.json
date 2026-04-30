@@ -1,5 +1,6 @@
 {
   "id": "plugin-missing-runtime-deps",
+  "surface": "plugin-missing-runtime-deps",
   "title": "Plugin Missing Runtime Deps",
   "objective": "Install a plugin that imports an undeclared runtime dependency and verify OpenClaw reports the dependency failure without taking down the gateway.",
   "tags": ["plugins", "runtime-deps", "failure", "lifecycle"],

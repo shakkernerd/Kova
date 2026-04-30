@@ -61,6 +61,10 @@ node bin/kova.mjs cleanup envs
 `run` is dry-run by default. It writes Markdown and JSON reports showing the
 planned OpenClaw scenario.
 
+`plan --json` is coverage-aware: scenarios map to declared OpenClaw surfaces,
+surfaces declare process roles and required metrics, and profile coverage gaps
+are visible before a run starts.
+
 Real execution is explicit:
 
 ```sh
@@ -92,9 +96,9 @@ Filtered gate slices are reject-only. If a selected blocking scenario fails,
 the verdict is `DO_NOT_SHIP`; if the selected slice passes but required gate
 coverage is missing, the verdict is `BLOCKED` rather than `SHIP`.
 
-Release gates check required scenario/state/platform coverage, not only command
-exit status. `report paste` and `report summarize --json` include a concise
-failure brief with exact evidence and a fixer-ready prompt.
+Release gates check required surface/scenario/state/platform coverage, not only
+command exit status. `report paste` and `report summarize --json` include a
+concise failure brief with exact evidence and a fixer-ready prompt.
 
 Gateway readiness is classified. Kova polls TCP listening and `/health` until a
 hard deadline, while separately enforcing the scenario readiness threshold.

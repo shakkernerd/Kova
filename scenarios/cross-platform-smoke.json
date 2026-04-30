@@ -1,5 +1,6 @@
 {
   "id": "cross-platform-smoke",
+  "surface": "cross-platform-smoke",
   "title": "Cross-Platform Runtime Smoke",
   "objective": "Run the core OpenClaw runtime scenarios across supported platforms and flag platform-specific startup, filesystem, and service behavior.",
   "tags": ["platform", "macos", "linux", "wsl2", "gateway"],

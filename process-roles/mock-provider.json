@@ -1,0 +1,7 @@
+{
+  "id": "mock-provider",
+  "title": "Mock Provider",
+  "description": "Kova-controlled provider fixtures used to test OpenClaw model and agent paths without external provider instability.",
+  "commandPatterns": ["mock-openai-server"],
+  "processPatterns": ["mock-openai-server"]
+}

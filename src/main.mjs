@@ -5,15 +5,19 @@ import { quoteShell, runCommand } from "./commands.mjs";
 import { compareReports, renderCompareFixerSummary, renderCompareSummary } from "./compare.mjs";
 import { parseFlags, printHelp, required, resolveFromCwd } from "./cli.mjs";
 import { evaluateGate, preflightGateRun } from "./gate.mjs";
+import { buildCoverage } from "./matrix/coverage.mjs";
 import { platformInfo } from "./platform.mjs";
-import { loadProfile, loadProfiles } from "./profiles.mjs";
 import { repoRoot, reportsDir } from "./paths.mjs";
+import { loadProcessRoles } from "./registries/process-roles.mjs";
+import { loadProfile, loadProfiles } from "./registries/profiles.mjs";
+import { loadScenarios, validateScenarioRun } from "./registries/scenarios.mjs";
+import { loadState, loadStates } from "./registries/states.mjs";
+import { loadSurfaces } from "./registries/surfaces.mjs";
+import { validateRegistryReferences } from "./registries/validate.mjs";
 import { renderMarkdownReport, renderPasteSummary, renderReportSummary, summarizeRecords } from "./report.mjs";
 import { buildDryRunRecord, buildSkippedRecord, createRunId, executeScenario } from "./runner.mjs";
-import { loadScenarios, validateScenarioRun } from "./scenarios.mjs";
 import { runSelfCheck } from "./selfcheck.mjs";
 import { runSetup } from "./setup.mjs";
-import { loadState, loadStates } from "./states.mjs";
 import { resolveTarget } from "./targets.mjs";
 
 const reportSchemaVersion = "kova.report.v1";
@@ -84,25 +88,54 @@ async function versionCommand(flags = {}) {
   console.log(packageJson.version);
 }
 
+async function loadRegistryContext() {
+  const [surfaces, processRoles, scenarios, states, profiles] = await Promise.all([
+    loadSurfaces(),
+    loadProcessRoles(),
+    loadScenarios(),
+    loadStates(),
+    loadProfiles()
+  ]);
+  validateRegistryReferences({ scenarios, states, profiles, surfaces, processRoles });
+  return { surfaces, processRoles, scenarios, states, profiles };
+}
+
+function filterRegistry(items, selectedId, kind) {
+  if (!selectedId) {
+    return items;
+  }
+  const filtered = items.filter((item) => item.id === selectedId);
+  if (filtered.length === 0) {
+    throw new Error(`no ${kind} found for ${selectedId}`);
+  }
+  return filtered;
+}
+
 async function plan(flags) {
-  const scenarios = await loadScenarios(flags.scenario);
-  const states = await loadStates(flags.state);
-  const profiles = flags.profile ? [await loadProfile(flags.profile)] : await loadProfiles();
+  const registry = await loadRegistryContext();
+  const scenarios = filterRegistry(registry.scenarios, flags.scenario, "scenario");
+  const states = filterRegistry(registry.states, flags.state, "state");
+  const profiles = flags.profile ? filterRegistry(registry.profiles, flags.profile, "profile") : registry.profiles;
+  const coverage = buildCoverage(registry);
 
   if (flags.json) {
     console.log(JSON.stringify({
       schemaVersion: "kova.plan.v1",
       generatedAt: new Date().toISOString(),
       platform: platformInfo(),
+      surfaces: registry.surfaces,
+      processRoles: registry.processRoles,
       scenarios,
       states,
-      profiles: profiles.map(profileSummary)
+      profiles: profiles.map(profileSummary),
+      coverage
     }, null, 2));
     return;
   }
 
   for (const scenario of scenarios) {
     console.log(`${scenario.id}: ${scenario.title}`);
+    console.log(`  Surface: ${scenario.surface}`);
     console.log(`  Objective: ${scenario.objective}`);
     console.log(`  Tags: ${scenario.tags.join(", ")}`);
     console.log("  Phases:");
@@ -117,6 +150,7 @@ async function matrixCommand(flags) {
   const [subcommand = "plan"] = flags._;
 
   if (subcommand === "plan") {
+    await loadRegistryContext();
     const profile = await loadProfile(required(flags.profile, "--profile"));
     const target = required(flags.target, "--target");
     const targetPlan = resolveTarget(target, "target");
@@ -230,6 +264,7 @@ async function readReport(path) {
 }
 
 async function matrixRun(flags) {
+  await loadRegistryContext();
   const profile = await loadProfile(required(flags.profile, "--profile"));
   const target = required(flags.target, "--target");
   const targetPlan = resolveTarget(target, "target");
@@ -376,6 +411,7 @@ async function expandProfile(profile) {
     entries.push({
       scenario: {
         id: scenario.id,
+        surface: scenario.surface,
         title: scenario.title,
         objective: scenario.objective,
         tags: scenario.tags
@@ -403,6 +439,7 @@ async function expandProfile(profile) {
     plan: {
       scenario: entry.scenario,
       state: entry.state,
+      surface: entry.fullScenario.surface,
       timeoutMs: entry.entry.timeoutMs ?? entry.fullScenario.timeoutMs ?? null,
       platforms: entry.entry.platforms ?? entry.fullScenario.platforms ?? null
     }
@@ -638,6 +675,7 @@ async function cleanupCommand(flags) {
 }
 
 async function run(flags) {
+  await loadRegistryContext();
   const target = required(flags.target, "--target");
   if (flags.execute === true && !flags.scenario) {
     throw new Error("--execute requires --scenario so real runs stay deliberate");

@@ -1,0 +1,7 @@
+{
+  "id": "model-cli",
+  "title": "Model CLI",
+  "description": "OpenClaw model/provider discovery command paths.",
+  "commandPatterns": ["models list", "configure"],
+  "processPatterns": ["openclaw.*models"]
+}

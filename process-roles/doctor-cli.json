@@ -1,0 +1,7 @@
+{
+  "id": "doctor-cli",
+  "title": "Doctor CLI",
+  "description": "OpenClaw doctor and repair commands used during upgrade and state recovery checks.",
+  "commandPatterns": ["doctor", "doctor --fix"],
+  "processPatterns": ["openclaw.*doctor"]
+}

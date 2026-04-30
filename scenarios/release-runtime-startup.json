@@ -1,5 +1,6 @@
 {
   "id": "release-runtime-startup",
+  "surface": "release-runtime-startup",
   "title": "Release Runtime Startup",
   "objective": "Start a release-shaped OpenClaw runtime, measure cold readiness and bundled runtime dependency staging, and fail on degraded plugin startup.",
   "tags": ["release-runtime", "local-build", "gateway", "plugins", "runtime-deps", "startup"],

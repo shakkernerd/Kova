@@ -1,5 +1,6 @@
 {
   "id": "agent-message-latency",
+  "surface": "agent-message",
   "title": "Agent Message Latency",
   "objective": "Send a real message through OpenClaw's CLI agent path, verify an assistant response is produced, and measure full turn latency, provider routing, gateway health, memory, and logs.",
   "tags": ["agent", "message", "latency", "providers", "gateway"],

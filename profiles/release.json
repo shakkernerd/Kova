@@ -12,6 +12,27 @@
       "states": {
         "blocking": ["fresh", "onboarded-user", "old-release-user", "plugin-index", "many-bundled-plugins"]
       },
+      "surfaces": {
+        "blocking": [
+          "release-runtime-startup",
+          "fresh-install",
+          "upgrade-existing-user",
+          "bundled-runtime-deps",
+          "plugin-lifecycle",
+          "plugin-external-install",
+          "plugin-remove",
+          "plugin-update",
+          "plugin-bad-manifest",
+          "plugin-missing-runtime-deps",
+          "bundled-plugin-startup",
+          "provider-models",
+          "agent-message",
+          "dashboard",
+          "tui",
+          "gateway-performance"
+        ],
+        "warning": ["failure-containment", "soak", "cross-platform-smoke"]
+      },
       "scenarios": {
         "blocking": [
           "release-runtime-startup",

@@ -1,0 +1,7 @@
+{
+  "id": "runtime-management",
+  "title": "Runtime Management",
+  "description": "Runtime install, upgrade, local-build, and binding operations used before OpenClaw starts.",
+  "commandPatterns": ["ocm runtime", "ocm upgrade"],
+  "processPatterns": ["ocm.*runtime", "npm.*openclaw"]
+}

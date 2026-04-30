@@ -164,8 +164,22 @@ Agents should use `jsonPath` to read detailed evidence.
 ## Plan Output
 
 `kova plan --json` is the discovery contract for agents. It includes scenario
-definitions, state fixture definitions, profile summaries, platform metadata,
-and supports filtering with `--scenario`, `--state`, and `--profile`.
+definitions, state fixture definitions, surface definitions, process-role
+definitions, profile summaries, platform metadata, and supports filtering with
+`--scenario`, `--state`, and `--profile`.
+
+Every scenario must declare a `surface`. Registry validation fails before plan,
+run, or matrix output if a scenario references an unknown surface, a surface
+references an unknown process role, or a profile references an unknown
+scenario/state/surface.
+
+Plan JSON includes `coverage`:
+
+- `surfaces`: each surface with scenario count and mapped scenarios
+- `scenarioSurfaceMap`: direct scenario-to-surface mappings
+- `surfacesWithoutScenarios`: declared surfaces with no scenario yet
+- `profiles`: per-profile selected surfaces, scenarios, states, required
+  coverage, coverage gaps, and state trait coverage
 
 ## Summary Output
 

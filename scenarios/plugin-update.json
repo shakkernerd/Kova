@@ -1,5 +1,6 @@
 {
   "id": "plugin-update",
+  "surface": "plugin-update",
   "title": "Plugin Update",
   "objective": "Install a managed external plugin and run OpenClaw plugin update paths to verify tracked plugin metadata and dry-run update diagnostics.",
   "tags": ["plugins", "external-plugin", "update", "lifecycle"],

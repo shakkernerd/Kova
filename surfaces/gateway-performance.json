@@ -1,0 +1,15 @@
+{
+  "id": "gateway-performance",
+  "title": "Gateway Performance",
+  "ownerArea": "gateway",
+  "description": "Measure cold start, warm start, health latency, memory, CPU, and event-loop behavior for OpenClaw gateway usage.",
+  "requiredStates": ["many-bundled-plugins", "gateway-already-running", "stale-service-state", "slow-filesystem"],
+  "targetKinds": ["npm", "channel", "runtime", "local-build"],
+  "requiredMetrics": ["coldReadyMs", "warmReadyMs", "healthP95Ms", "peakRssMb", "eventLoopMaxMs"],
+  "processRoles": ["gateway", "gateway-tree", "command-tree", "status-cli"],
+  "thresholds": { "coldReadyMs": 30000, "warmReadyMs": 15000, "healthP95Ms": 1000, "peakRssMb": 900 },
+  "diagnostics": {
+    "timelineRequiredForSourceBuild": true,
+    "expectedSpans": ["gateway.startup", "health.ready", "eventLoop.delay"]
+  }
+}

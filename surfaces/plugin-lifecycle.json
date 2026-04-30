@@ -1,0 +1,15 @@
+{
+  "id": "plugin-lifecycle",
+  "title": "Plugin Lifecycle",
+  "ownerArea": "plugins",
+  "description": "Exercise plugin list, update planning, restart, runtime dependency diagnostics, and registry consistency.",
+  "requiredStates": ["plugin-index", "external-plugin", "broken-plugin-deps", "stale-runtime-deps"],
+  "targetKinds": ["npm", "channel", "runtime", "local-build"],
+  "requiredMetrics": ["pluginsListMs", "pluginUpdateDryRunMs", "restartReadyMs", "pluginLoadFailures"],
+  "processRoles": ["gateway", "command-tree", "plugin-cli", "runtime-staging"],
+  "thresholds": { "pluginsListMs": 10000, "pluginUpdateDryRunMs": 20000, "restartReadyMs": 30000 },
+  "diagnostics": {
+    "timelineRequiredForSourceBuild": true,
+    "expectedSpans": ["plugins.registry.refresh", "plugins.update", "plugins.load"]
+  }
+}

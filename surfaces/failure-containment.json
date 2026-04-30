@@ -1,0 +1,15 @@
+{
+  "id": "failure-containment",
+  "title": "Failure Containment",
+  "ownerArea": "diagnostics",
+  "description": "Inject degraded OpenClaw state and verify diagnostics are useful without taking down the gateway.",
+  "requiredStates": ["broken-plugin-deps", "corrupted-config"],
+  "targetKinds": ["npm", "channel", "runtime", "local-build"],
+  "requiredMetrics": ["gatewaySurvives", "diagnosticPresent", "statusAfterFailureMs", "pluginLoadFailures"],
+  "processRoles": ["gateway", "command-tree", "plugin-cli", "model-cli", "doctor-cli"],
+  "thresholds": { "statusAfterFailureMs": 10000 },
+  "diagnostics": {
+    "timelineRequiredForSourceBuild": true,
+    "expectedSpans": ["gateway.error", "plugins.load", "config.normalize"]
+  }
+}

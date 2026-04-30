@@ -1,0 +1,7 @@
+{
+  "id": "cleanup",
+  "title": "Cleanup",
+  "description": "Environment, service, runtime, and artifact cleanup commands used after Kova runs.",
+  "commandPatterns": ["ocm env destroy", "ocm runtime remove", "ocm cleanup"],
+  "processPatterns": []
+}

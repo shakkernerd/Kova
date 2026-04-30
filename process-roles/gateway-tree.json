@@ -1,0 +1,7 @@
+{
+  "id": "gateway-tree",
+  "title": "Gateway Process Tree",
+  "description": "The OpenClaw gateway process and its direct children during startup, runtime, and shutdown.",
+  "commandPatterns": ["gateway run", "ocm start", "ocm service restart"],
+  "processPatterns": ["openclaw-gateway", "node.*gateway"]
+}

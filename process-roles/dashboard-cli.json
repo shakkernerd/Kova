@@ -1,0 +1,7 @@
+{
+  "id": "dashboard-cli",
+  "title": "Dashboard CLI",
+  "description": "OpenClaw dashboard command paths that produce or validate dashboard URLs and websocket configuration.",
+  "commandPatterns": ["dashboard", "dashboard --no-open"],
+  "processPatterns": ["openclaw.*dashboard"]
+}

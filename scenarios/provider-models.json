@@ -1,5 +1,6 @@
 {
   "id": "provider-models",
+  "surface": "provider-models",
   "title": "Provider And Model Discovery",
   "objective": "Exercise model/provider discovery paths and verify slow, missing, or unauthenticated providers do not stall the gateway globally.",
   "tags": ["models", "providers", "timeouts", "gateway"],

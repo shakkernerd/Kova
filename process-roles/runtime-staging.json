@@ -1,0 +1,7 @@
+{
+  "id": "runtime-staging",
+  "title": "Runtime Dependency Staging",
+  "description": "OpenClaw bundled plugin runtime dependency staging and package overlay work.",
+  "commandPatterns": ["runtime deps", "bundled runtime deps"],
+  "processPatterns": ["node.*bundled", "npm.*node_modules"]
+}

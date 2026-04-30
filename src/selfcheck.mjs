@@ -17,7 +17,7 @@ export async function runSelfCheck(flags = {}) {
   try {
     checks.push(await commandCheck(
       "syntax",
-      "for f in src/*.mjs bin/kova.mjs; do node --check \"$f\" || exit 1; done"
+      "for f in bin/kova.mjs $(find src -name '*.mjs' -type f | sort); do node --check \"$f\" || exit 1; done"
     ));
     checks.push(await jsonCommandCheck("version-json", "node bin/kova.mjs version --json", (data) => {
       assertEqual(data.schemaVersion, "kova.version.v1", "version schema");
@@ -30,9 +30,16 @@ export async function runSelfCheck(flags = {}) {
     }));
     checks.push(await jsonCommandCheck("plan-json", "node bin/kova.mjs plan --json", (data) => {
       assertEqual(data.schemaVersion, "kova.plan.v1", "plan schema");
+      assertArrayNotEmpty(data.surfaces, "plan surfaces");
+      assertArrayNotEmpty(data.processRoles, "plan process roles");
       assertArrayNotEmpty(data.scenarios, "plan scenarios");
       assertArrayNotEmpty(data.states, "plan states");
       assertArrayNotEmpty(data.profiles, "profiles");
+      assertEqual(data.coverage?.schemaVersion, "kova.coverage.v1", "coverage schema");
+      assertArrayNotEmpty(data.coverage?.scenarioSurfaceMap, "scenario surface map");
+      if (data.scenarios.some((scenario) => typeof scenario.surface !== "string" || scenario.surface.length === 0)) {
+        throw new Error("every scenario must expose a surface");
+      }
     }));
     checks.push(await jsonCommandCheck("matrix-plan-json", "node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --include scenario:fresh-install --parallel 2 --json", (data) => {
       assertEqual(data.schemaVersion, "kova.matrix.plan.v1", "matrix plan schema");

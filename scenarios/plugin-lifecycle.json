@@ -1,5 +1,6 @@
 {
   "id": "plugin-lifecycle",
+  "surface": "plugin-lifecycle",
   "title": "OpenClaw Plugin Lifecycle",
   "objective": "Exercise plugin list, update, install/remove-ready paths, runtime dependency diagnostics, restart behavior, and registry consistency.",
   "tags": ["plugins", "runtime-deps", "gateway", "restart"],
@@ -25,4 +26,3 @@
     }
   ]
 }
-

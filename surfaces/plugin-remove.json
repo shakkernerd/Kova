@@ -1,0 +1,15 @@
+{
+  "id": "plugin-remove",
+  "title": "Plugin Remove",
+  "ownerArea": "plugins",
+  "description": "Install and remove an external plugin, then verify install index cleanup and restart health.",
+  "requiredStates": ["fresh"],
+  "targetKinds": ["npm", "channel", "runtime", "local-build"],
+  "requiredMetrics": ["pluginsListMs", "missingDependencyErrors", "pluginLoadFailures", "restartReadyMs"],
+  "processRoles": ["gateway", "command-tree", "plugin-cli"],
+  "thresholds": { "gatewayReadyMs": 30000, "pluginsListMs": 10000, "restartReadyMs": 30000 },
+  "diagnostics": {
+    "timelineRequiredForSourceBuild": true,
+    "expectedSpans": ["plugins.install", "plugins.uninstall", "plugins.registry.refresh"]
+  }
+}

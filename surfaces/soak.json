@@ -1,0 +1,15 @@
+{
+  "id": "soak",
+  "title": "Gateway Soak",
+  "ownerArea": "gateway",
+  "description": "Run longer OpenClaw gateway usage loops to detect memory growth, CPU spikes, event-loop stalls, and degraded command latency.",
+  "requiredStates": ["large-workspace", "large-memory-session"],
+  "targetKinds": ["npm", "channel", "runtime", "local-build"],
+  "requiredMetrics": ["durationMs", "rssGrowthMb", "healthP95Ms", "peakRssMb", "restartCount"],
+  "processRoles": ["gateway", "gateway-tree", "command-tree", "status-cli", "plugin-cli", "model-cli"],
+  "thresholds": { "durationMs": 1800000, "rssGrowthMb": 300, "healthP95Ms": 1000 },
+  "diagnostics": {
+    "timelineRequiredForSourceBuild": true,
+    "expectedSpans": ["health.poll", "eventLoop.delay", "memory.sample"]
+  }
+}

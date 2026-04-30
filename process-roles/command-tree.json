@@ -1,0 +1,7 @@
+{
+  "id": "command-tree",
+  "title": "Command Tree",
+  "description": "The complete process tree for an OpenClaw CLI command invoked by Kova.",
+  "commandPatterns": ["ocm @", "ocm start", "ocm upgrade"],
+  "processPatterns": ["openclaw", "node.*openclaw"]
+}

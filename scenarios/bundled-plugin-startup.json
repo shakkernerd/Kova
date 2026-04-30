@@ -1,5 +1,6 @@
 {
   "id": "bundled-plugin-startup",
+  "surface": "bundled-plugin-startup",
   "title": "Bundled Plugin Startup",
   "objective": "Validate that OpenClaw's bundled plugins load during gateway startup without missing package/module errors or degraded plugin services.",
   "tags": ["plugins", "bundled", "runtime-deps", "startup"],

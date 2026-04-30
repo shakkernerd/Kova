@@ -1,5 +1,6 @@
 {
   "id": "dashboard-readiness",
+  "surface": "dashboard",
   "title": "Dashboard Readiness",
   "objective": "Verify OpenClaw can produce a usable dashboard URL and keep the gateway responsive after dashboard entry.",
   "tags": ["dashboard", "control-ui", "gateway", "websocket"],

@@ -1,5 +1,6 @@
 {
   "id": "soak",
+  "surface": "soak",
   "title": "Gateway Soak And Memory Trend",
   "objective": "Run a gateway for a longer window with repeated user-facing checks to detect memory growth, event-loop stalls, and degraded responsiveness.",
   "tags": ["soak", "memory", "latency", "gateway"],

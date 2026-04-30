@@ -1,5 +1,6 @@
 {
   "id": "failure-injection",
+  "surface": "failure-containment",
   "title": "OpenClaw Failure Containment",
   "objective": "Inject bad plugin/provider/runtime conditions and verify OpenClaw reports useful diagnostics without taking down the gateway.",
   "tags": ["failure", "plugins", "providers", "diagnostics", "gateway"],

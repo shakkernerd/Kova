@@ -1,5 +1,6 @@
 {
   "id": "tui-responsiveness",
+  "surface": "tui",
   "title": "TUI Responsiveness",
   "objective": "Verify OpenClaw's terminal UI can attach to a running gateway, render a connected screen promptly, and shut down cleanly.",
   "tags": ["tui", "terminal", "gateway", "input"],

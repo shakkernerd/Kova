@@ -1,0 +1,15 @@
+{
+  "id": "agent-message",
+  "title": "Agent Message",
+  "ownerArea": "agent-runtime",
+  "description": "Send a local OpenClaw agent message and verify response latency, provider routing, gateway health, memory, and logs.",
+  "requiredStates": ["mock-openai-provider"],
+  "targetKinds": ["npm", "channel", "runtime", "local-build"],
+  "requiredMetrics": ["agentTurnMs", "healthP95Ms", "peakRssMb", "providerTimeoutMentions", "pluginLoadFailures"],
+  "processRoles": ["gateway", "command-tree", "agent-cli", "agent-process", "mock-provider"],
+  "thresholds": { "agentTurnMs": 45000, "healthP95Ms": 1000, "peakRssMb": 900 },
+  "diagnostics": {
+    "timelineRequiredForSourceBuild": true,
+    "expectedSpans": ["agent.turn", "providers.request", "agent.cleanup"]
+  }
+}

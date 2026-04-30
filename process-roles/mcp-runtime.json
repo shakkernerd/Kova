@@ -1,0 +1,7 @@
+{
+  "id": "mcp-runtime",
+  "title": "MCP Runtime",
+  "description": "MCP server and transport subprocesses started by OpenClaw or plugins.",
+  "commandPatterns": ["mcp"],
+  "processPatterns": ["mcp", "modelcontextprotocol"]
+}

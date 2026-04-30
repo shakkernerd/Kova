@@ -1,5 +1,6 @@
 {
   "id": "plugin-bad-manifest",
+  "surface": "plugin-bad-manifest",
   "title": "Bad Plugin Manifest",
   "objective": "Attempt to install an invalid plugin fixture, require OpenClaw to reject it cleanly, and verify the gateway remains healthy.",
   "tags": ["plugins", "manifest", "failure", "lifecycle"],

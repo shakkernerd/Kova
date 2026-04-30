@@ -1,0 +1,7 @@
+{
+  "id": "plugin-cli",
+  "title": "Plugin CLI",
+  "description": "OpenClaw plugin commands including install, uninstall, list, update, and registry refresh.",
+  "commandPatterns": ["plugins list", "plugins install", "plugins uninstall", "plugins update", "plugins registry"],
+  "processPatterns": ["openclaw.*plugins"]
+}

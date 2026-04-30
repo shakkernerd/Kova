@@ -1,5 +1,6 @@
 {
   "id": "plugin-remove",
+  "surface": "plugin-remove",
   "title": "Plugin Remove",
   "objective": "Install and uninstall a local external plugin, then verify OpenClaw removes plugin install records cleanly and survives restart.",
   "tags": ["plugins", "external-plugin", "remove", "uninstall", "lifecycle"],

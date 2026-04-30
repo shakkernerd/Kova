@@ -1,5 +1,6 @@
 {
   "id": "plugin-external-install",
+  "surface": "plugin-external-install",
   "title": "External Plugin Install",
   "objective": "Install a real local external plugin fixture, refresh OpenClaw plugin state, and verify the gateway remains healthy without dependency or registry errors.",
   "tags": ["plugins", "external-plugin", "install", "lifecycle"],

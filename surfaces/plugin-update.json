@@ -1,0 +1,15 @@
+{
+  "id": "plugin-update",
+  "title": "Plugin Update",
+  "ownerArea": "plugins",
+  "description": "Run external plugin update planning and registry refresh paths without mutating durable state.",
+  "requiredStates": ["fresh", "external-plugin"],
+  "targetKinds": ["npm", "channel", "runtime", "local-build"],
+  "requiredMetrics": ["pluginUpdateDryRunMs", "pluginsListMs", "missingDependencyErrors", "pluginLoadFailures"],
+  "processRoles": ["gateway", "command-tree", "plugin-cli"],
+  "thresholds": { "pluginsListMs": 10000, "pluginUpdateDryRunMs": 20000 },
+  "diagnostics": {
+    "timelineRequiredForSourceBuild": true,
+    "expectedSpans": ["plugins.update", "plugins.registry.refresh"]
+  }
+}

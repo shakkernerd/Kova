@@ -1,5 +1,5 @@
 import { runCommand } from "./commands.mjs";
-import { materializeCommands } from "./scenarios.mjs";
+import { materializeCommands } from "./registries/scenarios.mjs";
 import { quoteShell } from "./commands.mjs";
 import { collectEnvMetrics, collectNodeProfileMetrics } from "./metrics.mjs";
 import { evaluateRecord } from "./evaluator.mjs";

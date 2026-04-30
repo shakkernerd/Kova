@@ -1,5 +1,6 @@
 {
   "id": "fresh-install",
+  "surface": "fresh-install",
   "title": "Fresh OpenClaw Install Baseline",
   "objective": "Create a disposable fresh OpenClaw home from the target runtime, start the gateway, and verify basic user-facing commands without onboarding or manual setup.",
   "tags": ["fresh-user", "gateway", "plugins", "models", "performance"],
@@ -55,4 +56,3 @@
     }
   ]
 }
-

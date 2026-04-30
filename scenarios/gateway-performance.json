@@ -1,5 +1,6 @@
 {
   "id": "gateway-performance",
+  "surface": "gateway-performance",
   "title": "Gateway Startup And Runtime Performance",
   "objective": "Measure cold start, warm start, health latency, memory, CPU, and user-facing command latency for a target OpenClaw runtime.",
   "tags": ["performance", "gateway", "memory", "cpu", "event-loop"],
@@ -34,4 +35,3 @@
     }
   ]
 }
-

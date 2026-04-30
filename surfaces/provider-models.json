@@ -1,0 +1,15 @@
+{
+  "id": "provider-models",
+  "title": "Provider And Models",
+  "ownerArea": "providers",
+  "description": "Exercise model/provider discovery and verify slow or unauthenticated providers do not stall the gateway.",
+  "requiredStates": ["model-auth-configured", "model-auth-missing"],
+  "targetKinds": ["npm", "channel", "runtime", "local-build"],
+  "requiredMetrics": ["modelsListMs", "statusAfterModelsMs", "gatewayResponsive", "providerTimeoutMentions"],
+  "processRoles": ["gateway", "command-tree", "model-cli"],
+  "thresholds": { "modelsListMs": 20000, "statusAfterModelsMs": 10000 },
+  "diagnostics": {
+    "timelineRequiredForSourceBuild": true,
+    "expectedSpans": ["providers.list", "models.list", "providers.timeout"]
+  }
+}

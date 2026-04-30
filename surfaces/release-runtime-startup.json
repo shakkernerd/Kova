@@ -1,0 +1,15 @@
+{
+  "id": "release-runtime-startup",
+  "title": "Release Runtime Startup",
+  "ownerArea": "release-runtime",
+  "description": "Start a release-shaped OpenClaw runtime and measure cold readiness, runtime dependency staging, plugin load health, and resource use.",
+  "requiredStates": ["fresh"],
+  "targetKinds": ["local-build", "npm", "channel", "runtime"],
+  "requiredMetrics": ["gatewayReadyMs", "gatewayReadyHardTimeoutMs", "statusMs", "pluginsListMs", "peakRssMb", "runtimeDepsStagingMs", "pluginLoadFailures"],
+  "processRoles": ["gateway", "gateway-tree", "command-tree", "package-manager", "runtime-staging", "plugin-cli"],
+  "thresholds": { "gatewayReadyMs": 30000, "gatewayReadyHardTimeoutMs": 120000, "runtimeDepsStagingMs": 30000, "peakRssMb": 900 },
+  "diagnostics": {
+    "timelineRequiredForSourceBuild": true,
+    "expectedSpans": ["gateway.startup", "plugins.runtimeDeps", "plugins.load", "health.ready"]
+  }
+}

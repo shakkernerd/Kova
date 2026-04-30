@@ -1,0 +1,7 @@
+{
+  "id": "browser-sidecar",
+  "title": "Browser Sidecar",
+  "description": "Browser automation sidecar processes and browser control services started by OpenClaw.",
+  "commandPatterns": ["browser", "playwright"],
+  "processPatterns": ["playwright", "browser/server", "chromium"]
+}

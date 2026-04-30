@@ -1,0 +1,7 @@
+{
+  "id": "status-cli",
+  "title": "Status CLI",
+  "description": "OpenClaw status and health inspection commands used to prove the gateway is usable.",
+  "commandPatterns": ["status", "service status"],
+  "processPatterns": ["openclaw.*status"]
+}

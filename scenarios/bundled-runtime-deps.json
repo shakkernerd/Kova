@@ -1,5 +1,6 @@
 {
   "id": "bundled-runtime-deps",
+  "surface": "bundled-runtime-deps",
   "title": "Bundled Runtime Dependency Integrity",
   "objective": "Verify bundled plugin runtime dependencies stage correctly, remain reusable on warm starts, and do not produce missing dependency errors.",
   "tags": ["plugins", "runtime-deps", "cold-start", "warm-start"],
@@ -25,4 +26,3 @@
     }
   ]
 }
-

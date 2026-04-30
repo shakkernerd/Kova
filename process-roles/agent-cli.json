@@ -1,0 +1,7 @@
+{
+  "id": "agent-cli",
+  "title": "Agent CLI",
+  "description": "User-facing OpenClaw agent command invocations that send messages or manage local sessions.",
+  "commandPatterns": ["agent --local", "agent --session-id"],
+  "processPatterns": ["openclaw.*agent"]
+}
