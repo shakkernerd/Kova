@@ -154,6 +154,7 @@ async function matrixCommand(flags) {
     const profile = await loadProfile(required(flags.profile, "--profile"));
     const target = required(flags.target, "--target");
     const targetPlan = resolveTarget(target, "target");
+    validateProfileTarget(profile, targetPlan);
     if (flags.from) {
       resolveTarget(flags.from, "from");
     }
@@ -268,6 +269,7 @@ async function matrixRun(flags) {
   const profile = await loadProfile(required(flags.profile, "--profile"));
   const target = required(flags.target, "--target");
   const targetPlan = resolveTarget(target, "target");
+  validateProfileTarget(profile, targetPlan);
   const fromPlan = flags.from ? resolveTarget(flags.from, "from") : null;
   const entries = applyMatrixControls(await expandProfile(profile), flags, platformInfo());
   const controls = matrixControlSummary(flags, targetPlan);
@@ -284,6 +286,7 @@ async function matrixRun(flags) {
     const context = {
       target,
       targetPlan,
+      profile,
       from: flags.from,
       fromPlan,
       state: entry.state,
@@ -606,12 +609,24 @@ function profileSummary(profile) {
     title: profile.title,
     objective: profile.objective,
     entryCount: profile.entries.length,
+    targetKinds: profile.targetKinds ?? null,
+    diagnostics: profile.diagnostics ?? null,
     gate: profile.gate ? {
       id: profile.gate.id ?? `${profile.id}-gate`,
       blockingCount: Array.isArray(profile.gate.blocking) ? profile.gate.blocking.length : profile.entries.length,
       warningCount: Array.isArray(profile.gate.warning) ? profile.gate.warning.length : 0
     } : null
   };
+}
+
+function validateProfileTarget(profile, targetPlan) {
+  const targetKinds = profile.targetKinds ?? [];
+  if (targetKinds.length === 0) {
+    return;
+  }
+  if (!targetKinds.includes(targetPlan.kind)) {
+    throw new Error(`profile '${profile.id}' requires target kind ${targetKinds.join(", ")}, got ${targetPlan.kind}`);
+  }
 }
 
 async function cleanupCommand(flags) {

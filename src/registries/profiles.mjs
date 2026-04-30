@@ -22,6 +22,8 @@ export function validateProfileShape(profile, sourceName = "profile") {
   requireString(profile, "title", errors);
   requireString(profile, "objective", errors);
   requireArray(profile, "entries", errors);
+  validateStringArray(profile.targetKinds, "targetKinds", errors, { optional: true });
+  validateDiagnostics(profile.diagnostics, "diagnostics", errors);
   validateEntries(profile.entries, errors);
 
   if (profile.gate !== undefined) {
@@ -29,6 +31,21 @@ export function validateProfileShape(profile, sourceName = "profile") {
   }
 
   assertNoShapeErrors(errors, sourceName);
+}
+
+function validateDiagnostics(diagnostics, prefix, errors) {
+  if (diagnostics === undefined) {
+    return;
+  }
+  if (!diagnostics || typeof diagnostics !== "object" || Array.isArray(diagnostics)) {
+    errors.push(`${prefix} must be an object when set`);
+    return;
+  }
+  if (diagnostics.timelineRequired !== undefined && typeof diagnostics.timelineRequired !== "boolean") {
+    errors.push(`${prefix}.timelineRequired must be boolean when set`);
+  }
+  validateStringArray(diagnostics.timelineRequiredForTargetKinds, `${prefix}.timelineRequiredForTargetKinds`, errors, { optional: true });
+  validateStringArray(diagnostics.requiredKeySpans, `${prefix}.requiredKeySpans`, errors, { optional: true });
 }
 
 function validateEntries(entries, errors) {

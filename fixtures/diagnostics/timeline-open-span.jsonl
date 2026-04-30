@@ -1,0 +1,4 @@
+{"schemaVersion":"openclaw.diagnostics.v1","type":"span.start","timestamp":"2026-04-29T15:30:00.000Z","runId":"kova-fixture","envName":"kova-fixture-env","pid":100,"phase":"startup","name":"gateway.startup","spanId":"1"}
+{"schemaVersion":"openclaw.diagnostics.v1","type":"span.end","timestamp":"2026-04-29T15:30:02.000Z","runId":"kova-fixture","envName":"kova-fixture-env","pid":100,"phase":"startup","name":"gateway.startup","spanId":"1","durationMs":2000}
+{"schemaVersion":"openclaw.diagnostics.v1","type":"span.start","timestamp":"2026-04-29T15:30:03.000Z","runId":"kova-fixture","envName":"kova-fixture-env","pid":100,"phase":"startup","name":"runtimeDeps.stage","spanId":"2","attributes":{"pluginId":"browser"}}
+{"schemaVersion":"openclaw.diagnostics.v1","type":"eventLoop.sample","timestamp":"2026-04-29T15:30:08.000Z","name":"eventLoop","p95Ms":120,"maxMs":700,"activeSpanName":"runtimeDeps.stage"}

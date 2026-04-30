@@ -512,7 +512,9 @@ function runScenarioCommand(command, context, envName, artifactDir, phaseId, com
 
 function evaluatorContext(context, scenario) {
   return {
-    surface: context.surfacesById?.[scenario.surface] ?? null
+    surface: context.surfacesById?.[scenario.surface] ?? null,
+    targetPlan: context.targetPlan ?? null,
+    profile: context.profile ?? null
   };
 }
 

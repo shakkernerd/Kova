@@ -1,0 +1,71 @@
+{
+  "id": "diagnostic",
+  "title": "Source-Built Diagnostics",
+  "objective": "Run release-shaped local OpenClaw builds with timeline diagnostics enabled so Kova can attribute startup, plugin, provider, agent, event-loop, CPU, and heap behavior to OpenClaw phases.",
+  "targetKinds": ["local-build"],
+  "diagnostics": {
+    "timelineRequired": true,
+    "timelineRequiredForTargetKinds": ["local-build"],
+    "requiredKeySpans": [
+      "gateway.startup",
+      "gateway.ready",
+      "config.normalize",
+      "plugins.metadata.scan",
+      "runtimeDeps.stage",
+      "providers.load",
+      "models.catalog",
+      "agent.turn",
+      "agent.cleanup"
+    ]
+  },
+  "gate": {
+    "id": "openclaw-diagnostic",
+    "coverage": {
+      "surfaces": {
+        "blocking": ["release-runtime-startup", "gateway-performance", "bundled-runtime-deps", "agent-message"]
+      },
+      "states": {
+        "blocking": ["fresh", "missing-plugin-index", "many-bundled-plugins", "mock-openai-provider"]
+      },
+      "stateSurfaces": {
+        "blocking": [
+          "release-runtime-startup:fresh",
+          "gateway-performance:many-bundled-plugins",
+          "bundled-runtime-deps:missing-plugin-index",
+          "agent-message:mock-openai-provider"
+        ]
+      },
+      "scenarios": {
+        "blocking": ["release-runtime-startup", "gateway-performance", "bundled-runtime-deps", "agent-message-latency"]
+      }
+    },
+    "blocking": [
+      { "scenario": "release-runtime-startup", "state": "fresh" },
+      { "scenario": "gateway-performance", "state": "many-bundled-plugins" },
+      { "scenario": "bundled-runtime-deps", "state": "missing-plugin-index" },
+      { "scenario": "agent-message-latency", "state": "mock-openai-provider" }
+    ]
+  },
+  "entries": [
+    {
+      "scenario": "release-runtime-startup",
+      "state": "fresh",
+      "timeoutMs": 180000
+    },
+    {
+      "scenario": "gateway-performance",
+      "state": "many-bundled-plugins",
+      "timeoutMs": 180000
+    },
+    {
+      "scenario": "bundled-runtime-deps",
+      "state": "missing-plugin-index",
+      "timeoutMs": 180000
+    },
+    {
+      "scenario": "agent-message-latency",
+      "state": "mock-openai-provider",
+      "timeoutMs": 240000
+    }
+  ]
+}

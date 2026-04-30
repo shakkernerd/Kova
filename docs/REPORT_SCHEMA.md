@@ -164,8 +164,8 @@ Current metrics include:
   functions, slowest OpenClaw span, event-loop delay, runtime dependency
   staging, and provider/model timing
 - OpenClaw diagnostics timeline availability, event count, parse errors,
-  slowest spans, repeated spans, event-loop max, provider request max, and child
-  process failures
+  slowest spans, repeated spans, open spans, key span summaries, event-loop max,
+  provider request max, and child process failures
 - runtime dependency staging grouped by bundled plugin when OpenClaw emits
   `runtimeDeps.stage` spans with `pluginId` attributes
 
@@ -178,6 +178,27 @@ When OpenClaw emits `OPENCLAW_DIAGNOSTICS_TIMELINE_PATH`, Kova stores the raw
 JSONL timeline under the run artifacts and summarizes it in `metrics.timeline`.
 If OpenClaw does not emit it, the collector reports `INFO` and the scenario can
 still complete.
+
+Diagnostic source-build runs can make the timeline mandatory through the active
+profile. In that mode, missing timeline evidence fails the scenario because Kova
+cannot inspect OpenClaw internals. NPM/release runs keep missing timelines as
+informational unless the active profile explicitly requires them.
+
+Timeline-derived measurements include:
+
+- `openclawOpenSpanCount`: number of `span.start` events without a matching
+  `span.end` or `span.error`
+- `openclawOpenRequiredSpanCount`: open spans that match required diagnostics
+  for the surface/profile
+- `openclawOpenSpans`: compact open-span evidence with name, age, phase,
+  span id, parent span id, plugin id, provider, and operation when available
+- `openclawKeySpans`: compact summaries for OpenClaw's required operational
+  spans: `gateway.startup`, `gateway.ready`, `config.normalize`,
+  `plugins.metadata.scan`, `runtimeDeps.stage`, `providers.load`,
+  `models.catalog`, `agent.turn`, and `agent.cleanup`
+
+Open required spans are failures for diagnostic source-build runs because they
+usually mean OpenClaw started a critical operation and never reported completion.
 
 ## Run Receipt
 

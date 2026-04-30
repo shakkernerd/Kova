@@ -31,6 +31,9 @@ export function evaluateRecord(record, scenario, options = {}) {
   const diagnosticReportBytes = countDiagnosticReportMetric(record, "artifactBytes");
   const openclawDiagnostics = collectOpenClawDiagnostics(record);
   const timelineSummary = collectTimelineSummary(record);
+  const timelineRequirement = timelineRequirementFor(options);
+  const requiredOpenSpans = requiredTimelineSpans(options);
+  const openRequiredSpans = timelineSummary.openSpans.filter((span) => requiredOpenSpans.has(span.name));
   const runtimeDepsStagingMs = maxNullable(openclawDiagnostics.runtimeDepsStagingMs, timelineSummary.runtimeDepsStageMaxMs);
   const eventLoopDelayMs = maxNullable(openclawDiagnostics.eventLoopDelayMs, timelineSummary.eventLoopMaxMs);
   const providerModelTimingMs = maxNullable(openclawDiagnostics.providerModelTimingMs, timelineSummary.providerRequestMaxMs);
@@ -239,6 +242,16 @@ export function evaluateRecord(record, scenario, options = {}) {
   }
 
   const allowedTimelineParseErrors = typeof thresholds.openclawTimelineParseErrors === "number" ? thresholds.openclawTimelineParseErrors : 0;
+  if (timelineRequirement.required && !timelineSummary.available) {
+    violations.push({
+      kind: "diagnostics",
+      metric: "openclawTimelineAvailable",
+      expected: "available",
+      actual: false,
+      message: `OpenClaw diagnostics timeline was required for ${timelineRequirement.reason} but was not emitted`
+    });
+  }
+
   if (timelineSummary.available && timelineSummary.parseErrorCount > allowedTimelineParseErrors) {
     violations.push({
       kind: "diagnostics",
@@ -246,6 +259,17 @@ export function evaluateRecord(record, scenario, options = {}) {
       expected: `<= ${allowedTimelineParseErrors}`,
       actual: timelineSummary.parseErrorCount,
       message: `${timelineSummary.parseErrorCount} OpenClaw diagnostics timeline parse errors found`
+    });
+  }
+
+  if (openRequiredSpans.length > 0) {
+    const slowestOpen = openRequiredSpans[0];
+    violations.push({
+      kind: "diagnostics",
+      metric: "openclawOpenRequiredSpanCount",
+      expected: "0",
+      actual: openRequiredSpans.length,
+      message: `${openRequiredSpans.length} required OpenClaw diagnostics span(s) were left open; slowest ${slowestOpen.name}${slowestOpen.ageMs !== null ? ` age ${slowestOpen.ageMs}ms` : ""}`
     });
   }
 
@@ -327,6 +351,10 @@ export function evaluateRecord(record, scenario, options = {}) {
     openclawSlowestSpanName: timelineSummary.slowestSpanName,
     openclawSlowestSpanMs: timelineSummary.slowestSpanMs,
     openclawRepeatedSpanCount: timelineSummary.repeatedSpanCount,
+    openclawOpenSpanCount: timelineSummary.openSpanCount,
+    openclawOpenRequiredSpanCount: openRequiredSpans.length,
+    openclawOpenSpans: timelineSummary.openSpans,
+    openclawKeySpans: timelineSummary.keySpans,
     openclawEventLoopMaxMs: timelineSummary.eventLoopMaxMs,
     openclawProviderRequestMaxMs: timelineSummary.providerRequestMaxMs,
     openclawChildProcessFailedCount: timelineSummary.childProcessFailedCount,
@@ -357,6 +385,32 @@ export function evaluateRecord(record, scenario, options = {}) {
   }
 
   return record;
+}
+
+function timelineRequirementFor(options) {
+  const targetKind = options.targetPlan?.kind ?? null;
+  const profileDiagnostics = options.profile?.diagnostics ?? {};
+  const requiredForTargetKinds = profileDiagnostics.timelineRequiredForTargetKinds ?? [];
+  if (profileDiagnostics.timelineRequired === true && (requiredForTargetKinds.length === 0 || requiredForTargetKinds.includes(targetKind))) {
+    return {
+      required: true,
+      reason: `profile '${options.profile?.id ?? "unknown"}' on target kind '${targetKind ?? "unknown"}'`
+    };
+  }
+  if (options.surface?.diagnostics?.timelineRequiredForSourceBuild === true && targetKind === "local-build" && profileDiagnostics.timelineRequired === true) {
+    return {
+      required: true,
+      reason: `surface '${options.surface.id}' source-build diagnostics`
+    };
+  }
+  return { required: false, reason: null };
+}
+
+function requiredTimelineSpans(options) {
+  return new Set([
+    ...(options.surface?.diagnostics?.expectedSpans ?? []),
+    ...(options.profile?.diagnostics?.requiredKeySpans ?? [])
+  ]);
 }
 
 function maxDurationWhere(results, predicate) {
@@ -756,12 +810,18 @@ function collectTimelineSummary(record) {
   let repeatedSpanCount = 0;
   let runtimeDepsStageMaxMs = null;
   let slowestRuntimeDepsPlugin = null;
+  let openSpanCount = 0;
+  let openSpans = [];
+  const keySpans = {};
 
   for (const timeline of timelines) {
     eventCount = Math.max(eventCount, timeline.eventCount ?? 0);
     parseErrorCount = Math.max(parseErrorCount, timeline.parseErrorCount ?? 0);
     childProcessFailedCount = Math.max(childProcessFailedCount, timeline.childProcesses?.failedCount ?? 0);
     repeatedSpanCount = Math.max(repeatedSpanCount, timeline.repeatedSpans?.length ?? 0);
+    openSpanCount = Math.max(openSpanCount, timeline.openSpanCount ?? timeline.openSpans?.length ?? 0);
+    openSpans = mergeOpenSpans(openSpans, timeline.openSpans ?? []);
+    mergeKeySpans(keySpans, timeline.keySpans ?? {});
     eventLoopMaxMs = maxNullable(eventLoopMaxMs, timeline.eventLoop?.maxMs);
     providerRequestMaxMs = maxNullable(providerRequestMaxMs, timeline.providers?.maxDurationMs);
     runtimeDepsStageMaxMs = maxNullable(
@@ -791,12 +851,47 @@ function collectTimelineSummary(record) {
     slowestSpanName: slowestSpan?.name ?? null,
     slowestSpanMs: slowestSpan?.durationMs ?? null,
     repeatedSpanCount,
+    openSpanCount,
+    openSpans,
+    keySpans,
     eventLoopMaxMs,
     providerRequestMaxMs,
     childProcessFailedCount,
     runtimeDepsStageMaxMs,
     runtimeDepsStagePluginId: slowestRuntimeDepsPlugin?.pluginId ?? null
   };
+}
+
+function mergeOpenSpans(current, candidate) {
+  return [...current, ...candidate]
+    .toSorted((left, right) => (right.ageMs ?? -1) - (left.ageMs ?? -1))
+    .slice(0, 25);
+}
+
+function mergeKeySpans(target, source) {
+  for (const [name, summary] of Object.entries(source)) {
+    const existing = target[name] ?? {
+      name,
+      count: 0,
+      errorCount: 0,
+      openCount: 0,
+      totalDurationMs: 0,
+      maxDurationMs: null,
+      slowest: null,
+      open: []
+    };
+    existing.count += summary.count ?? 0;
+    existing.errorCount += summary.errorCount ?? 0;
+    existing.openCount += summary.openCount ?? 0;
+    existing.totalDurationMs = roundNumber(existing.totalDurationMs + (summary.totalDurationMs ?? 0));
+    existing.maxDurationMs = maxNullable(existing.maxDurationMs, summary.maxDurationMs);
+    if (summary.slowest?.durationMs !== undefined &&
+      (!existing.slowest || summary.slowest.durationMs > existing.slowest.durationMs)) {
+      existing.slowest = summary.slowest;
+    }
+    existing.open = mergeOpenSpans(existing.open, summary.open ?? []).slice(0, 5);
+    target[name] = existing;
+  }
 }
 
 function collectCpuPercentMax(record) {
@@ -821,6 +916,10 @@ function maxNullable(left, right) {
     return left;
   }
   return left === null ? right : Math.max(left, right);
+}
+
+function roundNumber(value) {
+  return Math.round(value * 100) / 100;
 }
 
 function mergeRoles(left, right) {
@@ -960,6 +1059,15 @@ function buildDiagnosticCorrelation({
       summary: `Slowest OpenClaw span: ${timelineSummary.slowestSpanName} ${timelineSummary.slowestSpanMs}ms`,
       span: timelineSummary.slowestSpanName,
       durationMs: timelineSummary.slowestSpanMs
+    });
+  }
+  if (timelineSummary.openSpans.length > 0) {
+    const span = timelineSummary.openSpans[0];
+    findings.push({
+      kind: "openclaw-open-span",
+      summary: `Open OpenClaw span: ${span.name}${span.ageMs !== null ? ` age ${span.ageMs}ms` : ""}`,
+      span: span.name,
+      ageMs: span.ageMs
     });
   }
   if (eventLoopDelayMs !== null) {

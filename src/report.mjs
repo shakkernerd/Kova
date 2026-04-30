@@ -103,6 +103,19 @@ export function renderMarkdownReport(report) {
       lines.push(`- Event-loop delay mentions: ${record.measurements.eventLoopDelayMentions ?? "unknown"}`);
       lines.push(`- OpenClaw timeline: ${record.measurements.openclawTimelineAvailable ? "available" : "unavailable"} (${record.measurements.openclawTimelineEventCount ?? 0} events, ${record.measurements.openclawTimelineParseErrors ?? 0} parse errors)`);
       lines.push(`- Slowest OpenClaw span: ${record.measurements.openclawSlowestSpanName ?? "unknown"} ${record.measurements.openclawSlowestSpanMs ?? "unknown"} ms`);
+      lines.push(`- Open OpenClaw spans: ${record.measurements.openclawOpenSpanCount ?? "unknown"} (${record.measurements.openclawOpenRequiredSpanCount ?? "unknown"} required)`);
+      if (record.measurements.openclawOpenSpans?.length > 0) {
+        const span = record.measurements.openclawOpenSpans[0];
+        lines.push(`- Slowest open span: ${span.name}${span.ageMs !== null ? ` ${span.ageMs} ms` : ""}`);
+      }
+      if (record.measurements.openclawKeySpans) {
+        const keySpanText = compactKeySpans(record.measurements.openclawKeySpans).slice(0, 5)
+          .map((span) => `${span.name} max ${span.maxDurationMs ?? "?"}ms open ${span.openCount ?? 0}`)
+          .join("; ");
+        if (keySpanText) {
+          lines.push(`- Key OpenClaw spans: ${keySpanText}`);
+        }
+      }
       lines.push(`- OpenClaw event-loop max: ${record.measurements.openclawEventLoopMaxMs ?? "unknown"} ms`);
       lines.push(`- OpenClaw provider request max: ${record.measurements.openclawProviderRequestMaxMs ?? "unknown"} ms`);
       lines.push(`- Structured event-loop delay: ${record.measurements.eventLoopDelayMs ?? "unknown"} ms`);
@@ -462,6 +475,10 @@ function summarizeMeasurements(measurements) {
     openclawTimelineAvailable: measurements.openclawTimelineAvailable ?? null,
     openclawSlowestSpanName: measurements.openclawSlowestSpanName ?? null,
     openclawSlowestSpanMs: measurements.openclawSlowestSpanMs ?? null,
+    openclawOpenSpanCount: measurements.openclawOpenSpanCount ?? null,
+    openclawOpenRequiredSpanCount: measurements.openclawOpenRequiredSpanCount ?? null,
+    openclawOpenSpans: measurements.openclawOpenSpans ?? null,
+    openclawKeySpans: measurements.openclawKeySpans ?? null,
     nodeCpuProfileCount: measurements.nodeCpuProfileCount ?? null,
     nodeHeapProfileCount: measurements.nodeHeapProfileCount ?? null,
     nodeTraceEventCount: measurements.nodeTraceEventCount ?? null,
@@ -540,7 +557,7 @@ export function renderPasteSummary(report) {
         const roleText = compactRolePeaks(record.measurements).slice(0, 4)
           .map((role) => `${role.role} ${role.peakRssMb ?? "?"}MB/${role.maxCpuPercent ?? "?"}%`)
           .join(", ") || "unknown";
-        lines.push(`Measurements: cold ready ${record.measurements.coldReadyMs ?? "unknown"}ms; warm ready ${record.measurements.warmReadyMs ?? "unknown"}ms; listening ${record.measurements.timeToListeningMs ?? "unknown"}ms; health ready ${record.measurements.timeToHealthReadyMs ?? "unknown"}ms; readiness ${record.measurements.readinessClassification ?? "unknown"}; peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; max CPU ${record.measurements.cpuPercentMax ?? "unknown"}%; role peaks ${roleText}; samples ${record.measurements.resourceSampleCount ?? "unknown"}; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}; restarts ${record.measurements.gatewayRestartCount ?? "unknown"}; agent turn ${record.measurements.agentTurnMs ?? "not-run"}ms; provider/model timeouts ${record.measurements.providerTimeoutMentions ?? "unknown"}; event-loop signals ${record.measurements.eventLoopDelayMentions ?? "unknown"}; timeline ${record.measurements.openclawTimelineAvailable ? "available" : "unavailable"}; slowest span ${record.measurements.openclawSlowestSpanName ?? "unknown"} ${record.measurements.openclawSlowestSpanMs ?? "unknown"}ms; node profiles ${record.measurements.nodeCpuProfileCount ?? "unknown"}/${record.measurements.nodeHeapProfileCount ?? "unknown"}/${record.measurements.nodeTraceEventCount ?? "unknown"}; top CPU ${record.measurements.nodeProfileTopFunction ?? "unknown"} ${record.measurements.nodeProfileTopFunctionMs ?? "unknown"}ms; top heap ${record.measurements.nodeHeapTopFunction ?? "unknown"} ${record.measurements.nodeHeapTopFunctionMb ?? "unknown"}MB; runtime deps staging ${record.measurements.runtimeDepsStagingMs ?? "unknown"}ms${runtimeDepsPlugin}.`);
+        lines.push(`Measurements: cold ready ${record.measurements.coldReadyMs ?? "unknown"}ms; warm ready ${record.measurements.warmReadyMs ?? "unknown"}ms; listening ${record.measurements.timeToListeningMs ?? "unknown"}ms; health ready ${record.measurements.timeToHealthReadyMs ?? "unknown"}ms; readiness ${record.measurements.readinessClassification ?? "unknown"}; peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; max CPU ${record.measurements.cpuPercentMax ?? "unknown"}%; role peaks ${roleText}; samples ${record.measurements.resourceSampleCount ?? "unknown"}; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}; restarts ${record.measurements.gatewayRestartCount ?? "unknown"}; agent turn ${record.measurements.agentTurnMs ?? "not-run"}ms; provider/model timeouts ${record.measurements.providerTimeoutMentions ?? "unknown"}; event-loop signals ${record.measurements.eventLoopDelayMentions ?? "unknown"}; timeline ${record.measurements.openclawTimelineAvailable ? "available" : "unavailable"}; slowest span ${record.measurements.openclawSlowestSpanName ?? "unknown"} ${record.measurements.openclawSlowestSpanMs ?? "unknown"}ms; open spans ${record.measurements.openclawOpenSpanCount ?? "unknown"} (${record.measurements.openclawOpenRequiredSpanCount ?? "unknown"} required); node profiles ${record.measurements.nodeCpuProfileCount ?? "unknown"}/${record.measurements.nodeHeapProfileCount ?? "unknown"}/${record.measurements.nodeTraceEventCount ?? "unknown"}; top CPU ${record.measurements.nodeProfileTopFunction ?? "unknown"} ${record.measurements.nodeProfileTopFunctionMs ?? "unknown"}ms; top heap ${record.measurements.nodeHeapTopFunction ?? "unknown"} ${record.measurements.nodeHeapTopFunctionMb ?? "unknown"}MB; runtime deps staging ${record.measurements.runtimeDepsStagingMs ?? "unknown"}ms${runtimeDepsPlugin}.`);
       }
     } else if (record.violations?.length > 0) {
       lines.push("Violations:");
@@ -635,6 +652,10 @@ function briefEvidence(measurements, violations) {
   if (measurements.pluginLoadFailures !== null && measurements.pluginLoadFailures !== undefined) {
     items.push(`pluginLoadFailures: ${measurements.pluginLoadFailures}`);
   }
+  if (measurements.openclawOpenRequiredSpanCount > 0) {
+    const span = measurements.openclawOpenSpans?.[0];
+    items.push(`openRequiredSpans: ${measurements.openclawOpenRequiredSpanCount}${span ? `, slowest ${span.name}` : ""}`);
+  }
   for (const finding of measurements.diagnosticCorrelation?.findings?.slice(0, 3) ?? []) {
     items.push(finding.summary);
   }
@@ -644,6 +665,12 @@ function briefEvidence(measurements, violations) {
     }
   }
   return items.slice(0, 8);
+}
+
+function compactKeySpans(keySpans) {
+  return Object.values(keySpans ?? {})
+    .filter((span) => (span.count ?? 0) > 0 || (span.openCount ?? 0) > 0)
+    .toSorted((left, right) => (right.maxDurationMs ?? 0) - (left.maxDurationMs ?? 0) || (right.openCount ?? 0) - (left.openCount ?? 0));
 }
 
 function compactRolePeaks(measurements) {

@@ -3,6 +3,17 @@ import { join } from "node:path";
 
 const SCHEMA_VERSION = "openclaw.diagnostics.v1";
 export const TIMELINE_COLLECTOR_SCHEMA = "kova.timelineCollector.v1";
+export const KEY_OPENCLAW_SPANS = [
+  "gateway.startup",
+  "gateway.ready",
+  "config.normalize",
+  "plugins.metadata.scan",
+  "runtimeDeps.stage",
+  "providers.load",
+  "models.catalog",
+  "agent.turn",
+  "agent.cleanup"
+];
 
 export async function collectTimelineMetrics(artifactDir) {
   const startedAt = Date.now();
@@ -35,6 +46,8 @@ export async function collectTimelineMetrics(artifactDir) {
     slowestSpans: timeline.slowestSpans,
     spanTotals: timeline.spanTotals,
     repeatedSpans: timeline.repeatedSpans,
+    openSpans: timeline.openSpans,
+    keySpans: timeline.keySpans,
     runtimeDeps: timeline.runtimeDeps,
     eventLoop: timeline.eventLoop,
     providers: timeline.providers,
@@ -86,11 +99,13 @@ export function parseTimelineText(text) {
 }
 
 export function summarizeTimeline(events, parseErrors = []) {
+  const spanStarts = events.filter((event) => event.type === "span.start");
   const spanEvents = events.filter((event) => event.type === "span.end" || event.type === "span.error");
   const eventLoopSamples = events.filter((event) => event.type === "eventLoop.sample");
   const providerRequests = events.filter((event) => event.type === "provider.request");
   const childProcesses = events.filter((event) => event.type === "childProcess.exit");
   const spanTotals = summarizeSpans(spanEvents);
+  const openSpans = summarizeOpenSpans({ starts: spanStarts, terminals: spanEvents, events });
   const runtimeDeps = summarizeRuntimeDeps(spanEvents);
   const slowestSpans = spanEvents
     .filter((event) => typeof event.durationMs === "number")
@@ -104,6 +119,7 @@ export function summarizeTimeline(events, parseErrors = []) {
     eventCount: events.length,
     parseErrorCount: parseErrors.length,
     parseErrors: parseErrors.slice(0, 20),
+    spanStartCount: spanStarts.length,
     spanCount: spanEvents.length,
     slowestSpans,
     spanTotals,
@@ -111,6 +127,9 @@ export function summarizeTimeline(events, parseErrors = []) {
       .filter((span) => span.count > 1)
       .toSorted((left, right) => (right.totalDurationMs - left.totalDurationMs) || (right.count - left.count))
       .slice(0, 10),
+    openSpanCount: openSpans.length,
+    openSpans,
+    keySpans: summarizeKeySpans({ spanEvents, openSpans }),
     runtimeDeps,
     eventLoop: summarizeEventLoop(eventLoopSamples),
     providers: summarizeTimedCollection(providerRequests),
@@ -130,6 +149,9 @@ function emptyTimeline(extra = {}) {
     slowestSpans: [],
     spanTotals: {},
     repeatedSpans: [],
+    openSpanCount: 0,
+    openSpans: [],
+    keySpans: emptyKeySpans(),
     runtimeDeps: {
       count: 0,
       totalDurationMs: 0,
@@ -254,6 +276,75 @@ function summarizeRuntimeDeps(events) {
   };
 }
 
+function summarizeOpenSpans({ starts, terminals, events }) {
+  const terminalKeys = new Set(terminals.map(spanIdentity).filter(Boolean));
+  const terminalNames = countNames(terminals);
+  const latestTimestamp = latestEventTimestamp(events);
+  const open = [];
+
+  for (const start of starts) {
+    const key = spanIdentity(start);
+    if (key && terminalKeys.has(key)) {
+      continue;
+    }
+    if (!key && (terminalNames.get(start.name) ?? 0) > 0) {
+      terminalNames.set(start.name, terminalNames.get(start.name) - 1);
+      continue;
+    }
+    open.push({
+      type: start.type,
+      name: start.name,
+      spanId: start.spanId ?? null,
+      parentSpanId: start.parentSpanId ?? null,
+      timestamp: start.timestamp ?? null,
+      ageMs: spanAgeMs(start, latestTimestamp),
+      phase: start.phase ?? null,
+      provider: start.provider ?? start.attributes?.provider ?? null,
+      operation: start.operation ?? start.attributes?.operation ?? null,
+      pluginId: start.pluginId ?? start.attributes?.pluginId ?? null
+    });
+  }
+
+  return open.toSorted((left, right) => (right.ageMs ?? -1) - (left.ageMs ?? -1)).slice(0, 25);
+}
+
+function summarizeKeySpans({ spanEvents, openSpans }) {
+  const byName = {};
+  for (const name of KEY_OPENCLAW_SPANS) {
+    const spans = spanEvents.filter((event) => event.name === name);
+    const open = openSpans.filter((event) => event.name === name);
+    const durations = spans.map((event) => event.durationMs).filter(isNumber);
+    const slowest = spans
+      .filter((event) => typeof event.durationMs === "number")
+      .toSorted((left, right) => right.durationMs - left.durationMs)
+      .at(0);
+    byName[name] = {
+      name,
+      count: spans.length,
+      errorCount: spans.filter((event) => event.type === "span.error").length,
+      openCount: open.length,
+      totalDurationMs: round(durations.reduce((total, value) => total + value, 0)),
+      maxDurationMs: maxOrNull(durations),
+      slowest: slowest ? compactTimedEvent(slowest) : null,
+      open: open.slice(0, 5)
+    };
+  }
+  return byName;
+}
+
+function emptyKeySpans() {
+  return Object.fromEntries(KEY_OPENCLAW_SPANS.map((name) => [name, {
+    name,
+    count: 0,
+    errorCount: 0,
+    openCount: 0,
+    totalDurationMs: 0,
+    maxDurationMs: null,
+    slowest: null,
+    open: []
+  }]));
+}
+
 function summarizeEventLoop(samples) {
   const p95Values = samples.map((sample) => numberOrNull(sample.p95Ms)).filter(isNumber);
   const p99Values = samples.map((sample) => numberOrNull(sample.p99Ms)).filter(isNumber);
@@ -303,6 +394,8 @@ function compactTimedEvent(event) {
   return {
     type: event.type,
     name: event.name,
+    spanId: event.spanId ?? null,
+    parentSpanId: event.parentSpanId ?? null,
     durationMs: event.durationMs ?? null,
     timestamp: event.timestamp ?? null,
     phase: event.phase ?? null,
@@ -314,6 +407,36 @@ function compactTimedEvent(event) {
     errorName: event.errorName ?? event.attributes?.errorName ?? null,
     errorMessage: event.errorMessage ?? event.attributes?.errorMessage ?? null
   };
+}
+
+function spanIdentity(event) {
+  if (event.spanId !== undefined && event.spanId !== null && String(event.spanId).length > 0) {
+    return `id:${event.spanId}`;
+  }
+  return null;
+}
+
+function countNames(events) {
+  const counts = new Map();
+  for (const event of events) {
+    counts.set(event.name, (counts.get(event.name) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function latestEventTimestamp(events) {
+  const times = events
+    .map((event) => Date.parse(event.timestamp ?? ""))
+    .filter((time) => Number.isFinite(time));
+  return times.length === 0 ? null : Math.max(...times);
+}
+
+function spanAgeMs(event, latestTimestamp) {
+  const start = Date.parse(event.timestamp ?? "");
+  if (!Number.isFinite(start) || latestTimestamp === null || latestTimestamp < start) {
+    return null;
+  }
+  return latestTimestamp - start;
 }
 
 function maxOrNull(values) {

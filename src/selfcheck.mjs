@@ -11,7 +11,7 @@ import { validateStateShape } from "./registries/states.mjs";
 import { validateRegistryReferences } from "./registries/validate.mjs";
 import { assertSafeScenarioCommand } from "./safety.mjs";
 import { parseTimelineText } from "./collectors/timeline.mjs";
-import { renderReportSummary } from "./report.mjs";
+import { renderPasteSummary, renderReportSummary } from "./report.mjs";
 
 export async function runSelfCheck(flags = {}) {
   const checks = [];
@@ -51,6 +51,17 @@ export async function runSelfCheck(flags = {}) {
       assertEqual(data.entries.length, 1, "matrix include filter count");
       assertEqual(data.controls?.requestedParallel, 2, "matrix requested parallel");
     }));
+    checks.push(await jsonCommandCheck("diagnostic-profile-plan-json", "node bin/kova.mjs matrix plan --profile diagnostic --target local-build:/tmp/openclaw --include scenario:release-runtime-startup --json", (data) => {
+      assertEqual(data.schemaVersion, "kova.matrix.plan.v1", "diagnostic matrix plan schema");
+      assertEqual(data.profile?.id, "diagnostic", "diagnostic profile id");
+      assertEqual(data.profile?.diagnostics?.timelineRequired, true, "diagnostic timeline required");
+      assertArrayNotEmpty(data.entries, "diagnostic entries");
+    }));
+    checks.push(await failingCommandCheck(
+      "diagnostic-profile-rejects-non-local-build",
+      "node bin/kova.mjs matrix plan --profile diagnostic --target runtime:stable --json",
+      "profile 'diagnostic' requires target kind local-build"
+    ));
     checks.push(await failingCommandCheck(
       "invalid-parallel-rejected",
       "node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --parallel nope --json",
@@ -67,6 +78,8 @@ export async function runSelfCheck(flags = {}) {
       assertArray(data.envs, "cleanup envs");
     }));
     checks.push(await diagnosticsTimelineCheck());
+    checks.push(await diagnosticsOpenSpanCheck());
+    checks.push(diagnosticsTimelineEvaluationCheck());
     checks.push(readinessClassificationCheck());
     checks.push(await resourceRoleAttributionCheck(tmp));
     checks.push(roleThresholdEvaluationCheck());
@@ -504,6 +517,7 @@ async function diagnosticsTimelineCheck() {
     assertEqual(timeline.eventLoop.maxMs, 214, "event loop max");
     assertEqual(timeline.providers.maxDurationMs, 1220, "provider duration");
     assertEqual(timeline.childProcesses.failedCount, 1, "child process failures");
+    assertEqual(timeline.keySpans["gateway.startup"].maxDurationMs, 2450, "gateway startup key span");
     return {
       id: "diagnostics-timeline-parser",
       status: "PASS",
@@ -515,6 +529,151 @@ async function diagnosticsTimelineCheck() {
       id: "diagnostics-timeline-parser",
       status: "FAIL",
       command: "parse fixtures/diagnostics/timeline.jsonl",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+async function diagnosticsOpenSpanCheck() {
+  try {
+    const text = await readFile("fixtures/diagnostics/timeline-open-span.jsonl", "utf8");
+    const timeline = parseTimelineText(text);
+    assertEqual(timeline.available, true, "open timeline available");
+    assertEqual(timeline.openSpanCount, 1, "open span count");
+    assertEqual(timeline.openSpans[0]?.name, "runtimeDeps.stage", "open span name");
+    assertEqual(timeline.openSpans[0]?.ageMs, 5000, "open span age");
+    assertEqual(timeline.keySpans["runtimeDeps.stage"].openCount, 1, "key open span count");
+    return {
+      id: "diagnostics-open-span-parser",
+      status: "PASS",
+      command: "parse fixtures/diagnostics/timeline-open-span.jsonl",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "diagnostics-open-span-parser",
+      status: "FAIL",
+      command: "parse fixtures/diagnostics/timeline-open-span.jsonl",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function diagnosticsTimelineEvaluationCheck() {
+  try {
+    const missingTimelineRecord = {
+      scenario: "diagnostic-missing-timeline",
+      status: "PASS",
+      phases: [],
+      finalMetrics: {
+        service: { gatewayState: "running" },
+        logs: zeroLogMetrics(),
+        timeline: {
+          available: false,
+          eventCount: 0,
+          parseErrorCount: 0,
+          openSpanCount: 0,
+          openSpans: [],
+          keySpans: {},
+          runtimeDeps: {},
+          eventLoop: {},
+          providers: {},
+          childProcesses: {}
+        }
+      }
+    };
+    evaluateRecord(missingTimelineRecord, { thresholds: {} }, {
+      targetPlan: { kind: "local-build" },
+      profile: {
+        id: "diagnostic",
+        diagnostics: {
+          timelineRequired: true,
+          timelineRequiredForTargetKinds: ["local-build"]
+        }
+      },
+      surface: {
+        id: "release-runtime-startup",
+        diagnostics: { expectedSpans: ["runtimeDeps.stage"] },
+        thresholds: {}
+      }
+    });
+    assertEqual(missingTimelineRecord.status, "FAIL", "missing diagnostic timeline status");
+    assertEqual(
+      missingTimelineRecord.violations.some((violation) => violation.metric === "openclawTimelineAvailable"),
+      true,
+      "missing diagnostic timeline violation"
+    );
+
+    const openSpanRecord = {
+      scenario: "diagnostic-open-span",
+      status: "PASS",
+      phases: [],
+      finalMetrics: {
+        service: { gatewayState: "running" },
+        logs: zeroLogMetrics(),
+        timeline: parseTimelineText([
+          "{\"type\":\"span.start\",\"timestamp\":\"2026-04-29T15:30:00.000Z\",\"name\":\"runtimeDeps.stage\",\"spanId\":\"1\"}",
+          "{\"type\":\"eventLoop.sample\",\"timestamp\":\"2026-04-29T15:30:06.000Z\",\"name\":\"eventLoop\",\"maxMs\":400}"
+        ].join("\n"))
+      }
+    };
+    evaluateRecord(openSpanRecord, { thresholds: {} }, {
+      targetPlan: { kind: "local-build" },
+      profile: { id: "diagnostic", diagnostics: { timelineRequired: true } },
+      surface: {
+        id: "bundled-runtime-deps",
+        diagnostics: { expectedSpans: ["runtimeDeps.stage"] },
+        thresholds: {}
+      }
+    });
+    assertEqual(openSpanRecord.status, "FAIL", "open required span status");
+    assertEqual(openSpanRecord.measurements.openclawOpenRequiredSpanCount, 1, "open required span measurement");
+    assertEqual(
+      openSpanRecord.violations.some((violation) => violation.metric === "openclawOpenRequiredSpanCount"),
+      true,
+      "open required span violation"
+    );
+    const reportSummary = renderReportSummary({
+      schemaVersion: "kova.report.v1",
+      generatedAt: "2026-04-29T15:30:10.000Z",
+      runId: "self-check-diagnostics",
+      summary: { total: 1, statuses: { FAIL: 1 } },
+      records: [openSpanRecord]
+    }, { structured: true });
+    assertEqual(
+      reportSummary.scenarios[0]?.measurements?.openclawOpenRequiredSpanCount,
+      1,
+      "structured report open span evidence"
+    );
+    assertEqual(
+      reportSummary.scenarios[0]?.measurements?.openclawOpenSpans?.[0]?.name,
+      "runtimeDeps.stage",
+      "structured report open span name"
+    );
+    assertEqual(
+      renderPasteSummary({
+        runId: "self-check-diagnostics",
+        target: "local-build:/tmp/openclaw",
+        mode: "self-check",
+        records: [openSpanRecord]
+      }).includes("openRequiredSpans: 1"),
+      true,
+      "brief evidence includes open required spans"
+    );
+
+    return {
+      id: "diagnostics-timeline-evaluation",
+      status: "PASS",
+      command: "evaluate synthetic diagnostic timeline records",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "diagnostics-timeline-evaluation",
+      status: "FAIL",
+      command: "evaluate synthetic diagnostic timeline records",
       durationMs: 0,
       message: error.message
     };
