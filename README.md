@@ -75,8 +75,9 @@ Interactive setup asks for provider first, then auth method. Provider and auth
 answers accept either the displayed number or the name, for example `2` or
 `anthropic`, `3` or `api-key`.
 External CLI auth is strict: Kova verifies the selected CLI binary and local
-auth evidence before setup can pass. For non-interactive setup with an ambiguous
-provider such as `openai`, pass `--external-cli codex|claude`.
+auth evidence before setup can pass. `openai + external-cli` uses Codex CLI;
+`anthropic + external-cli` uses Claude CLI. `custom-openai` should use API-key
+or env-only auth.
 
 `run` is dry-run by default. It writes Markdown and JSON reports showing the
 planned OpenClaw scenario.

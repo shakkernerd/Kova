@@ -54,13 +54,13 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await externalCliSetupCheck(tmp));
     checks.push(await externalCliOpenClawConfigCheck(tmp));
     checks.push(await failingCommandCheck(
-      "setup-external-cli-requires-cli-choice",
-      `KOVA_HOME=${quoteShell(join(tmp, "ambiguous-external-cli-home"))} node bin/kova.mjs setup --non-interactive --provider openai --auth external-cli --json`,
-      "external-cli auth for provider openai requires --external-cli codex|claude"
+      "setup-custom-provider-rejects-external-cli",
+      `KOVA_HOME=${quoteShell(join(tmp, "custom-external-cli-home"))} node bin/kova.mjs setup --non-interactive --provider custom-openai --auth external-cli --json`,
+      "external-cli auth is only supported for provider openai or anthropic"
     ));
     checks.push(await failingCommandCheck(
       "setup-external-cli-verifies-auth",
-      `HOME=${quoteShell(join(tmp, "no-codex-auth"))} KOVA_HOME=${quoteShell(join(tmp, "missing-external-cli-auth-home"))} node bin/kova.mjs setup --non-interactive --provider openai-codex --auth external-cli --json`,
+      `HOME=${quoteShell(join(tmp, "no-codex-auth"))} KOVA_HOME=${quoteShell(join(tmp, "missing-external-cli-auth-home"))} node bin/kova.mjs setup --non-interactive --provider openai --auth external-cli --json`,
       "external-cli codex is not usable"
     ));
     checks.push(await externalCliRunAuthVerificationCheck(tmp));
@@ -1346,7 +1346,7 @@ async function externalCliSetupCheck(tmp) {
     `HOME=${quoteShell(home)}`,
     `PATH=${quoteShell(`${fakeBin}:${process.env.PATH ?? ""}`)}`,
     `KOVA_HOME=${quoteShell(kovaHome)}`,
-    "node bin/kova.mjs setup --non-interactive --provider openai-codex --auth external-cli --json"
+    "node bin/kova.mjs setup --non-interactive --provider openai --auth external-cli --json"
   ].join(" ");
   const result = await runCommand(command, { timeoutMs: 30000, maxOutputChars: 1000000 });
   try {
@@ -1355,7 +1355,7 @@ async function externalCliSetupCheck(tmp) {
     }
     const data = JSON.parse(result.stdout);
     assertEqual(data.schemaVersion, "kova.setup.v1", "external cli setup schema");
-    assertEqual(data.auth?.provider, "openai-codex", "external cli provider");
+    assertEqual(data.auth?.provider, "openai", "external cli provider");
     assertEqual(data.auth?.method, "external-cli", "external cli method");
     assertEqual(data.auth?.externalCli, "codex", "external cli name");
     assertEqual(data.auth?.verification?.verified, true, "external cli verification");
@@ -1384,7 +1384,7 @@ async function externalCliOpenClawConfigCheck(tmp) {
   const home = join(tmp, "external-cli-config-home");
   const command = [
     `OPENCLAW_HOME=${quoteShell(home)}`,
-    "node support/configure-openclaw-live-auth.mjs --provider openai-codex --auth-method external-cli --external-cli codex"
+    "node support/configure-openclaw-live-auth.mjs --provider openai --auth-method external-cli --external-cli codex"
   ].join(" ");
   const result = await runCommand(command, { timeoutMs: 30000, maxOutputChars: 1000000 });
   try {
@@ -1422,10 +1422,10 @@ async function externalCliRunAuthVerificationCheck(tmp) {
   await mkdir(credentials, { recursive: true });
   await writeFile(join(credentials, "providers.json"), `${JSON.stringify({
     schemaVersion: "kova.credentials.providers.v1",
-    defaultProvider: "openai-codex",
+    defaultProvider: "openai",
     providers: {
-      "openai-codex": {
-        id: "openai-codex",
+      openai: {
+        id: "openai",
         method: "external-cli",
         envVars: [],
         externalCli: "codex",

@@ -5,21 +5,21 @@ import { join } from "node:path";
 import { runCommand } from "./commands.mjs";
 
 export function resolveExternalCliName(provider, requested) {
-  if (requested) {
-    return externalCliFromChoice(requested);
-  }
   const implied = impliedExternalCliForProvider(provider);
   if (implied) {
+    if (requested && externalCliFromChoice(requested) !== implied) {
+      throw new Error(`provider ${provider} uses external CLI ${implied}; do not pass a different --external-cli value`);
+    }
     return implied;
   }
-  throw new Error(`external-cli auth for provider ${provider} requires --external-cli codex|claude`);
+  throw new Error(`external-cli auth is only supported for provider openai or anthropic`);
 }
 
 export function impliedExternalCliForProvider(provider) {
-  if (provider === "openai-codex") {
+  if (provider === "openai") {
     return "codex";
   }
-  if (provider === "claude-cli") {
+  if (provider === "anthropic") {
     return "claude";
   }
   return null;
@@ -30,7 +30,6 @@ export function externalCliFromChoice(choice) {
   const aliases = {
     1: "codex",
     codex: "codex",
-    "openai-codex": "codex",
     "codex-cli": "codex",
     2: "claude",
     claude: "claude",

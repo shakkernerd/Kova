@@ -73,7 +73,7 @@ function mergeModels(existing, modelConfig) {
 }
 
 function defaultModel(provider) {
-  if (provider === "anthropic" || provider === "claude-cli") {
+  if (provider === "anthropic") {
     return {
       id: "claude-sonnet-4-5",
       name: "claude-sonnet-4-5",
@@ -95,12 +95,6 @@ function defaultModel(provider) {
 }
 
 function providerConfigKey(provider) {
-  if (provider === "openai-codex") {
-    return "openai";
-  }
-  if (provider === "claude-cli") {
-    return "anthropic";
-  }
   return provider;
 }
 

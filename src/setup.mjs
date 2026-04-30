@@ -2,7 +2,6 @@ import { access, mkdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import { checkCommand, runCommand } from "./commands.mjs";
 import {
-  externalCliFromChoice,
   externalCliVerificationSummary,
   impliedExternalCliForProvider,
   resolveExternalCliName,
@@ -155,10 +154,8 @@ async function interactiveAuthSetup(flags) {
   console.log("Choose provider:");
   console.log("  1. openai (default)");
   console.log("  2. anthropic");
-  console.log("  3. openai-codex");
-  console.log("  4. claude-cli");
-  console.log("  5. custom-openai");
-  console.log("  6. skip");
+  console.log("  3. custom-openai");
+  console.log("  4. skip");
   const providerChoice = flags.provider
     ? String(flags.provider)
     : (await prompt("Provider [openai]: ")).trim().toLowerCase();
@@ -205,12 +202,7 @@ async function promptExternalCli(provider) {
   if (implied) {
     return implied;
   }
-  console.log("");
-  console.log("Choose external CLI:");
-  console.log("  1. codex");
-  console.log("  2. claude");
-  const choice = (await prompt("External CLI [codex]: ")).trim().toLowerCase();
-  return externalCliFromChoice(choice || "codex");
+  throw new Error("external-cli auth is only supported for provider openai or anthropic");
 }
 
 function methodFromChoice(choice) {
@@ -270,10 +262,8 @@ function providerFromChoice(choice) {
   const byNumber = {
     1: "openai",
     2: "anthropic",
-    3: "openai-codex",
-    4: "claude-cli",
-    5: "custom-openai",
-    6: "skip"
+    3: "custom-openai",
+    4: "skip"
   };
   if (byNumber[normalized]) {
     return byNumber[normalized];
@@ -289,17 +279,11 @@ function normalizeProvider(value) {
     2: "anthropic",
     anthropic: "anthropic",
     claude: "anthropic",
-    3: "openai-codex",
-    "openai-codex": "openai-codex",
-    codex: "openai-codex",
-    "codex-cli": "openai-codex",
-    4: "claude-cli",
-    "claude-cli": "claude-cli",
-    5: "custom-openai",
+    3: "custom-openai",
     "custom-openai": "custom-openai",
     custom: "custom-openai",
     "openai-compatible": "custom-openai",
-    6: "skip",
+    4: "skip",
     skip: "skip"
   };
   if (aliases[normalized]) {
@@ -446,9 +430,6 @@ function credentialStoreMessage(auth, summary) {
 
 function defaultEnvVarForProvider(providerId) {
   if (providerId === "anthropic") {
-    return "ANTHROPIC_API_KEY";
-  }
-  if (providerId === "claude-cli") {
     return "ANTHROPIC_API_KEY";
   }
   return "OPENAI_API_KEY";

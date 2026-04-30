@@ -482,9 +482,6 @@ function defaultEnvVarForProvider(providerId) {
   if (providerId === "anthropic") {
     return "ANTHROPIC_API_KEY";
   }
-  if (providerId === "openai-codex") {
-    return "OPENAI_API_KEY";
-  }
   return "OPENAI_API_KEY";
 }
 
