@@ -71,6 +71,10 @@ Kova runtime data lives outside the repo by default:
 
 Set `KOVA_HOME` to use a different data home.
 
+Interactive setup asks for provider first, then auth method. Provider and auth
+answers accept either the displayed number or the name, for example `2` or
+`anthropic`, `3` or `api-key`.
+
 `run` is dry-run by default. It writes Markdown and JSON reports showing the
 planned OpenClaw scenario.
 

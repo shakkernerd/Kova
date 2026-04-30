@@ -61,6 +61,9 @@ assistant env with deliberate model auth unless the scenario/state explicitly
 tests missing or broken auth. Use `--auth live` only after credentials are
 configured with `kova setup`.
 
+Interactive `kova setup` asks provider first and then auth method. Both prompts
+accept either the displayed number or the name.
+
 4. Execute one scenario explicitly:
 
 ```sh

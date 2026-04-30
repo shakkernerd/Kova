@@ -102,7 +102,7 @@ async function setupAuth(flags) {
 
 async function configureAuthFromFlags(flags, options = {}) {
   const method = setupAuthMethod(flags, options.defaultMethod ?? "mock");
-  const provider = flags.provider ? String(flags.provider) : "openai";
+  const provider = normalizeProvider(flags.provider ? String(flags.provider) : "openai");
   const envVar = flags.env_var ? String(flags.env_var) : undefined;
   const summary = await configureCredentialProvider({
     provider,
@@ -124,7 +124,7 @@ async function configureAuthFromFlags(flags, options = {}) {
 
 function setupAuthMethod(flags, fallback) {
   const raw = flags.auth ?? flags.method ?? fallback;
-  const method = String(raw);
+  const method = normalizeAuthMethod(String(raw));
   if (method === "live") {
     throw new Error("--auth live is for runs; setup needs --auth api-key, env-only, external-cli, oauth, mock, or skip");
   }
@@ -132,8 +132,27 @@ function setupAuthMethod(flags, fallback) {
 }
 
 async function interactiveAuthSetup(flags) {
-  const provider = flags.provider ? String(flags.provider) : "openai";
   console.log("Kova auth setup");
+  console.log("");
+  console.log("Choose provider:");
+  console.log("  1. openai (default)");
+  console.log("  2. anthropic");
+  console.log("  3. openai-codex");
+  console.log("  4. claude-cli");
+  console.log("  5. custom-openai");
+  console.log("  6. skip");
+  const providerChoice = flags.provider
+    ? String(flags.provider)
+    : (await prompt("Provider [openai]: ")).trim().toLowerCase();
+  const provider = providerFromChoice(providerChoice);
+  if (provider === "skip") {
+    return configureAuthFromFlags({
+      ...flags,
+      auth: "skip",
+      provider: "openai"
+    }, { defaultMethod: "mock" });
+  }
+
   console.log("");
   console.log("Choose auth method:");
   console.log("  1. mock (default)");
@@ -160,25 +179,98 @@ async function interactiveAuthSetup(flags) {
 }
 
 function methodFromChoice(choice) {
-  if (!choice || choice === "1" || choice === "mock") {
+  if (!choice) {
     return "mock";
   }
-  if (choice === "2" || choice === "env-only") {
-    return "env-only";
+  const byNumber = {
+    1: "mock",
+    2: "env-only",
+    3: "api-key",
+    4: "external-cli",
+    5: "oauth",
+    6: "skip"
+  };
+  if (byNumber[choice]) {
+    return byNumber[choice];
   }
-  if (choice === "3" || choice === "api-key") {
-    return "api-key";
+  return normalizeAuthMethod(choice);
+}
+
+function normalizeAuthMethod(value) {
+  const normalized = String(value ?? "").trim().toLowerCase().replaceAll("_", "-");
+  const aliases = {
+    1: "mock",
+    mock: "mock",
+    local: "mock",
+    2: "env-only",
+    "env-only": "env-only",
+    env: "env-only",
+    environment: "env-only",
+    3: "api-key",
+    "api-key": "api-key",
+    apikey: "api-key",
+    key: "api-key",
+    4: "external-cli",
+    "external-cli": "external-cli",
+    external: "external-cli",
+    cli: "external-cli",
+    5: "oauth",
+    oauth: "oauth",
+    "oauth-browser": "oauth",
+    6: "skip",
+    skip: "skip",
+    none: "skip"
+  };
+  if (aliases[normalized]) {
+    return aliases[normalized];
   }
-  if (choice === "4" || choice === "external-cli") {
-    return "external-cli";
+  throw new Error(`unknown auth method: ${value}`);
+}
+
+function providerFromChoice(choice) {
+  const normalized = String(choice ?? "").trim().toLowerCase().replaceAll("_", "-");
+  if (!normalized) {
+    return "openai";
   }
-  if (choice === "5" || choice === "oauth") {
-    return "oauth";
+  const byNumber = {
+    1: "openai",
+    2: "anthropic",
+    3: "openai-codex",
+    4: "claude-cli",
+    5: "custom-openai",
+    6: "skip"
+  };
+  if (byNumber[normalized]) {
+    return byNumber[normalized];
   }
-  if (choice === "6" || choice === "skip") {
-    return "skip";
+  return normalizeProvider(normalized);
+}
+
+function normalizeProvider(value) {
+  const normalized = String(value ?? "").trim().toLowerCase().replaceAll("_", "-");
+  const aliases = {
+    1: "openai",
+    openai: "openai",
+    2: "anthropic",
+    anthropic: "anthropic",
+    claude: "anthropic",
+    3: "openai-codex",
+    "openai-codex": "openai-codex",
+    codex: "openai-codex",
+    "codex-cli": "openai-codex",
+    4: "claude-cli",
+    "claude-cli": "claude-cli",
+    5: "custom-openai",
+    "custom-openai": "custom-openai",
+    custom: "custom-openai",
+    "openai-compatible": "custom-openai",
+    6: "skip",
+    skip: "skip"
+  };
+  if (aliases[normalized]) {
+    return aliases[normalized];
   }
-  throw new Error(`unknown auth method choice: ${choice}`);
+  throw new Error(`unknown provider: ${value}`);
 }
 
 function prompt(question) {
@@ -307,6 +399,9 @@ async function credentialStoreCheck(auth) {
 
 function defaultEnvVarForProvider(providerId) {
   if (providerId === "anthropic") {
+    return "ANTHROPIC_API_KEY";
+  }
+  if (providerId === "claude-cli") {
     return "ANTHROPIC_API_KEY";
   }
   return "OPENAI_API_KEY";
