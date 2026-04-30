@@ -36,8 +36,8 @@ If available, first load/read the `ocm-operator` skill so OCM operations are
 performed with the right safety model.
 
 ```sh
-node bin/kova.mjs setup --json
-node bin/kova.mjs setup auth --method env-only --provider openai --env-var OPENAI_API_KEY --json
+node bin/kova.mjs setup --ci --json
+node bin/kova.mjs setup --non-interactive --auth env-only --provider openai --env-var OPENAI_API_KEY --json
 node bin/kova.mjs self-check --json
 ```
 
@@ -59,7 +59,7 @@ node bin/kova.mjs run --target runtime:stable --scenario fresh-install --state f
 Kova defaults to `--auth mock`, so dry-runs and executions model an OpenClaw
 assistant env with deliberate model auth unless the scenario/state explicitly
 tests missing or broken auth. Use `--auth live` only after credentials are
-configured with `kova setup auth`.
+configured with `kova setup`.
 
 4. Execute one scenario explicitly:
 

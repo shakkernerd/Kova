@@ -33,11 +33,17 @@ export async function runSelfCheck(flags = {}) {
       assertEqual(data.schemaVersion, "kova.version.v1", "version schema");
       assertString(data.version, "version");
     }));
-    checks.push(await jsonCommandCheck("setup-json", "node bin/kova.mjs setup --json", (data) => {
+    checks.push(await jsonCommandCheck("setup-json", "node bin/kova.mjs setup --ci --json", (data) => {
       assertEqual(data.schemaVersion, "kova.setup.v1", "setup schema");
       assertEqual(data.ok, true, "setup ok");
+      assertEqual(data.auth?.method, "mock", "setup auth default");
       assertArrayNotEmpty(data.checks, "setup checks");
     }));
+    checks.push(await failingCommandCheck(
+      "setup-non-tty-requires-mode",
+      "node bin/kova.mjs setup --json",
+      "kova setup requires --non-interactive or --ci when stdin is not a TTY"
+    ));
     checks.push(await credentialStoreSelfCheck(tmp));
     checks.push(await failingCommandCheck(
       "live-auth-requires-credentials",
@@ -1249,14 +1255,15 @@ async function commandCheck(id, command) {
 
 async function credentialStoreSelfCheck(tmp) {
   const home = join(tmp, "credentials-home");
-  const command = `KOVA_HOME=${quoteShell(home)} node bin/kova.mjs setup auth --method env-only --provider openai --env-var OPENAI_API_KEY --json`;
+  const command = `KOVA_HOME=${quoteShell(home)} node bin/kova.mjs setup --non-interactive --auth env-only --provider openai --env-var OPENAI_API_KEY --json`;
   const result = await runCommand(command, { timeoutMs: 30000, maxOutputChars: 1000000 });
   try {
     if (result.status !== 0) {
       throw new Error(result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`);
     }
     const data = JSON.parse(result.stdout);
-    assertEqual(data.schemaVersion, "kova.setup.auth.v1", "setup auth schema");
+    assertEqual(data.schemaVersion, "kova.setup.v1", "setup schema");
+    assertEqual(data.auth?.method, "env-only", "setup auth method");
     const liveEnv = join(home, "credentials", "live.env");
     const metadata = await stat(liveEnv);
     const mode = metadata.mode & 0o777;

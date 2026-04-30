@@ -43,8 +43,8 @@ codex skills install https://github.com/shakkernerd/ocm/tree/main/skills/ocm-ope
 ```sh
 node bin/kova.mjs version
 node bin/kova.mjs setup
-node bin/kova.mjs setup auth --method env-only --provider openai --env-var OPENAI_API_KEY
-node bin/kova.mjs setup --json
+node bin/kova.mjs setup --non-interactive --auth env-only --provider openai --env-var OPENAI_API_KEY
+node bin/kova.mjs setup --ci --json
 node bin/kova.mjs self-check
 node bin/kova.mjs plan
 node bin/kova.mjs plan --json
@@ -77,7 +77,7 @@ planned OpenClaw scenario.
 Every Kova-created disposable OpenClaw env receives deliberate model auth unless
 the scenario/state explicitly tests missing or broken auth. `--auth mock` is the
 default and uses Kova's deterministic local OpenAI-compatible provider.
-`--auth live` requires credentials configured through `kova setup auth`.
+`--auth live` requires credentials configured through `kova setup`.
 
 `plan --json` is coverage-aware: scenarios map to declared OpenClaw surfaces,
 surfaces declare process roles and required metrics, and profile coverage gaps

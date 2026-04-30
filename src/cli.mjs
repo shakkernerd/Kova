@@ -35,7 +35,7 @@ export function printHelp() {
 Usage:
   kova version [--json]
   kova --version
-  kova setup [--ci] [--json]
+  kova setup [--ci|--non-interactive] [--auth <mock|api-key|env-only|external-cli|oauth|skip>] [--provider <id>] [--env-var <name>] [--value <secret>] [--external-cli <name>] [--json]
   kova setup auth [--provider <id>] [--method <mock|api-key|env-only|external-cli|oauth|skip>] [--env-var <name>] [--value <secret>] [--external-cli <name>] [--json]
   kova self-check [--json]
   kova plan [--scenario <id>] [--json]
@@ -67,6 +67,7 @@ Notes:
   --save-baseline writes executed aggregates into the selected baseline store.
   --deep-profile enables Node CPU/heap/trace profiling, OpenClaw timeline envs,
   heap snapshots, diagnostic reports, and denser resource sampling.
+  setup includes auth. Use --non-interactive or --ci for scripts and agents.
 `);
 }
 
