@@ -1,3 +1,5 @@
+import { computeProviderTurnAttribution } from "./collectors/provider.mjs";
+
 export function evaluateRecord(record, scenario, options = {}) {
   const originalStatus = record.status;
   const thresholds = { ...(options.surface?.thresholds ?? {}), ...(scenario.thresholds ?? {}) };
@@ -39,6 +41,7 @@ export function evaluateRecord(record, scenario, options = {}) {
   const providerModelTimingMs = maxNullable(openclawDiagnostics.providerModelTimingMs, timelineSummary.providerRequestMaxMs);
   const agentTurnMs = maxDurationWhere(allResults, isAgentMessageCommand);
   const agentResponseOk = agentTurnMs === null ? null : allResults.filter((result) => isAgentMessageCommand(result.command)).every(agentResultHasUsableResponse);
+  const providerTurn = collectProviderTurnAttribution(allResults, record.providerEvidence);
   const finalGatewayState = record.finalMetrics?.service?.gatewayState ?? null;
   const healthFailures = countHealthFailures(record);
   const healthP95Ms = collectHealthP95(record);
@@ -282,6 +285,7 @@ export function evaluateRecord(record, scenario, options = {}) {
       message: "agent message command finished without a usable assistant response"
     });
   }
+  checkProviderTurnAttribution(violations, providerTurn, thresholds, record);
 
   record.measurements = {
     peakRssMb,
@@ -294,6 +298,19 @@ export function evaluateRecord(record, scenario, options = {}) {
     modelsListMs,
     agentTurnMs,
     agentResponseOk,
+    providerRequestCount: record.providerEvidence?.requestCount ?? null,
+    providerFirstRequestAt: record.providerEvidence?.firstRequestStartAt ?? null,
+    providerLastResponseAt: record.providerEvidence?.lastResponseEndAt ?? null,
+    providerDurationMs: record.providerEvidence?.providerDurationMs ?? null,
+    providerFirstByteLatencyMs: record.providerEvidence?.firstByteLatencyMs ?? null,
+    providerFirstChunkLatencyMs: record.providerEvidence?.firstChunkLatencyMs ?? null,
+    agentPreProviderMs: providerTurn?.preProviderMs ?? null,
+    agentProviderFinalMs: providerTurn?.providerFinalMs ?? null,
+    agentPostProviderMs: providerTurn?.postProviderMs ?? null,
+    agentPreProviderDominance: providerTurn?.preProviderDominates ?? null,
+    agentProviderRequestCount: providerTurn?.requestCount ?? null,
+    agentProviderRequestMissing: providerTurn?.missingProviderRequest ?? null,
+    agentProviderAttribution: providerTurn,
     tcpConnectMaxMs,
     timeToListeningMs,
     timeToHealthReadyMs,
@@ -385,6 +402,58 @@ export function evaluateRecord(record, scenario, options = {}) {
   }
 
   return record;
+}
+
+function collectProviderTurnAttribution(results, providerEvidence) {
+  const agentResults = results.filter((result) => isAgentMessageCommand(result.command));
+  if (agentResults.length === 0) {
+    return null;
+  }
+  const attributions = agentResults
+    .map((result) => computeProviderTurnAttribution(result, providerEvidence))
+    .filter(Boolean);
+  if (attributions.length === 0) {
+    return null;
+  }
+  return attributions.toSorted((left, right) => (right.totalTurnMs ?? -1) - (left.totalTurnMs ?? -1))[0];
+}
+
+function checkProviderTurnAttribution(violations, providerTurn, thresholds, record) {
+  if (!providerTurn) {
+    return;
+  }
+  if (providerTurn.missingProviderRequest === true && record.auth?.mode === "mock") {
+    violations.push({
+      kind: "provider",
+      metric: "agentProviderRequestMissing",
+      expected: "provider request during agent command",
+      actual: "none",
+      message: "agent command ran with mock auth but no mock provider request was captured"
+    });
+    return;
+  }
+  if (typeof thresholds.preProviderMs === "number" &&
+    typeof providerTurn.preProviderMs === "number" &&
+    providerTurn.preProviderMs > thresholds.preProviderMs) {
+    violations.push({
+      kind: "agent-latency",
+      metric: "preProviderMs",
+      expected: `<= ${thresholds.preProviderMs}`,
+      actual: providerTurn.preProviderMs,
+      message: `agent spent ${providerTurn.preProviderMs}ms before provider work, over threshold ${thresholds.preProviderMs}ms`
+    });
+  }
+  if (typeof thresholds.preProviderDominanceRatio === "number" &&
+    typeof providerTurn.preProviderDominates === "number" &&
+    providerTurn.preProviderDominates > thresholds.preProviderDominanceRatio) {
+    violations.push({
+      kind: "agent-latency",
+      metric: "preProviderDominanceRatio",
+      expected: `<= ${thresholds.preProviderDominanceRatio}`,
+      actual: providerTurn.preProviderDominates,
+      message: `pre-provider work dominated agent turn (${Math.round(providerTurn.preProviderDominates * 100)}% of ${providerTurn.totalTurnMs}ms)`
+    });
+  }
 }
 
 function timelineRequirementFor(options) {

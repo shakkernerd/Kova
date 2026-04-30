@@ -18,6 +18,7 @@ import { validateStateShape } from "./registries/states.mjs";
 import { validateRegistryReferences } from "./registries/validate.mjs";
 import { assertSafeScenarioCommand } from "./safety.mjs";
 import { parseTimelineText } from "./collectors/timeline.mjs";
+import { computeProviderTurnAttribution, parseProviderRequestLog } from "./collectors/provider.mjs";
 import { renderPasteSummary, renderReportSummary } from "./report.mjs";
 
 export async function runSelfCheck(flags = {}) {
@@ -147,6 +148,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(scenarioStateCompatibilityCheck());
     checks.push(await cpuProfileParserCheck());
     checks.push(await heapProfileParserCheck());
+    checks.push(await providerEvidenceParserCheck());
     checks.push(await jsonCommandCheck(
       "dry-run-state-lifecycle-json",
       `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --state missing-plugin-index --report-dir ${quoteShell(tmp)} --json`,
@@ -666,6 +668,43 @@ async function heapProfileParserCheck() {
       id: "heap-profile-parser",
       status: "FAIL",
       command: "parse fixtures/diagnostics/sample.heapprofile",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+async function providerEvidenceParserCheck() {
+  try {
+    const text = await readFile("fixtures/provider/mock-requests.jsonl", "utf8");
+    const evidence = parseProviderRequestLog(text);
+    assertEqual(evidence.requestCount, 2, "provider request count");
+    assertEqual(evidence.providerDurationMs, 6700, "provider duration includes first through last response");
+    assertEqual(evidence.firstByteLatencyMs, 15, "first byte latency");
+    const attribution = computeProviderTurnAttribution({
+      command: "ocm @kova -- agent --local --agent main --session-id kova --message hi --json",
+      startedAt: "2026-04-30T10:00:01.000Z",
+      startedAtEpochMs: 1777543201000,
+      finishedAt: "2026-04-30T10:00:07.000Z",
+      finishedAtEpochMs: 1777543207000
+    }, {
+      ...evidence,
+      available: true
+    });
+    assertEqual(attribution.preProviderMs, 5000, "pre-provider latency");
+    assertEqual(attribution.providerFinalMs, 800, "provider final latency");
+    assertEqual(attribution.postProviderMs, 200, "post-provider latency");
+    return {
+      id: "provider-evidence-parser",
+      status: "PASS",
+      command: "parse fixtures/provider/mock-requests.jsonl",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "provider-evidence-parser",
+      status: "FAIL",
+      command: "parse fixtures/provider/mock-requests.jsonl",
       durationMs: 0,
       message: error.message
     };

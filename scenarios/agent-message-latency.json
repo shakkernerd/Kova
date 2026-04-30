@@ -8,6 +8,8 @@
   "thresholds": {
     "gatewayReadyMs": 30000,
     "agentTurnMs": 45000,
+    "preProviderMs": 10000,
+    "preProviderDominanceRatio": 0.8,
     "statusMs": 10000,
     "peakRssMb": 900,
     "missingDependencyErrors": 0,

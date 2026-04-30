@@ -9,6 +9,7 @@ import { materializeCommands } from "./registries/scenarios.mjs";
 import { quoteShell } from "./commands.mjs";
 import { collectEnvMetrics, collectNodeProfileMetrics } from "./metrics.mjs";
 import { collectorArtifactDirs, prepareCollectorArtifactDirs } from "./collectors/artifacts.mjs";
+import { collectProviderEvidence } from "./collectors/provider.mjs";
 import { evaluateRecord } from "./evaluator.mjs";
 import { artifactsDir } from "./paths.mjs";
 import { repoRoot } from "./paths.mjs";
@@ -175,6 +176,7 @@ export async function executeScenario(scenario, context) {
   } finally {
     record.finishedAt = new Date().toISOString();
     record.finalMetrics = await collectEnvMetrics(envName, metricOptions(context, scenario, null, artifactDir));
+    record.providerEvidence = await collectProviderEvidence(artifactDir);
     evaluateRecord(record, scenario, evaluatorContext(context, scenario));
 
     if (shouldCaptureFailureDiagnostics(record, context)) {

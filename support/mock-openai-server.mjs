@@ -5,6 +5,7 @@ import http from "node:http";
 const options = parseArgs(process.argv.slice(2));
 const marker = options.marker ?? "KOVA_AGENT_OK";
 const requestLog = options.requestLog ?? null;
+let nextRequestId = 1;
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -93,12 +94,74 @@ function writeChatCompletion(res, stream) {
 }
 
 const server = http.createServer(async (req, res) => {
+  const receivedAtEpochMs = Date.now();
+  const receivedAt = new Date(receivedAtEpochMs).toISOString();
+  const requestId = req.headers["x-request-id"] || req.headers["openai-request-id"] || `kova-mock-${nextRequestId++}`;
+  let firstByteAtEpochMs = null;
+  let firstChunkAtEpochMs = null;
+  const originalWrite = res.write.bind(res);
+  const originalEnd = res.end.bind(res);
+  res.write = (chunk, ...args) => {
+    if (firstByteAtEpochMs === null) {
+      firstByteAtEpochMs = Date.now();
+    }
+    if (firstChunkAtEpochMs === null) {
+      firstChunkAtEpochMs = firstByteAtEpochMs;
+    }
+    return originalWrite(chunk, ...args);
+  };
+  res.end = (chunk, ...args) => {
+    if (chunk !== undefined && chunk !== null && firstByteAtEpochMs === null) {
+      firstByteAtEpochMs = Date.now();
+    }
+    return originalEnd(chunk, ...args);
+  };
   const url = new URL(req.url ?? "/", "http://127.0.0.1");
+  let bodyText = "";
+  let body = {};
+  let parseError = null;
+  let loggable = false;
+  let stream = false;
+  let model = null;
+
+  res.on("finish", () => {
+    if (!requestLog || !loggable) {
+      return;
+    }
+    const respondedAtEpochMs = Date.now();
+    const entry = {
+      schemaVersion: "kova.mockProvider.request.v1",
+      requestId: String(requestId),
+      receivedAt,
+      receivedAtEpochMs,
+      respondedAt: new Date(respondedAtEpochMs).toISOString(),
+      respondedAtEpochMs,
+      durationMs: respondedAtEpochMs - receivedAtEpochMs,
+      firstByteAt: firstByteAtEpochMs === null ? null : new Date(firstByteAtEpochMs).toISOString(),
+      firstByteAtEpochMs,
+      firstByteLatencyMs: firstByteAtEpochMs === null ? null : firstByteAtEpochMs - receivedAtEpochMs,
+      firstChunkAt: firstChunkAtEpochMs === null ? null : new Date(firstChunkAtEpochMs).toISOString(),
+      firstChunkAtEpochMs,
+      firstChunkLatencyMs: firstChunkAtEpochMs === null ? null : firstChunkAtEpochMs - receivedAtEpochMs,
+      method: req.method,
+      route: url.pathname,
+      path: url.pathname,
+      model,
+      stream,
+      status: res.statusCode,
+      statusClass: `${Math.floor(res.statusCode / 100)}xx`,
+      bodyBytes: Buffer.byteLength(bodyText),
+      parseError
+    };
+    fs.appendFileSync(requestLog, `${JSON.stringify(entry)}\n`);
+  });
+
   if (req.method === "GET" && url.pathname === "/health") {
     writeJson(res, 200, { ok: true });
     return;
   }
   if (req.method === "GET" && url.pathname === "/v1/models") {
+    loggable = true;
     writeJson(res, 200, {
       object: "list",
       data: [{ id: "gpt-5.5", object: "model", owned_by: "kova" }]
@@ -106,17 +169,16 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  const bodyText = await readBody(req);
-  if (requestLog) {
-    fs.appendFileSync(requestLog, `${JSON.stringify({ method: req.method, path: url.pathname, body: bodyText })}\n`);
-  }
-
-  let body = {};
+  bodyText = await readBody(req);
   try {
     body = bodyText ? JSON.parse(bodyText) : {};
-  } catch {
+  } catch (error) {
     body = {};
+    parseError = error.message;
   }
+  model = typeof body.model === "string" ? body.model : null;
+  stream = body.stream !== false;
+  loggable = url.pathname.startsWith("/v1/");
 
   if (req.method === "POST" && url.pathname === "/v1/responses") {
     if (body.stream === false) {

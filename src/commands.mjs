@@ -17,7 +17,8 @@ export function checkCommand(command, args) {
 }
 
 export function runCommand(command, options = {}) {
-  const startedAt = Date.now();
+  const startedAtEpochMs = Date.now();
+  const startedAt = new Date(startedAtEpochMs).toISOString();
   return new Promise((resolve) => {
     const shell = process.env.SHELL || "/bin/sh";
     const child = spawn(shell, ["-lc", command], {
@@ -50,24 +51,34 @@ export function runCommand(command, options = {}) {
     });
     child.on("error", (error) => {
       clearTimeout(timer);
+      const finishedAtEpochMs = Date.now();
       settle({
         command: redact(command, options.redactValues),
         status: 127,
         signal: null,
         timedOut,
-        durationMs: Date.now() - startedAt,
+        startedAt,
+        startedAtEpochMs,
+        finishedAt: new Date(finishedAtEpochMs).toISOString(),
+        finishedAtEpochMs,
+        durationMs: finishedAtEpochMs - startedAtEpochMs,
         stdout: redact(stdout, options.redactValues),
         stderr: redact(error.message, options.redactValues)
       });
     });
     child.on("close", (status, signal) => {
       clearTimeout(timer);
+      const finishedAtEpochMs = Date.now();
       settle({
         command: redact(command, options.redactValues),
         status: timedOut ? 124 : (status ?? 1),
         signal,
         timedOut,
-        durationMs: Date.now() - startedAt,
+        startedAt,
+        startedAtEpochMs,
+        finishedAt: new Date(finishedAtEpochMs).toISOString(),
+        finishedAtEpochMs,
+        durationMs: finishedAtEpochMs - startedAtEpochMs,
         stdout: truncate(redact(stdout, options.redactValues), options.maxOutputChars ?? 20000),
         stderr: truncate(redact(stderr, options.redactValues), options.maxOutputChars ?? 20000)
       });
