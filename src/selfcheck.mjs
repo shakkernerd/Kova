@@ -2,15 +2,15 @@ import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { quoteShell, runCommand } from "./commands.mjs";
-import { summarizeCpuProfiles } from "./cpuprofile.mjs";
-import { summarizeHeapProfiles } from "./heapprofile.mjs";
+import { summarizeCpuProfiles } from "./collectors/node-profiles.mjs";
+import { summarizeHeapProfiles } from "./collectors/heap.mjs";
 import { evaluateRecord } from "./evaluator.mjs";
 import { evaluateGate } from "./gate.mjs";
 import { loadProcessRoles } from "./registries/process-roles.mjs";
 import { validateStateShape } from "./registries/states.mjs";
 import { validateRegistryReferences } from "./registries/validate.mjs";
 import { assertSafeScenarioCommand } from "./safety.mjs";
-import { parseTimelineText } from "./timeline.mjs";
+import { parseTimelineText } from "./collectors/timeline.mjs";
 import { renderReportSummary } from "./report.mjs";
 
 export async function runSelfCheck(flags = {}) {
@@ -989,6 +989,11 @@ function validateReport(report) {
     assertEqual(report.mode, "dry-run", "report mode");
     assertEqual(report.summary?.statuses?.["DRY-RUN"], 1, "report dry-run count");
     assertArrayNotEmpty(report.records, "report records");
+    const dirs = report.records[0]?.collectorArtifactDirs;
+    assertEqual(dirs?.schemaVersion, "kova.collectorArtifactDirs.v1", "collector artifact dirs schema");
+    assertString(dirs?.resourceSamples, "collector resource samples dir");
+    assertString(dirs?.openclaw, "collector OpenClaw dir");
+    assertString(dirs?.nodeProfiles, "collector node profiles dir");
     return {
       id: "dry-run-report-file",
       status: "PASS",

@@ -1,11 +1,14 @@
 import { runCommand } from "./commands.mjs";
-import { summarizeCpuProfiles } from "./cpuprofile.mjs";
-import { summarizeHeapProfiles } from "./heapprofile.mjs";
-import { loadTimeline } from "./timeline.mjs";
-import { createConnection } from "node:net";
-import { cp, mkdir, readdir, stat, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
-import { existsSync } from "node:fs";
+import { collectDiagnosticMetrics, collectOpenClawDiagnostics, triggerDiagnosticReport, triggerHeapSnapshot } from "./collectors/diagnostics.mjs";
+import { collectHealthSamples, collectReadinessMetrics, summarizeHealthSamples } from "./collectors/readiness.mjs";
+import { collectLogMetrics } from "./collectors/logs.mjs";
+import { collectNodeProfileMetrics } from "./collectors/node-profiles.mjs";
+import { collectTimelineMetrics } from "./collectors/timeline.mjs";
+
+export { collectNodeProfileMetrics };
+
+export const ENV_METRICS_SCHEMA = "kova.envMetrics.v1";
+export const PROCESS_METRICS_SCHEMA = "kova.processMetrics.v1";
 
 export async function collectEnvMetrics(envName, options = {}) {
   const timeoutMs = Math.min(options.timeoutMs ?? 10000, 10000);
@@ -19,8 +22,10 @@ export async function collectEnvMetrics(envName, options = {}) {
   const collectors = [];
   const service = await runCommand(`ocm service status ${envName} --json`, { timeoutMs });
   const metrics = {
+    schemaVersion: ENV_METRICS_SCHEMA,
     collectedAt: new Date().toISOString(),
     artifactDir: options.artifactDir ?? null,
+    collectorArtifactDirs: options.collectorArtifactDirs ?? null,
     collectors,
     serviceCommand: {
       status: service.status,
@@ -69,81 +74,26 @@ export async function collectEnvMetrics(envName, options = {}) {
     issue: serviceJson.issue ?? null
   };
 
-  if (!serviceJson.childPid) {
-    if (serviceJson.gatewayPort) {
-      const readinessStarted = Date.now();
-      metrics.readiness = await collectReadinessMetrics(serviceJson.gatewayPort, {
-        timeoutMs: readinessTimeoutMs,
-        thresholdMs: options.readinessThresholdMs,
-        intervalMs: readinessIntervalMs,
-        probeTimeoutMs: timeoutMs
-      });
-      recordCollector(collectors, "readiness", {
-        commandStatus: metrics.readiness.ready ? 0 : 1,
-        durationMs: Date.now() - readinessStarted,
-        timedOut: !metrics.readiness.ready && readinessTimeoutMs > 0,
-        error: metrics.readiness.ready ? null : "readiness deadline expired"
-      });
-      metrics.listening = metrics.readiness.listening;
-      metrics.health = metrics.readiness.health;
-      metrics.healthSamples = metrics.readiness.healthAttempts;
-      metrics.healthSummary = summarizeHealthSamples(metrics.healthSamples);
-    }
-    metrics.logs = await collectLogMetrics(envName, timeoutMs, options.artifactDir);
-    recordCollector(collectors, "logs", metrics.logs, metrics.logs.artifacts);
-    metrics.openclawDiagnostics = collectOpenClawDiagnostics(metrics.logs);
-    recordCollector(collectors, "openclaw-diagnostics", {
-      commandStatus: 0,
-      durationMs: 0,
-      statusLabel: metrics.openclawDiagnostics.available ? "PASS" : "INFO",
-      error: metrics.openclawDiagnostics.available ? null : "structured diagnostics unavailable; using log-pattern fallback"
-    });
-    metrics.timeline = await collectTimelineMetrics(options.artifactDir);
-    recordCollector(collectors, "timeline", metrics.timeline, metrics.timeline.artifacts);
-    metrics.diagnostics = await collectDiagnosticMetrics(envName, timeoutMs, options.artifactDir);
-    recordCollector(collectors, "diagnostics", metrics.diagnostics, metrics.diagnostics.artifacts);
-    metrics.nodeProfiles = await collectNodeProfileMetrics(options.artifactDir);
-    recordCollector(collectors, "node-profiles", metrics.nodeProfiles, metrics.nodeProfiles.artifacts);
-    return metrics;
+  if (serviceJson.childPid) {
+    metrics.process = await collectProcessMetrics(serviceJson.childPid, timeoutMs);
+    recordCollector(collectors, "process", metrics.process);
   }
 
-  const process = await collectProcessMetrics(serviceJson.childPid, timeoutMs);
-  metrics.process = process;
-  recordCollector(collectors, "process", process);
   if (serviceJson.gatewayPort) {
-    const readinessStarted = Date.now();
-    metrics.readiness = await collectReadinessMetrics(serviceJson.gatewayPort, {
-      timeoutMs: readinessTimeoutMs,
-      thresholdMs: options.readinessThresholdMs,
-      intervalMs: readinessIntervalMs,
-      probeTimeoutMs: timeoutMs
+    await collectReadinessAndHealth(metrics, collectors, serviceJson.gatewayPort, {
+      readinessTimeoutMs,
+      readinessThresholdMs: options.readinessThresholdMs,
+      readinessIntervalMs,
+      probeTimeoutMs: timeoutMs,
+      healthSampleCount,
+      healthIntervalMs,
+      timeoutMs,
+      sampleHealthAfterReady: Boolean(serviceJson.childPid)
     });
-    recordCollector(collectors, "readiness", {
-      commandStatus: metrics.readiness.ready ? 0 : 1,
-      durationMs: Date.now() - readinessStarted,
-      timedOut: !metrics.readiness.ready && readinessTimeoutMs > 0,
-      error: metrics.readiness.ready ? null : "readiness deadline expired"
-    });
-    metrics.listening = metrics.readiness.listening;
-    metrics.healthSamples = await collectHealthSamples(serviceJson.gatewayPort, {
-      count: healthSampleCount,
-      intervalMs: healthIntervalMs,
-      timeoutMs
-    });
-    metrics.health = metrics.healthSamples.at(-1) ?? null;
-    metrics.healthSummary = summarizeHealthSamples(metrics.healthSamples);
   }
-  metrics.logs = await collectLogMetrics(envName, timeoutMs, options.artifactDir);
-  recordCollector(collectors, "logs", metrics.logs, metrics.logs.artifacts);
-  metrics.openclawDiagnostics = collectOpenClawDiagnostics(metrics.logs);
-  recordCollector(collectors, "openclaw-diagnostics", {
-    commandStatus: 0,
-    durationMs: 0,
-    statusLabel: metrics.openclawDiagnostics.available ? "PASS" : "INFO",
-    error: metrics.openclawDiagnostics.available ? null : "structured diagnostics unavailable; using log-pattern fallback"
-  });
-  metrics.timeline = await collectTimelineMetrics(options.artifactDir);
-  recordCollector(collectors, "timeline", metrics.timeline, metrics.timeline.artifacts);
+
+  await collectLogAndTimelineMetrics(metrics, collectors, envName, timeoutMs, options);
+
   if (options.heapSnapshot === true && serviceJson.childPid) {
     metrics.heapSnapshot = await triggerHeapSnapshot(envName, serviceJson.childPid, timeoutMs, options.artifactDir);
     recordCollector(collectors, "heap-snapshot", metrics.heapSnapshot, metrics.heapSnapshot.artifacts);
@@ -154,41 +104,69 @@ export async function collectEnvMetrics(envName, options = {}) {
     });
     recordCollector(collectors, "diagnostic-report", metrics.diagnosticReport, metrics.diagnosticReport.artifacts);
   }
-  metrics.diagnostics = await collectDiagnosticMetrics(envName, timeoutMs, options.artifactDir);
-  recordCollector(collectors, "diagnostics", metrics.diagnostics, metrics.diagnostics.artifacts);
-  metrics.nodeProfiles = await collectNodeProfileMetrics(options.artifactDir);
-  recordCollector(collectors, "node-profiles", metrics.nodeProfiles, metrics.nodeProfiles.artifacts);
+  await collectDiagnosticArtifactMetrics(metrics, collectors, envName, timeoutMs, options);
+
   return metrics;
 }
 
-async function collectTimelineMetrics(artifactDir) {
-  const startedAt = Date.now();
-  const timelinePath = artifactDir ? join(artifactDir, "openclaw", "timeline.jsonl") : null;
-  if (!timelinePath) {
-    return {
-      commandStatus: 0,
-      statusLabel: "INFO",
-      durationMs: 0,
-      available: false,
-      error: "artifact directory unavailable",
-      artifacts: []
-    };
-  }
+async function collectReadinessAndHealth(metrics, collectors, port, options) {
+  const readinessStarted = Date.now();
+  metrics.readiness = await collectReadinessMetrics(port, {
+    timeoutMs: options.readinessTimeoutMs,
+    thresholdMs: options.readinessThresholdMs,
+    intervalMs: options.readinessIntervalMs,
+    probeTimeoutMs: options.probeTimeoutMs
+  });
+  recordCollector(collectors, "readiness", {
+    commandStatus: metrics.readiness.ready ? 0 : 1,
+    durationMs: Date.now() - readinessStarted,
+    timedOut: !metrics.readiness.ready && options.readinessTimeoutMs > 0,
+    error: metrics.readiness.ready ? null : "readiness deadline expired"
+  });
 
-  const timeline = await loadTimeline(timelinePath);
-  return {
+  metrics.listening = metrics.readiness.listening;
+  if (options.sampleHealthAfterReady) {
+    metrics.healthSamples = await collectHealthSamples(port, {
+      count: options.healthSampleCount,
+      intervalMs: options.healthIntervalMs,
+      timeoutMs: options.timeoutMs
+    });
+    metrics.health = metrics.healthSamples.at(-1) ?? null;
+  } else {
+    metrics.health = metrics.readiness.health;
+    metrics.healthSamples = metrics.readiness.healthAttempts;
+  }
+  metrics.healthSummary = summarizeHealthSamples(metrics.healthSamples);
+}
+
+async function collectLogAndTimelineMetrics(metrics, collectors, envName, timeoutMs, options) {
+  metrics.logs = await collectLogMetrics(envName, timeoutMs, options.artifactDir);
+  recordCollector(collectors, "logs", metrics.logs, metrics.logs.artifacts);
+
+  metrics.openclawDiagnostics = collectOpenClawDiagnostics(metrics.logs);
+  recordCollector(collectors, "openclaw-diagnostics", {
     commandStatus: 0,
-    statusLabel: timeline.available ? "PASS" : "INFO",
-    durationMs: Date.now() - startedAt,
-    ...timeline,
-    artifacts: timeline.available ? [timelinePath] : [],
-    error: timeline.available ? null : (timeline.error ?? (timeline.missing ? "OpenClaw timeline not emitted" : null))
-  };
+    durationMs: 0,
+    statusLabel: metrics.openclawDiagnostics.available ? "PASS" : "INFO",
+    error: metrics.openclawDiagnostics.available ? null : "structured diagnostics unavailable; using log-pattern fallback"
+  });
+
+  metrics.timeline = await collectTimelineMetrics(options.artifactDir);
+  recordCollector(collectors, "timeline", metrics.timeline, metrics.timeline.artifacts);
+}
+
+async function collectDiagnosticArtifactMetrics(metrics, collectors, envName, timeoutMs, options) {
+  metrics.diagnostics = await collectDiagnosticMetrics(envName, timeoutMs, options.artifactDir);
+  recordCollector(collectors, "diagnostics", metrics.diagnostics, metrics.diagnostics.artifacts);
+
+  metrics.nodeProfiles = await collectNodeProfileMetrics(options.artifactDir);
+  recordCollector(collectors, "node-profiles", metrics.nodeProfiles, metrics.nodeProfiles.artifacts);
 }
 
 function recordCollector(collectors, id, result, artifacts = []) {
   const status = result.statusLabel ?? collectorStatus(result);
   collectors.push({
+    schemaVersion: "kova.collectorReceipt.v1",
     id,
     status,
     durationMs: typeof result.durationMs === "number" ? result.durationMs : 0,
@@ -214,132 +192,10 @@ function collectorStatus(result) {
   return "PASS";
 }
 
-async function collectReadinessMetrics(port, options) {
-  const startedAt = Date.now();
-  const deadline = startedAt + options.timeoutMs;
-  const thresholdMs = Math.max(0, Number(options.thresholdMs ?? options.timeoutMs ?? 0));
-  const listeningAttempts = [];
-  const healthAttempts = [];
-  let listeningReadyAtMs = null;
-  let healthReadyAtMs = null;
-  let lastListening = null;
-  let lastHealth = null;
-
-  do {
-    lastListening = await collectListeningMetrics(port, options.probeTimeoutMs);
-    lastListening.elapsedMs = Date.now() - startedAt;
-    listeningAttempts.push(lastListening);
-    if (lastListening.ok && listeningReadyAtMs === null) {
-      listeningReadyAtMs = lastListening.elapsedMs;
-    }
-
-    lastHealth = await collectHealthMetrics(port, options.probeTimeoutMs);
-    lastHealth.elapsedMs = Date.now() - startedAt;
-    healthAttempts.push(lastHealth);
-    if (lastHealth.ok) {
-      healthReadyAtMs = lastHealth.elapsedMs;
-      break;
-    }
-
-    if (options.timeoutMs === 0 || Date.now() >= deadline) {
-      break;
-    }
-
-    await sleep(Math.min(options.intervalMs, Math.max(0, deadline - Date.now())));
-  } while (Date.now() <= deadline);
-
-  return {
-    deadlineMs: options.timeoutMs,
-    thresholdMs,
-    intervalMs: options.intervalMs,
-    attempts: Math.max(listeningAttempts.length, healthAttempts.length),
-    ready: healthReadyAtMs !== null,
-    listeningReady: listeningReadyAtMs !== null,
-    listeningReadyAtMs,
-    healthReadyAtMs,
-    classification: classifyReadiness({
-      thresholdMs,
-      listeningReadyAtMs,
-      healthReadyAtMs
-    }),
-    listening: lastListening,
-    health: lastHealth,
-    listeningAttempts,
-    healthAttempts
-  };
-}
-
-function classifyReadiness({ thresholdMs, listeningReadyAtMs, healthReadyAtMs }) {
-  if (listeningReadyAtMs === null) {
-    return {
-      state: "hard-failure",
-      severity: "fail",
-      reason: "gateway TCP socket never accepted connections before the hard deadline"
-    };
-  }
-  if (healthReadyAtMs === null) {
-    return {
-      state: "unhealthy",
-      severity: "fail",
-      reason: "gateway TCP socket opened but health never became ready before the hard deadline"
-    };
-  }
-  if (thresholdMs > 0 && healthReadyAtMs > thresholdMs) {
-    return {
-      state: "slow-startup",
-      severity: "fail",
-      reason: `gateway became healthy after ${healthReadyAtMs}ms, beyond the ${thresholdMs}ms threshold`
-    };
-  }
-  return {
-    state: "ready",
-    severity: "pass",
-    reason: "gateway became healthy within the readiness threshold"
-  };
-}
-
-function collectListeningMetrics(port, timeoutMs) {
-  const startedAt = Date.now();
-  return new Promise((resolve) => {
-    const socket = createConnection({ host: "127.0.0.1", port: Number(port) });
-    const timer = setTimeout(() => {
-      socket.destroy();
-      resolve({
-        host: "127.0.0.1",
-        port: Number(port),
-        ok: false,
-        durationMs: Date.now() - startedAt,
-        error: "tcp connect timed out"
-      });
-    }, Math.min(timeoutMs, 5000));
-
-    socket.once("connect", () => {
-      clearTimeout(timer);
-      socket.end();
-      resolve({
-        host: "127.0.0.1",
-        port: Number(port),
-        ok: true,
-        durationMs: Date.now() - startedAt
-      });
-    });
-
-    socket.once("error", (error) => {
-      clearTimeout(timer);
-      resolve({
-        host: "127.0.0.1",
-        port: Number(port),
-        ok: false,
-        durationMs: Date.now() - startedAt,
-        error: error.message
-      });
-    });
-  });
-}
-
 async function collectProcessMetrics(pid, timeoutMs) {
   const result = await runCommand(`ps -p ${Number(pid)} -o pid= -o rss= -o %cpu= -o comm=`, { timeoutMs });
   const metrics = {
+    schemaVersion: PROCESS_METRICS_SCHEMA,
     pid,
     commandStatus: result.status,
     durationMs: result.durationMs,
@@ -375,481 +231,6 @@ async function collectProcessMetrics(pid, timeoutMs) {
   return metrics;
 }
 
-async function collectHealthMetrics(port, timeoutMs) {
-  const startedAt = Date.now();
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), Math.min(timeoutMs, 5000));
-
-  try {
-    const response = await fetch(`http://127.0.0.1:${Number(port)}/health`, {
-      signal: controller.signal
-    });
-    const text = await response.text();
-    return {
-      url: `http://127.0.0.1:${Number(port)}/health`,
-      ok: response.ok,
-      status: response.status,
-      durationMs: Date.now() - startedAt,
-      bodySnippet: text.slice(0, 500)
-    };
-  } catch (error) {
-    return {
-      url: `http://127.0.0.1:${Number(port)}/health`,
-      ok: false,
-      status: null,
-      durationMs: Date.now() - startedAt,
-      error: error.name === "AbortError" ? "health request timed out" : error.message
-    };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function collectHealthSamples(port, options) {
-  const samples = [];
-  for (let index = 0; index < options.count; index += 1) {
-    samples.push(await collectHealthMetrics(port, options.timeoutMs));
-    if (index < options.count - 1 && options.intervalMs > 0) {
-      await sleep(options.intervalMs);
-    }
-  }
-  return samples;
-}
-
-function summarizeHealthSamples(samples) {
-  if (!Array.isArray(samples) || samples.length === 0) {
-    return null;
-  }
-
-  const durations = samples.map((sample) => sample.durationMs).filter((duration) => typeof duration === "number").sort((a, b) => a - b);
-  return {
-    count: samples.length,
-    okCount: samples.filter((sample) => sample.ok).length,
-    failureCount: samples.filter((sample) => !sample.ok).length,
-    minMs: durations.at(0) ?? null,
-    p50Ms: percentile(durations, 0.5),
-    p95Ms: percentile(durations, 0.95),
-    maxMs: durations.at(-1) ?? null
-  };
-}
-
-function percentile(values, percentileValue) {
-  if (values.length === 0) {
-    return null;
-  }
-
-  const index = Math.ceil(values.length * percentileValue) - 1;
-  return values[Math.min(Math.max(index, 0), values.length - 1)];
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function collectLogMetrics(envName, timeoutMs, artifactDir) {
-  const result = await runCommand(`ocm logs ${envName} --tail 200`, { timeoutMs });
-  const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
-  const timestamps = collectTimestamps(text);
-  const artifacts = [];
-  if (artifactDir) {
-    await mkdir(join(artifactDir, "collectors"), { recursive: true });
-    const logPath = join(artifactDir, "collectors", "gateway-tail.log");
-    await writeFile(logPath, text, "utf8");
-    artifacts.push(logPath);
-  }
-  return {
-    commandStatus: result.status,
-    durationMs: result.durationMs,
-    timedOut: result.timedOut,
-    firstTimestamp: timestamps.first,
-    lastTimestamp: timestamps.last,
-    observedWindowMs: timestamps.windowMs,
-    missingDependencyErrors: countPattern(text, /cannot find (module|package)|missing dependenc|missing runtime dep/i),
-    pluginLoadFailures: countPattern(text, /\[plugins\].*failed to load|plugin.*failed to load|\[plugins\].*plugin service failed|plugin service failed/i),
-    runtimeDependencyMentions: countPattern(text, /runtime dep|runtime dependency|runtime-deps/i),
-    metadataScanMentions: countPattern(text, /collectBundledPluginMetadata|bundled plugin metadata|manifest read|readdirSync/i),
-    configNormalizationMentions: countPattern(text, /config normal/i),
-    gatewayRestartMentions: countPattern(text, /gateway.*restart|restart.*gateway|service restart|restarting/i),
-    listeningMentions: countPattern(text, /listening|server started|gateway ready|ready on|websocket/i),
-    providerLoadMentions: countPattern(text, /provider.*load|load.*provider|provider registry|auth provider/i),
-    modelCatalogMentions: countPattern(text, /model catalog|models list|loading models|available models/i),
-    providerTimeoutMentions: countPattern(text, /provider.*timeout|model.*timeout|timeout.*provider|timeout.*model/i),
-    eventLoopDelayMentions: countPattern(text, /event loop|event-loop|blocked loop|loop delay/i),
-    v8DiagnosticMentions: countPattern(text, /v8|diagnostic report|heapsnapshot|heap snapshot/i),
-    errorMentions: countPattern(text, /\berror\b|exception|unhandled/i),
-    structuredEvents: extractStructuredDiagnosticEvents(text),
-    artifacts,
-    stdoutSnippet: result.stdout.slice(-4000),
-    stderrSnippet: result.stderr.slice(-4000)
-  };
-}
-
-async function collectDiagnosticMetrics(envName, timeoutMs, artifactDir) {
-  const command = "ocm env exec " + envName + " -- sh -lc 'find \"$OPENCLAW_HOME\" -maxdepth 6 -type f \\( -name \"report.*.json\" -o -name \"*.heapsnapshot\" -o -name \"*heap*.json\" -o -name \"*diagnostic*.json\" \\) -print 2>/dev/null | head -100'";
-  const result = await runCommand(command, { timeoutMs, maxOutputChars: 100000 });
-  const files = result.status === 0
-    ? result.stdout.split("\n").map((line) => line.trim()).filter(Boolean)
-    : [];
-  files.push(...await collectLocalDiagnosticReports(artifactDir));
-  const uniqueFiles = [...new Set(files)];
-  const artifacts = [];
-
-  let artifactBytes = 0;
-  if (artifactDir && uniqueFiles.length > 0) {
-    const diagnosticsDir = join(artifactDir, "diagnostics");
-    await mkdir(diagnosticsDir, { recursive: true });
-    for (const file of uniqueFiles.slice(0, 25)) {
-      if (!existsSync(file)) {
-        continue;
-      }
-      const target = join(diagnosticsDir, basename(file));
-      await cp(file, target, { force: true });
-      artifactBytes += await fileSize(target);
-      artifacts.push(target);
-    }
-  }
-
-  return {
-    commandStatus: result.status,
-    durationMs: result.durationMs,
-    timedOut: result.timedOut,
-    fileCount: uniqueFiles.length,
-    v8ReportCount: uniqueFiles.filter((file) => /report\..*\.json$|diagnostic.*\.json$/i.test(file)).length,
-    heapSnapshotCount: uniqueFiles.filter((file) => /\.heapsnapshot$|heap.*\.json$/i.test(file)).length,
-    artifactBytes,
-    files: uniqueFiles.slice(0, 25),
-    artifacts,
-    error: result.status === 0 ? null : firstOutputLine(result.stderr) || firstOutputLine(result.stdout) || "diagnostic artifact scan unavailable"
-  };
-}
-
-async function collectNodeProfileMetrics(artifactDir) {
-  const startedAt = Date.now();
-  const profileDir = artifactDir ? join(artifactDir, "node-profiles") : null;
-  if (!profileDir) {
-    return {
-      commandStatus: 0,
-      statusLabel: "INFO",
-      durationMs: 0,
-      fileCount: 0,
-      cpuProfileCount: 0,
-      heapProfileCount: 0,
-      traceEventCount: 0,
-      artifactBytes: 0,
-      artifacts: [],
-      error: "artifact directory unavailable"
-    };
-  }
-
-  let entries = [];
-  try {
-    entries = await readdir(profileDir, { withFileTypes: true });
-  } catch (error) {
-    if (error.code !== "ENOENT") {
-      return {
-        commandStatus: 0,
-        statusLabel: "WARN",
-        durationMs: Date.now() - startedAt,
-        fileCount: 0,
-        cpuProfileCount: 0,
-        heapProfileCount: 0,
-        traceEventCount: 0,
-        artifactBytes: 0,
-        artifacts: [],
-        error: error.message
-      };
-    }
-  }
-
-  const artifacts = entries
-    .filter((entry) => entry.isFile())
-    .map((entry) => join(profileDir, entry.name))
-    .filter((path) => /\.(cpuprofile|heapprofile)$|node-trace.*\.(json|log)$|report\..*\.json$|diagnostic.*\.json$/i.test(path))
-    .slice(0, 100);
-
-  let artifactBytes = 0;
-  for (const artifact of artifacts) {
-    artifactBytes += await fileSize(artifact);
-  }
-
-  const cpuProfiles = artifacts.filter((path) => /\.cpuprofile$/i.test(path));
-  const heapProfiles = artifacts.filter((path) => /\.heapprofile$/i.test(path));
-  const reports = artifacts.filter((path) => /report\..*\.json$|diagnostic.*\.json$/i.test(path));
-  const cpuProfileSummary = await summarizeCpuProfiles(cpuProfiles, { limit: 10, maxProfiles: 20 });
-  const heapProfileSummary = await summarizeHeapProfiles(heapProfiles, { limit: 10, maxProfiles: 20 });
-
-  return {
-    commandStatus: 0,
-    statusLabel: artifacts.length > 0 ? "PASS" : "INFO",
-    durationMs: Date.now() - startedAt,
-    fileCount: artifacts.length,
-    cpuProfileCount: cpuProfiles.length,
-    heapProfileCount: heapProfiles.length,
-    reportCount: reports.length,
-    traceEventCount: artifacts.filter((path) => /node-trace.*\.(json|log)$/i.test(path)).length,
-    artifactBytes,
-    cpuProfileSummary,
-    heapProfileSummary,
-    artifacts,
-    error: artifacts.length > 0 ? null : "node profile artifacts not emitted"
-  };
-}
-
-export { collectNodeProfileMetrics };
-
-async function triggerHeapSnapshot(envName, pid, timeoutMs, artifactDir) {
-  const command = `ocm env exec ${envName} -- sh -lc 'kill -USR2 ${Number(pid)} 2>/dev/null || true; sleep 1; find "$OPENCLAW_HOME" -maxdepth 6 -type f -name "*.heapsnapshot" -print 2>/dev/null | head -25'`;
-  const result = await runCommand(command, { timeoutMs, maxOutputChars: 100000 });
-  const files = result.status === 0
-    ? result.stdout.split("\n").map((line) => line.trim()).filter(Boolean)
-    : [];
-  const artifacts = [];
-
-  let artifactBytes = 0;
-  if (artifactDir && files.length > 0) {
-    const heapDir = join(artifactDir, "heap");
-    await mkdir(heapDir, { recursive: true });
-    for (const file of files) {
-      if (!existsSync(file)) {
-        continue;
-      }
-      await waitForStableFile(file, Math.min(timeoutMs, 5000));
-      const target = join(heapDir, basename(file));
-      await cp(file, target, { force: true });
-      artifactBytes += await fileSize(target);
-      artifacts.push(target);
-    }
-  }
-
-  return {
-    commandStatus: result.status,
-    durationMs: result.durationMs,
-    timedOut: result.timedOut,
-    requested: true,
-    fileCount: files.length,
-    artifactBytes,
-    files,
-    artifacts,
-    error: result.status === 0 ? null : firstOutputLine(result.stderr) || firstOutputLine(result.stdout) || "heap snapshot trigger unavailable"
-  };
-}
-
-async function triggerDiagnosticReport(envName, pid, timeoutMs, artifactDir, options = {}) {
-  const signalCommand = options.signalAlreadySent === true ? ":" : `kill -USR2 ${Number(pid)} 2>/dev/null || true`;
-  const command = `ocm env exec ${envName} -- sh -lc '${signalCommand}; sleep 1; find "$OPENCLAW_HOME" -maxdepth 6 -type f \\( -name "report.*.json" -o -name "*diagnostic*.json" \\) -print 2>/dev/null | head -25'`;
-  const result = await runCommand(command, { timeoutMs, maxOutputChars: 100000 });
-  const files = result.status === 0
-    ? result.stdout.split("\n").map((line) => line.trim()).filter(Boolean)
-    : [];
-  files.push(...await collectLocalDiagnosticReports(artifactDir));
-  const uniqueFiles = [...new Set(files)];
-  const artifacts = [];
-
-  let artifactBytes = 0;
-  if (artifactDir && uniqueFiles.length > 0) {
-    const reportDir = join(artifactDir, "diagnostic-reports");
-    await mkdir(reportDir, { recursive: true });
-    for (const file of uniqueFiles) {
-      if (!existsSync(file)) {
-        continue;
-      }
-      const target = join(reportDir, basename(file));
-      await cp(file, target, { force: true });
-      artifactBytes += await fileSize(target);
-      artifacts.push(target);
-    }
-  }
-
-  return {
-    commandStatus: result.status,
-    durationMs: result.durationMs,
-    timedOut: result.timedOut,
-    requested: true,
-    fileCount: uniqueFiles.length,
-    artifactBytes,
-    files: uniqueFiles,
-    artifacts,
-    error: result.status === 0 ? null : firstOutputLine(result.stderr) || firstOutputLine(result.stdout) || "diagnostic report trigger unavailable"
-  };
-}
-
-async function collectLocalDiagnosticReports(artifactDir) {
-  const profileDir = artifactDir ? join(artifactDir, "node-profiles") : null;
-  if (!profileDir) {
-    return [];
-  }
-
-  try {
-    const entries = await readdir(profileDir, { withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isFile())
-      .map((entry) => join(profileDir, entry.name))
-      .filter((path) => /report\..*\.json$|diagnostic.*\.json$/i.test(path));
-  } catch (error) {
-    if (error.code === "ENOENT") {
-      return [];
-    }
-    throw error;
-  }
-}
-
-async function fileSize(path) {
-  try {
-    return (await stat(path)).size;
-  } catch {
-    return 0;
-  }
-}
-
-async function waitForStableFile(path, timeoutMs) {
-  const deadline = Date.now() + Math.max(0, timeoutMs);
-  let lastSize = -1;
-  let stableCount = 0;
-
-  while (Date.now() <= deadline) {
-    const size = await fileSize(path);
-    if (size > 0 && size === lastSize) {
-      stableCount += 1;
-      if (stableCount >= 2) {
-        return size;
-      }
-    } else {
-      stableCount = 0;
-      lastSize = size;
-    }
-    await sleep(250);
-  }
-
-  return lastSize;
-}
-
-function collectOpenClawDiagnostics(logs) {
-  const events = logs?.structuredEvents ?? [];
-  const startupEvents = events.filter((event) => event.category === "startup" || event.phase || event.startupPhase);
-  const pluginEvents = events.filter((event) => event.category === "plugins" || event.plugin || event.pluginId);
-  const configEvents = events.filter((event) => event.category === "config" || event.config || event.normalization);
-  const runtimeDepEvents = events.filter((event) => event.category === "runtime-deps" || event.runtimeDeps || event.runtimeDependency);
-  const providerEvents = events.filter((event) => event.category === "providers" || event.provider || event.modelProvider);
-  const eventLoopEvents = events.filter((event) => event.eventLoopDelayMs !== undefined || event.eventLoop !== undefined);
-
-  return {
-    available: events.length > 0,
-    source: events.length > 0 ? "structured-log-events" : "log-pattern-fallback",
-    eventCount: events.length,
-    startupTimeline: summarizeTimedEvents(startupEvents),
-    pluginMetadataScanCount: numericSum(pluginEvents, ["metadataScanCount", "scanCount"]) ?? fallbackCount(logs, "metadataScanMentions"),
-    configNormalizationCount: numericSum(configEvents, ["normalizationCount", "configNormalizationCount"]) ?? fallbackCount(logs, "configNormalizationMentions"),
-    runtimeDepsStagingMs: numericMax(runtimeDepEvents, ["durationMs", "runtimeDepsStagingMs", "stagingMs"]),
-    eventLoopDelayMs: numericMax(eventLoopEvents, ["eventLoopDelayMs", "delayMs", "maxMs"]),
-    providerModelTimingMs: numericMax(providerEvents, ["durationMs", "providerModelTimingMs", "modelCatalogMs"]),
-    events: events.slice(0, 50)
-  };
-}
-
-function fallbackCount(logs, key) {
-  const value = logs?.[key];
-  return typeof value === "number" ? value : null;
-}
-
-function extractStructuredDiagnosticEvents(text) {
-  const events = [];
-  for (const line of text.split("\n")) {
-    const candidate = line.slice(line.indexOf("{"));
-    if (!candidate.startsWith("{")) {
-      continue;
-    }
-    try {
-      const parsed = JSON.parse(candidate);
-      if (parsed && typeof parsed === "object" && (
-        parsed.openclawDiagnostic === true ||
-        parsed.diagnosticType ||
-        parsed.category ||
-        parsed.startupPhase ||
-        parsed.eventLoopDelayMs !== undefined ||
-        parsed.runtimeDepsStagingMs !== undefined
-      )) {
-        events.push(parsed);
-      }
-    } catch {
-      // Non-JSON log lines are expected; structured diagnostics are optional.
-    }
-  }
-  return events;
-}
-
-function summarizeTimedEvents(events) {
-  return events
-    .map((event) => ({
-      phase: event.phase ?? event.startupPhase ?? event.name ?? event.category ?? "unknown",
-      durationMs: firstNumber(event, ["durationMs", "elapsedMs", "ms"]),
-      timestamp: event.timestamp ?? event.time ?? null
-    }))
-    .slice(0, 50);
-}
-
-function numericSum(events, keys) {
-  let total = 0;
-  let found = false;
-  for (const event of events) {
-    const value = firstNumber(event, keys);
-    if (typeof value === "number") {
-      total += value;
-      found = true;
-    }
-  }
-  return found ? total : null;
-}
-
-function numericMax(events, keys) {
-  const values = events.map((event) => firstNumber(event, keys)).filter((value) => typeof value === "number");
-  return values.length === 0 ? null : Math.max(...values);
-}
-
-function firstNumber(value, keys) {
-  for (const key of keys) {
-    if (typeof value?.[key] === "number") {
-      return value[key];
-    }
-  }
-  return null;
-}
-
-function collectTimestamps(text) {
-  const values = [];
-  const patterns = [
-    /\b(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z)\b/g,
-    /\b(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?)\b/g
-  ];
-
-  for (const pattern of patterns) {
-    for (const match of text.matchAll(pattern)) {
-      const time = Date.parse(match[1].replace(" ", "T"));
-      if (!Number.isNaN(time)) {
-        values.push(time);
-      }
-    }
-  }
-
-  values.sort((a, b) => a - b);
-  const first = values.at(0) ?? null;
-  const last = values.at(-1) ?? null;
-  return {
-    first: first === null ? null : new Date(first).toISOString(),
-    last: last === null ? null : new Date(last).toISOString(),
-    windowMs: first !== null && last !== null ? last - first : null
-  };
-}
-
-function countPattern(text, pattern) {
-  let count = 0;
-  for (const line of text.split("\n")) {
-    if (pattern.test(line)) {
-      count += 1;
-    }
-  }
-  return count;
-}
-
 function firstOutputLine(value) {
-  return value.trim().split("\n").find(Boolean);
+  return String(value ?? "").trim().split("\n").find(Boolean);
 }

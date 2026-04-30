@@ -1,6 +1,49 @@
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 const SCHEMA_VERSION = "openclaw.diagnostics.v1";
+export const TIMELINE_COLLECTOR_SCHEMA = "kova.timelineCollector.v1";
+
+export async function collectTimelineMetrics(artifactDir) {
+  const startedAt = Date.now();
+  const timelinePath = artifactDir ? join(artifactDir, "openclaw", "timeline.jsonl") : null;
+  if (!timelinePath) {
+    return {
+      schemaVersion: TIMELINE_COLLECTOR_SCHEMA,
+      commandStatus: 0,
+      statusLabel: "INFO",
+      durationMs: 0,
+      available: false,
+      error: "artifact directory unavailable",
+      artifacts: []
+    };
+  }
+
+  const timeline = await loadTimeline(timelinePath);
+  return {
+    schemaVersion: TIMELINE_COLLECTOR_SCHEMA,
+    commandStatus: 0,
+    statusLabel: timeline.available ? "PASS" : "INFO",
+    durationMs: Date.now() - startedAt,
+    timeline: {
+      ...timeline
+    },
+    available: timeline.available,
+    eventCount: timeline.eventCount,
+    parseErrorCount: timeline.parseErrorCount,
+    spanCount: timeline.spanCount,
+    slowestSpans: timeline.slowestSpans,
+    spanTotals: timeline.spanTotals,
+    repeatedSpans: timeline.repeatedSpans,
+    runtimeDeps: timeline.runtimeDeps,
+    eventLoop: timeline.eventLoop,
+    providers: timeline.providers,
+    childProcesses: timeline.childProcesses,
+    events: timeline.events,
+    artifacts: timeline.available ? [timelinePath] : [],
+    error: timeline.available ? null : (timeline.error ?? (timeline.missing ? "OpenClaw timeline not emitted" : null))
+  };
+}
 
 export async function loadTimeline(path) {
   try {

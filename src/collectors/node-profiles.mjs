@@ -1,4 +1,83 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
+import { join } from "node:path";
+import { summarizeHeapProfiles } from "./heap.mjs";
+
+export const NODE_PROFILES_SCHEMA = "kova.nodeProfiles.v1";
+
+export async function collectNodeProfileMetrics(artifactDir) {
+  const startedAt = Date.now();
+  const profileDir = artifactDir ? join(artifactDir, "node-profiles") : null;
+  if (!profileDir) {
+    return {
+      schemaVersion: NODE_PROFILES_SCHEMA,
+      commandStatus: 0,
+      statusLabel: "INFO",
+      durationMs: 0,
+      fileCount: 0,
+      cpuProfileCount: 0,
+      heapProfileCount: 0,
+      traceEventCount: 0,
+      artifactBytes: 0,
+      artifacts: [],
+      error: "artifact directory unavailable"
+    };
+  }
+
+  let entries = [];
+  try {
+    entries = await readdir(profileDir, { withFileTypes: true });
+  } catch (error) {
+    if (error.code !== "ENOENT") {
+      return {
+        schemaVersion: NODE_PROFILES_SCHEMA,
+        commandStatus: 0,
+        statusLabel: "WARN",
+        durationMs: Date.now() - startedAt,
+        fileCount: 0,
+        cpuProfileCount: 0,
+        heapProfileCount: 0,
+        traceEventCount: 0,
+        artifactBytes: 0,
+        artifacts: [],
+        error: error.message
+      };
+    }
+  }
+
+  const artifacts = entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => join(profileDir, entry.name))
+    .filter((path) => /\.(cpuprofile|heapprofile)$|node-trace.*\.(json|log)$|report\..*\.json$|diagnostic.*\.json$/i.test(path))
+    .slice(0, 100);
+
+  let artifactBytes = 0;
+  for (const artifact of artifacts) {
+    artifactBytes += await fileSize(artifact);
+  }
+
+  const cpuProfiles = artifacts.filter((path) => /\.cpuprofile$/i.test(path));
+  const heapProfiles = artifacts.filter((path) => /\.heapprofile$/i.test(path));
+  const reports = artifacts.filter((path) => /report\..*\.json$|diagnostic.*\.json$/i.test(path));
+  const cpuProfileSummary = await summarizeCpuProfiles(cpuProfiles, { limit: 10, maxProfiles: 20 });
+  const heapProfileSummary = await summarizeHeapProfiles(heapProfiles, { limit: 10, maxProfiles: 20 });
+
+  return {
+    schemaVersion: NODE_PROFILES_SCHEMA,
+    commandStatus: 0,
+    statusLabel: artifacts.length > 0 ? "PASS" : "INFO",
+    durationMs: Date.now() - startedAt,
+    fileCount: artifacts.length,
+    cpuProfileCount: cpuProfiles.length,
+    heapProfileCount: heapProfiles.length,
+    reportCount: reports.length,
+    traceEventCount: artifacts.filter((path) => /node-trace.*\.(json|log)$/i.test(path)).length,
+    artifactBytes,
+    cpuProfileSummary,
+    heapProfileSummary,
+    artifacts,
+    error: artifacts.length > 0 ? null : "node profile artifacts not emitted"
+  };
+}
 
 export async function summarizeCpuProfiles(paths, options = {}) {
   const summaries = [];
@@ -126,4 +205,12 @@ function roundMs(value) {
 
 function roundPercent(value) {
   return Math.round(value * 10) / 10;
+}
+
+async function fileSize(path) {
+  try {
+    return (await stat(path)).size;
+  } catch {
+    return 0;
+  }
 }

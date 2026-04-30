@@ -72,6 +72,8 @@ Important fields:
 - `state`: OpenClaw user-state fixture
 - `envName`: disposable Kova/OCM env name
 - `thresholds`: scenario threshold contract
+- `collectorArtifactDirs`: stable per-record artifact directories used by
+  collectors
 - `measurements`: evaluated measurements
 - `violations`: threshold or behavior violations
 - `phases`: commands, results, and metrics by phase
@@ -97,6 +99,36 @@ Successful command stdout/stderr may be present in JSON but should not be pasted
 by agents unless it explains a failure.
 
 ## Metrics
+
+Metrics use explicit collector result contracts. The top-level metrics object
+uses `kova.envMetrics.v1` and includes `collectors`, an ordered list of
+collector receipts:
+
+```json
+{
+  "schemaVersion": "kova.collectorReceipt.v1",
+  "id": "readiness",
+  "status": "PASS",
+  "durationMs": 1200,
+  "commandStatus": 0,
+  "timedOut": false,
+  "artifactCount": 0,
+  "artifacts": [],
+  "error": null
+}
+```
+
+Records expose `collectorArtifactDirs` with schema
+`kova.collectorArtifactDirs.v1`. This makes artifact ownership explicit for
+agents and prevents collectors from hiding files in ad hoc paths:
+
+- `collectors`: log tails and lightweight collector output
+- `openclaw`: OpenClaw-emitted timeline artifacts
+- `resourceSamples`: JSONL resource samples
+- `nodeProfiles`: CPU/heap/trace/report artifacts emitted through Node
+- `diagnostics`: copied OpenClaw diagnostic artifacts
+- `heap`: captured heap snapshots
+- `diagnosticReports`: captured diagnostic reports
 
 Current metrics include:
 

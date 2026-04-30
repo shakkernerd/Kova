@@ -2,11 +2,11 @@ import { runCommand } from "./commands.mjs";
 import { materializeCommands } from "./registries/scenarios.mjs";
 import { quoteShell } from "./commands.mjs";
 import { collectEnvMetrics, collectNodeProfileMetrics } from "./metrics.mjs";
+import { collectorArtifactDirs, prepareCollectorArtifactDirs } from "./collectors/artifacts.mjs";
 import { evaluateRecord } from "./evaluator.mjs";
 import { artifactsDir } from "./paths.mjs";
 import { repoRoot } from "./paths.mjs";
 import { assertKovaEnvName, assertSafeScenarioCommand } from "./safety.mjs";
-import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 
 export function createRunId() {
@@ -31,6 +31,7 @@ export function buildDryRunRecord(scenario, context) {
     objective: scenario.objective,
     thresholds: scenario.thresholds,
     cleanup: context.keepEnv ? "retained" : "planned",
+    collectorArtifactDirs: collectorArtifactDirs(artifactDir),
     phases: buildPlannedPhases(scenario, context, envName, artifactDir)
   };
 }
@@ -52,16 +53,13 @@ export async function executeScenario(scenario, context) {
   record.status = "PASS";
   record.startedAt = new Date().toISOString();
   record.artifactDir = artifactDir;
+  record.collectorArtifactDirs = collectorArtifactDirs(artifactDir);
   record.phases = [];
 
   let scenarioFailed = false;
 
   try {
-    await mkdir(artifactDir, { recursive: true });
-    await mkdir(join(artifactDir, "openclaw"), { recursive: true });
-    if (context.nodeProfile === true) {
-      await mkdir(join(artifactDir, "node-profiles"), { recursive: true });
-    }
+    record.collectorArtifactDirs = await prepareCollectorArtifactDirs(artifactDir, context);
     const setupResults = await executeTargetSetup(context, envName, artifactDir);
     if (setupResults.length > 0) {
       record.phases.push({
@@ -433,7 +431,8 @@ function metricOptions(context, scenario, phase, artifactDir) {
     readinessIntervalMs: context.readinessIntervalMs,
     heapSnapshot: context.heapSnapshot === true && context.deepProfile !== true,
     diagnosticReport: false,
-    artifactDir
+    artifactDir,
+    collectorArtifactDirs: collectorArtifactDirs(artifactDir)
   };
 }
 
@@ -483,7 +482,7 @@ async function executeTargetSetup(context, envName, artifactDir) {
         envName,
         intervalMs: context.resourceSampleIntervalMs,
         processRoles: context.processRoles ?? [],
-        artifactPath: join(artifactDir, "resource-samples", "target-setup-1.jsonl")
+        artifactPath: join(collectorArtifactDirs(artifactDir).resourceSamples, "target-setup-1.jsonl")
       }
     })
   ];
@@ -506,7 +505,7 @@ function runScenarioCommand(command, context, envName, artifactDir, phaseId, com
       envName,
       intervalMs: context.resourceSampleIntervalMs,
       processRoles: context.processRoles ?? [],
-      artifactPath: join(artifactDir, "resource-samples", `${safeSegment(phaseId)}-${commandIndex + 1}.jsonl`)
+      artifactPath: join(collectorArtifactDirs(artifactDir).resourceSamples, `${safeSegment(phaseId)}-${commandIndex + 1}.jsonl`)
     }
   });
 }
@@ -521,17 +520,18 @@ function diagnosticsEnv(context, envName, artifactDir) {
   if (context.openclawDiagnostics === false) {
     return {};
   }
+  const artifactDirs = collectorArtifactDirs(artifactDir);
 
   const env = {
     OPENCLAW_DIAGNOSTICS: "timeline",
     OPENCLAW_DIAGNOSTICS_RUN_ID: context.runId,
     OPENCLAW_DIAGNOSTICS_ENV: envName,
-    OPENCLAW_DIAGNOSTICS_TIMELINE_PATH: join(artifactDir, "openclaw", "timeline.jsonl"),
+    OPENCLAW_DIAGNOSTICS_TIMELINE_PATH: join(artifactDirs.openclaw, "timeline.jsonl"),
     OPENCLAW_DIAGNOSTICS_EVENT_LOOP: "1"
   };
 
   if (context.nodeProfile === true) {
-    const profileDir = join(artifactDir, "node-profiles");
+    const profileDir = artifactDirs.nodeProfiles;
     env.KOVA_NODE_PROFILE_DIR = profileDir;
     env.NODE_OPTIONS = mergeNodeOptions(process.env.NODE_OPTIONS, [
       "--cpu-prof",
