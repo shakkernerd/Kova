@@ -258,12 +258,15 @@ async function matrixRun(flags) {
       keepEnv: flags.keep_env === true,
       retainOnFailure: flags.retain_on_failure === true,
       timeoutMs: resolveEntryTimeout(entry, flags),
-      healthSamples: positiveIntegerFlag(flags, "health_samples", 3),
+      healthSamples: profileIntegerFlag(flags, "health_samples", flags.deep_profile === true ? 10 : 3),
       healthIntervalMs: positiveIntegerFlag(flags, "health_interval_ms", 250),
-      readinessIntervalMs: positiveIntegerFlag(flags, "readiness_interval_ms", 250),
-      heapSnapshot: flags.heap_snapshot === true,
-      nodeProfile: flags.node_profile === true,
-      resourceSampleIntervalMs: positiveIntegerFlag(flags, "resource_sample_interval_ms", 1000),
+      readinessIntervalMs: profileIntegerFlag(flags, "readiness_interval_ms", flags.deep_profile === true ? 100 : 250),
+      heapSnapshot: flags.heap_snapshot === true || flags.deep_profile === true,
+      diagnosticReport: flags.deep_profile === true,
+      nodeProfile: flags.node_profile === true || flags.deep_profile === true,
+      deepProfile: flags.deep_profile === true,
+      profileOnFailure: flags.profile_on_failure === true,
+      resourceSampleIntervalMs: profileIntegerFlag(flags, "resource_sample_interval_ms", flags.deep_profile === true ? 250 : 1000),
       targetSetup
     };
 
@@ -664,12 +667,15 @@ async function run(flags) {
     keepEnv: flags.keep_env === true,
     retainOnFailure: flags.retain_on_failure === true,
     timeoutMs: resolveRunTimeout(scenarios, flags),
-    healthSamples: positiveIntegerFlag(flags, "health_samples", 3),
+    healthSamples: profileIntegerFlag(flags, "health_samples", flags.deep_profile === true ? 10 : 3),
     healthIntervalMs: positiveIntegerFlag(flags, "health_interval_ms", 250),
-    readinessIntervalMs: positiveIntegerFlag(flags, "readiness_interval_ms", 250),
-    heapSnapshot: flags.heap_snapshot === true,
-    nodeProfile: flags.node_profile === true,
-    resourceSampleIntervalMs: positiveIntegerFlag(flags, "resource_sample_interval_ms", 1000),
+    readinessIntervalMs: profileIntegerFlag(flags, "readiness_interval_ms", flags.deep_profile === true ? 100 : 250),
+    heapSnapshot: flags.heap_snapshot === true || flags.deep_profile === true,
+    diagnosticReport: flags.deep_profile === true,
+    nodeProfile: flags.node_profile === true || flags.deep_profile === true,
+    deepProfile: flags.deep_profile === true,
+    profileOnFailure: flags.profile_on_failure === true,
+    resourceSampleIntervalMs: profileIntegerFlag(flags, "resource_sample_interval_ms", flags.deep_profile === true ? 250 : 1000),
     targetSetup: { completed: false }
   };
   const records = [];
@@ -832,6 +838,10 @@ function positiveIntegerFlag(flags, key, defaultValue) {
     return defaultValue;
   }
   return positiveIntegerValue(flags[key], `--${key.replaceAll("_", "-")}`);
+}
+
+function profileIntegerFlag(flags, key, defaultValue) {
+  return positiveIntegerFlag(flags, key, defaultValue);
 }
 
 function positiveIntegerValue(raw, label) {

@@ -1,7 +1,7 @@
 import { runCommand } from "./commands.mjs";
 import { materializeCommands } from "./scenarios.mjs";
 import { quoteShell } from "./commands.mjs";
-import { collectEnvMetrics } from "./metrics.mjs";
+import { collectEnvMetrics, collectNodeProfileMetrics } from "./metrics.mjs";
 import { evaluateRecord } from "./evaluator.mjs";
 import { artifactsDir } from "./paths.mjs";
 import { repoRoot } from "./paths.mjs";
@@ -135,6 +135,15 @@ export async function executeScenario(scenario, context) {
     record.finalMetrics = await collectEnvMetrics(envName, metricOptions(context, scenario, null, artifactDir));
     evaluateRecord(record, scenario);
 
+    if (shouldCaptureFailureDiagnostics(record, context)) {
+      record.failureDiagnostics = await collectEnvMetrics(envName, {
+        ...metricOptions(context, scenario, null, artifactDir),
+        readinessTimeoutMs: 0,
+        heapSnapshot: true,
+        diagnosticReport: true
+      });
+    }
+
     const shouldRetain = context.keepEnv || (context.retainOnFailure && record.status !== "PASS");
     if (!shouldRetain) {
       const cleanupPhase = await executeStateLifecycleSteps(context, envName, scenario, "cleanup", context.state?.cleanup ?? [], artifactDir);
@@ -156,9 +165,50 @@ export async function executeScenario(scenario, context) {
       record.cleanup = "retained";
       record.retainedReason = context.keepEnv ? "keep-env" : "failure";
     }
+
+    if (context.nodeProfile === true || context.deepProfile === true) {
+      record.postCleanupNodeProfiles = await collectNodeProfileMetrics(artifactDir);
+      record.finalMetrics = record.finalMetrics ?? {};
+      record.finalMetrics.nodeProfiles = record.postCleanupNodeProfiles;
+      attachNodeProfileMeasurements(record);
+    }
+
+    evaluateRecord(record, scenario);
   }
 
   return record;
+}
+
+function shouldCaptureFailureDiagnostics(record, context) {
+  if (!(context.deepProfile === true || context.profileOnFailure === true)) {
+    return false;
+  }
+  if (record.status === "PASS") {
+    return false;
+  }
+  return record.cleanup !== "retained";
+}
+
+function attachNodeProfileMeasurements(record) {
+  if (!record.measurements) {
+    record.measurements = {};
+  }
+  const profiles = record.postCleanupNodeProfiles;
+  if (!profiles) {
+    return;
+  }
+  const topCpu = profiles.cpuProfileSummary?.topFunctions?.[0];
+  const topHeap = profiles.heapProfileSummary?.topFunctions?.[0];
+  record.measurements.nodeCpuProfileCount = profiles.cpuProfileCount ?? record.measurements.nodeCpuProfileCount ?? 0;
+  record.measurements.nodeHeapProfileCount = profiles.heapProfileCount ?? record.measurements.nodeHeapProfileCount ?? 0;
+  record.measurements.nodeTraceEventCount = profiles.traceEventCount ?? record.measurements.nodeTraceEventCount ?? 0;
+  record.measurements.nodeProfileArtifactBytes = profiles.artifactBytes ?? record.measurements.nodeProfileArtifactBytes ?? 0;
+  record.measurements.nodeProfileTopFunction = topCpu?.functionName ?? record.measurements.nodeProfileTopFunction ?? null;
+  record.measurements.nodeProfileTopFunctionMs = topCpu?.selfMs ?? record.measurements.nodeProfileTopFunctionMs ?? null;
+  record.measurements.nodeProfileTopFunctionUrl = topCpu?.url ?? record.measurements.nodeProfileTopFunctionUrl ?? null;
+  record.measurements.nodeHeapTopFunction = topHeap?.functionName ?? record.measurements.nodeHeapTopFunction ?? null;
+  record.measurements.nodeHeapTopFunctionMb = topHeap?.selfSizeMb ?? record.measurements.nodeHeapTopFunctionMb ?? null;
+  record.measurements.nodeHeapTopFunctionUrl = topHeap?.url ?? record.measurements.nodeHeapTopFunctionUrl ?? null;
 }
 
 function classifyEnvDestroyCleanup(result) {
@@ -380,7 +430,8 @@ function metricOptions(context, scenario, phase, artifactDir) {
     readinessThresholdMs,
     readinessTimeoutMs: readinessHardTimeoutForPhase(scenario, phase, readinessThresholdMs),
     readinessIntervalMs: context.readinessIntervalMs,
-    heapSnapshot: context.heapSnapshot,
+    heapSnapshot: context.heapSnapshot === true && context.deepProfile !== true,
+    diagnosticReport: false,
     artifactDir
   };
 }
@@ -473,6 +524,11 @@ function diagnosticsEnv(context, envName, artifactDir) {
       `--cpu-prof-dir=${quoteNodeOptionValue(profileDir)}`,
       "--heap-prof",
       `--heap-prof-dir=${quoteNodeOptionValue(profileDir)}`,
+      "--heapsnapshot-signal=SIGUSR2",
+      "--report-on-signal",
+      "--report-signal=SIGUSR2",
+      `--report-directory=${quoteNodeOptionValue(profileDir)}`,
+      "--trace-events-enabled",
       "--trace-event-categories=node.perf,node.async_hooks,v8",
       `--trace-event-file-pattern=${quoteNodeOptionValue(join(profileDir, "node-trace-${pid}.json"))}`
     ]);

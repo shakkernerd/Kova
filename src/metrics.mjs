@@ -1,5 +1,6 @@
 import { runCommand } from "./commands.mjs";
 import { summarizeCpuProfiles } from "./cpuprofile.mjs";
+import { summarizeHeapProfiles } from "./heapprofile.mjs";
 import { loadTimeline } from "./timeline.mjs";
 import { createConnection } from "node:net";
 import { cp, mkdir, readdir, stat, writeFile } from "node:fs/promises";
@@ -36,6 +37,7 @@ export async function collectEnvMetrics(envName, options = {}) {
     logs: null,
     diagnostics: null,
     heapSnapshot: null,
+    diagnosticReport: null,
     nodeProfiles: null,
     openclawDiagnostics: null,
     timeline: null,
@@ -145,6 +147,12 @@ export async function collectEnvMetrics(envName, options = {}) {
   if (options.heapSnapshot === true && serviceJson.childPid) {
     metrics.heapSnapshot = await triggerHeapSnapshot(envName, serviceJson.childPid, timeoutMs, options.artifactDir);
     recordCollector(collectors, "heap-snapshot", metrics.heapSnapshot, metrics.heapSnapshot.artifacts);
+  }
+  if (options.diagnosticReport === true && serviceJson.childPid) {
+    metrics.diagnosticReport = await triggerDiagnosticReport(envName, serviceJson.childPid, timeoutMs, options.artifactDir, {
+      signalAlreadySent: options.heapSnapshot === true
+    });
+    recordCollector(collectors, "diagnostic-report", metrics.diagnosticReport, metrics.diagnosticReport.artifacts);
   }
   metrics.diagnostics = await collectDiagnosticMetrics(envName, timeoutMs, options.artifactDir);
   recordCollector(collectors, "diagnostics", metrics.diagnostics, metrics.diagnostics.artifacts);
@@ -482,13 +490,15 @@ async function collectDiagnosticMetrics(envName, timeoutMs, artifactDir) {
   const files = result.status === 0
     ? result.stdout.split("\n").map((line) => line.trim()).filter(Boolean)
     : [];
+  files.push(...await collectLocalDiagnosticReports(artifactDir));
+  const uniqueFiles = [...new Set(files)];
   const artifacts = [];
 
   let artifactBytes = 0;
-  if (artifactDir && files.length > 0) {
+  if (artifactDir && uniqueFiles.length > 0) {
     const diagnosticsDir = join(artifactDir, "diagnostics");
     await mkdir(diagnosticsDir, { recursive: true });
-    for (const file of files.slice(0, 25)) {
+    for (const file of uniqueFiles.slice(0, 25)) {
       if (!existsSync(file)) {
         continue;
       }
@@ -503,11 +513,11 @@ async function collectDiagnosticMetrics(envName, timeoutMs, artifactDir) {
     commandStatus: result.status,
     durationMs: result.durationMs,
     timedOut: result.timedOut,
-    fileCount: files.length,
-    v8ReportCount: files.filter((file) => /report\..*\.json$|diagnostic.*\.json$/i.test(file)).length,
-    heapSnapshotCount: files.filter((file) => /\.heapsnapshot$|heap.*\.json$/i.test(file)).length,
+    fileCount: uniqueFiles.length,
+    v8ReportCount: uniqueFiles.filter((file) => /report\..*\.json$|diagnostic.*\.json$/i.test(file)).length,
+    heapSnapshotCount: uniqueFiles.filter((file) => /\.heapsnapshot$|heap.*\.json$/i.test(file)).length,
     artifactBytes,
-    files: files.slice(0, 25),
+    files: uniqueFiles.slice(0, 25),
     artifacts,
     error: result.status === 0 ? null : firstOutputLine(result.stderr) || firstOutputLine(result.stdout) || "diagnostic artifact scan unavailable"
   };
@@ -554,7 +564,7 @@ async function collectNodeProfileMetrics(artifactDir) {
   const artifacts = entries
     .filter((entry) => entry.isFile())
     .map((entry) => join(profileDir, entry.name))
-    .filter((path) => /\.(cpuprofile|heapprofile)$|node-trace.*\.(json|log)$/i.test(path))
+    .filter((path) => /\.(cpuprofile|heapprofile)$|node-trace.*\.(json|log)$|report\..*\.json$|diagnostic.*\.json$/i.test(path))
     .slice(0, 100);
 
   let artifactBytes = 0;
@@ -563,7 +573,10 @@ async function collectNodeProfileMetrics(artifactDir) {
   }
 
   const cpuProfiles = artifacts.filter((path) => /\.cpuprofile$/i.test(path));
+  const heapProfiles = artifacts.filter((path) => /\.heapprofile$/i.test(path));
+  const reports = artifacts.filter((path) => /report\..*\.json$|diagnostic.*\.json$/i.test(path));
   const cpuProfileSummary = await summarizeCpuProfiles(cpuProfiles, { limit: 10, maxProfiles: 20 });
+  const heapProfileSummary = await summarizeHeapProfiles(heapProfiles, { limit: 10, maxProfiles: 20 });
 
   return {
     commandStatus: 0,
@@ -571,14 +584,18 @@ async function collectNodeProfileMetrics(artifactDir) {
     durationMs: Date.now() - startedAt,
     fileCount: artifacts.length,
     cpuProfileCount: cpuProfiles.length,
-    heapProfileCount: artifacts.filter((path) => /\.heapprofile$/i.test(path)).length,
+    heapProfileCount: heapProfiles.length,
+    reportCount: reports.length,
     traceEventCount: artifacts.filter((path) => /node-trace.*\.(json|log)$/i.test(path)).length,
     artifactBytes,
     cpuProfileSummary,
+    heapProfileSummary,
     artifacts,
     error: artifacts.length > 0 ? null : "node profile artifacts not emitted"
   };
 }
+
+export { collectNodeProfileMetrics };
 
 async function triggerHeapSnapshot(envName, pid, timeoutMs, artifactDir) {
   const command = `ocm env exec ${envName} -- sh -lc 'kill -USR2 ${Number(pid)} 2>/dev/null || true; sleep 1; find "$OPENCLAW_HOME" -maxdepth 6 -type f -name "*.heapsnapshot" -print 2>/dev/null | head -25'`;
@@ -596,6 +613,7 @@ async function triggerHeapSnapshot(envName, pid, timeoutMs, artifactDir) {
       if (!existsSync(file)) {
         continue;
       }
+      await waitForStableFile(file, Math.min(timeoutMs, 5000));
       const target = join(heapDir, basename(file));
       await cp(file, target, { force: true });
       artifactBytes += await fileSize(target);
@@ -616,12 +634,93 @@ async function triggerHeapSnapshot(envName, pid, timeoutMs, artifactDir) {
   };
 }
 
+async function triggerDiagnosticReport(envName, pid, timeoutMs, artifactDir, options = {}) {
+  const signalCommand = options.signalAlreadySent === true ? ":" : `kill -USR2 ${Number(pid)} 2>/dev/null || true`;
+  const command = `ocm env exec ${envName} -- sh -lc '${signalCommand}; sleep 1; find "$OPENCLAW_HOME" -maxdepth 6 -type f \\( -name "report.*.json" -o -name "*diagnostic*.json" \\) -print 2>/dev/null | head -25'`;
+  const result = await runCommand(command, { timeoutMs, maxOutputChars: 100000 });
+  const files = result.status === 0
+    ? result.stdout.split("\n").map((line) => line.trim()).filter(Boolean)
+    : [];
+  files.push(...await collectLocalDiagnosticReports(artifactDir));
+  const uniqueFiles = [...new Set(files)];
+  const artifacts = [];
+
+  let artifactBytes = 0;
+  if (artifactDir && uniqueFiles.length > 0) {
+    const reportDir = join(artifactDir, "diagnostic-reports");
+    await mkdir(reportDir, { recursive: true });
+    for (const file of uniqueFiles) {
+      if (!existsSync(file)) {
+        continue;
+      }
+      const target = join(reportDir, basename(file));
+      await cp(file, target, { force: true });
+      artifactBytes += await fileSize(target);
+      artifacts.push(target);
+    }
+  }
+
+  return {
+    commandStatus: result.status,
+    durationMs: result.durationMs,
+    timedOut: result.timedOut,
+    requested: true,
+    fileCount: uniqueFiles.length,
+    artifactBytes,
+    files: uniqueFiles,
+    artifacts,
+    error: result.status === 0 ? null : firstOutputLine(result.stderr) || firstOutputLine(result.stdout) || "diagnostic report trigger unavailable"
+  };
+}
+
+async function collectLocalDiagnosticReports(artifactDir) {
+  const profileDir = artifactDir ? join(artifactDir, "node-profiles") : null;
+  if (!profileDir) {
+    return [];
+  }
+
+  try {
+    const entries = await readdir(profileDir, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isFile())
+      .map((entry) => join(profileDir, entry.name))
+      .filter((path) => /report\..*\.json$|diagnostic.*\.json$/i.test(path));
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+}
+
 async function fileSize(path) {
   try {
     return (await stat(path)).size;
   } catch {
     return 0;
   }
+}
+
+async function waitForStableFile(path, timeoutMs) {
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  let lastSize = -1;
+  let stableCount = 0;
+
+  while (Date.now() <= deadline) {
+    const size = await fileSize(path);
+    if (size > 0 && size === lastSize) {
+      stableCount += 1;
+      if (stableCount >= 2) {
+        return size;
+      }
+    } else {
+      stableCount = 0;
+      lastSize = size;
+    }
+    await sleep(250);
+  }
+
+  return lastSize;
 }
 
 function collectOpenClawDiagnostics(logs) {

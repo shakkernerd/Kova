@@ -1,0 +1,33 @@
+{
+  "head": {
+    "callFrame": {
+      "functionName": "(root)",
+      "url": "",
+      "lineNumber": 0,
+      "columnNumber": 0
+    },
+    "selfSize": 0,
+    "children": [
+      {
+        "callFrame": {
+          "functionName": "loadBundledPluginMetadata",
+          "url": "file:///openclaw/dist/plugins/metadata.js",
+          "lineNumber": 25,
+          "columnNumber": 8
+        },
+        "selfSize": 7340032,
+        "children": []
+      },
+      {
+        "callFrame": {
+          "functionName": "stageRuntimeDeps",
+          "url": "file:///openclaw/dist/plugins/runtime-deps.js",
+          "lineNumber": 91,
+          "columnNumber": 4
+        },
+        "selfSize": 3145728,
+        "children": []
+      }
+    ]
+  }
+}

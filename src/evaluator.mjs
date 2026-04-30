@@ -1,8 +1,5 @@
 export function evaluateRecord(record, scenario) {
-  if (record.status !== "PASS") {
-    return record;
-  }
-
+  const originalStatus = record.status;
   const thresholds = scenario.thresholds ?? {};
   const violations = [];
   const allResults = collectResults(record);
@@ -27,7 +24,10 @@ export function evaluateRecord(record, scenario) {
   const nodeTraceEventCount = countNodeProfileMetric(record, "traceEventCount");
   const nodeProfileArtifactBytes = countNodeProfileMetric(record, "artifactBytes");
   const nodeProfileTopFunction = collectNodeProfileTopFunction(record);
+  const nodeHeapTopFunction = collectNodeHeapTopFunction(record);
   const heapSnapshotBytes = countHeapSnapshotBytes(record);
+  const diagnosticReportCount = countDiagnosticReportMetric(record, "fileCount");
+  const diagnosticReportBytes = countDiagnosticReportMetric(record, "artifactBytes");
   const openclawDiagnostics = collectOpenClawDiagnostics(record);
   const timelineSummary = collectTimelineSummary(record);
   const runtimeDepsStagingMs = maxNullable(openclawDiagnostics.runtimeDepsStagingMs, timelineSummary.runtimeDepsStageMaxMs);
@@ -300,11 +300,20 @@ export function evaluateRecord(record, scenario) {
     nodeProfileTopFunction: nodeProfileTopFunction?.functionName ?? null,
     nodeProfileTopFunctionMs: nodeProfileTopFunction?.selfMs ?? null,
     nodeProfileTopFunctionUrl: nodeProfileTopFunction?.url ?? null,
+    nodeHeapTopFunction: nodeHeapTopFunction?.functionName ?? null,
+    nodeHeapTopFunctionMb: nodeHeapTopFunction?.selfSizeMb ?? null,
+    nodeHeapTopFunctionUrl: nodeHeapTopFunction?.url ?? null,
     heapSnapshotBytes,
+    diagnosticReportCount,
+    diagnosticReportBytes,
     resourceSampleCount: resourceSummary.sampleCount,
     resourceSampleArtifacts: resourceSummary.artifacts,
     resourcePeakCommandTreeRssMb: resourceSummary.peakCommandTreeRssMb,
     resourcePeakGatewayRssMb: resourceSummary.peakGatewayRssMb,
+    resourcePeakRssAtMs: resourceSummary.peakRssSample?.elapsedMs ?? null,
+    resourcePeakCpuAtMs: resourceSummary.peakCpuSample?.elapsedMs ?? null,
+    resourcePeakRssProcess: compactSampleProcess(resourceSummary.peakRssSample?.topProcess),
+    resourcePeakCpuProcess: compactSampleProcess(resourceSummary.peakCpuSample?.topProcess),
     resourceTopByRss: resourceSummary.topByRss,
     resourceTopByCpu: resourceSummary.topByCpu,
     openclawTimelineAvailable: timelineSummary.available,
@@ -321,12 +330,25 @@ export function evaluateRecord(record, scenario) {
     configNormalizationCount: openclawDiagnostics.configNormalizationCount,
     runtimeDepsStagingMs,
     eventLoopDelayMs,
-    providerModelTimingMs
+    providerModelTimingMs,
+    diagnosticCorrelation: buildDiagnosticCorrelation({
+      resourceSummary,
+      timelineSummary,
+      nodeProfileTopFunction,
+      nodeHeapTopFunction,
+      eventLoopDelayMs,
+      runtimeDepsStagingMs,
+      providerModelTimingMs
+    })
   };
 
   if (violations.length > 0) {
-    record.status = "FAIL";
+    if (originalStatus === "PASS") {
+      record.status = "FAIL";
+    }
     record.violations = violations;
+  } else {
+    delete record.violations;
   }
 
   return record;
@@ -554,6 +576,8 @@ function collectResourceSummary(results) {
   let maxTotalCpuPercent = null;
   let peakCommandTreeRssMb = null;
   let peakGatewayRssMb = null;
+  let peakRssSample = null;
+  let peakCpuSample = null;
   const artifacts = [];
   const byPid = new Map();
 
@@ -567,6 +591,8 @@ function collectResourceSummary(results) {
     maxTotalCpuPercent = maxNullable(maxTotalCpuPercent, samples.maxTotalCpuPercent);
     peakCommandTreeRssMb = maxNullable(peakCommandTreeRssMb, samples.peakCommandTreeRssMb);
     peakGatewayRssMb = maxNullable(peakGatewayRssMb, samples.peakGatewayRssMb);
+    peakRssSample = maxSample(peakRssSample, samples.peakRssSample, "totalRssMb");
+    peakCpuSample = maxSample(peakCpuSample, samples.peakCpuSample, "totalCpuPercent");
     if (samples.artifactPath) {
       artifacts.push(samples.artifactPath);
     }
@@ -597,9 +623,34 @@ function collectResourceSummary(results) {
     maxTotalCpuPercent,
     peakCommandTreeRssMb,
     peakGatewayRssMb,
+    peakRssSample,
+    peakCpuSample,
     artifacts,
     topByRss: processes.toSorted((left, right) => right.peakRssMb - left.peakRssMb).slice(0, 5),
     topByCpu: processes.toSorted((left, right) => right.maxCpuPercent - left.maxCpuPercent).slice(0, 5)
+  };
+}
+
+function maxSample(current, candidate, key) {
+  if (!candidate || typeof candidate[key] !== "number") {
+    return current;
+  }
+  if (!current || candidate[key] > current[key]) {
+    return candidate;
+  }
+  return current;
+}
+
+function compactSampleProcess(process) {
+  if (!process) {
+    return null;
+  }
+  return {
+    pid: process.pid ?? null,
+    role: process.role ?? null,
+    rssMb: process.rssMb ?? process.peakRssMb ?? null,
+    cpuPercent: process.cpuPercent ?? process.maxCpuPercent ?? null,
+    command: process.command ?? null
   };
 }
 
@@ -714,16 +765,11 @@ function countLogMetric(record, key) {
 
 function countHeapSnapshotBytes(record) {
   let count = 0;
-  for (const phase of record.phases ?? []) {
-    const value = phase.metrics?.heapSnapshot?.artifactBytes;
+  for (const metrics of allMetricObjects(record)) {
+    const value = metrics?.heapSnapshot?.artifactBytes;
     if (typeof value === "number") {
       count = Math.max(count, value);
     }
-  }
-
-  const finalValue = record.finalMetrics?.heapSnapshot?.artifactBytes;
-  if (typeof finalValue === "number") {
-    count = Math.max(count, finalValue);
   }
   return count;
 }
@@ -758,6 +804,111 @@ function collectNodeProfileTopFunction(record) {
   return top;
 }
 
+function collectNodeHeapTopFunction(record) {
+  let top = null;
+  for (const metrics of allMetricObjects(record)) {
+    const candidate = metrics?.nodeProfiles?.heapProfileSummary?.topFunctions?.[0];
+    if (!candidate || typeof candidate.selfSizeMb !== "number") {
+      continue;
+    }
+    if (!top || candidate.selfSizeMb > top.selfSizeMb) {
+      top = candidate;
+    }
+  }
+  return top;
+}
+
+function countDiagnosticReportMetric(record, key) {
+  let count = 0;
+  for (const metrics of allMetricObjects(record)) {
+    const value = metrics?.diagnosticReport?.[key];
+    if (typeof value === "number") {
+      count = Math.max(count, value);
+    }
+  }
+  return count;
+}
+
+function buildDiagnosticCorrelation({
+  resourceSummary,
+  timelineSummary,
+  nodeProfileTopFunction,
+  nodeHeapTopFunction,
+  eventLoopDelayMs,
+  runtimeDepsStagingMs,
+  providerModelTimingMs
+}) {
+  const findings = [];
+  if (resourceSummary.peakCpuSample) {
+    findings.push({
+      kind: "cpu-peak",
+      summary: `CPU peaked at ${resourceSummary.peakCpuSample.totalCpuPercent}% around ${resourceSummary.peakCpuSample.elapsedMs}ms`,
+      elapsedMs: resourceSummary.peakCpuSample.elapsedMs,
+      process: compactSampleProcess(resourceSummary.peakCpuSample.topProcess)
+    });
+  }
+  if (resourceSummary.peakRssSample) {
+    findings.push({
+      kind: "rss-peak",
+      summary: `RSS peaked at ${resourceSummary.peakRssSample.totalRssMb} MB around ${resourceSummary.peakRssSample.elapsedMs}ms`,
+      elapsedMs: resourceSummary.peakRssSample.elapsedMs,
+      process: compactSampleProcess(resourceSummary.peakRssSample.topProcess)
+    });
+  }
+  if (nodeProfileTopFunction) {
+    findings.push({
+      kind: "cpu-function",
+      summary: `Top sampled CPU function: ${nodeProfileTopFunction.functionName} ${nodeProfileTopFunction.selfMs}ms`,
+      functionName: nodeProfileTopFunction.functionName,
+      selfMs: nodeProfileTopFunction.selfMs,
+      url: nodeProfileTopFunction.url
+    });
+  }
+  if (nodeHeapTopFunction) {
+    findings.push({
+      kind: "heap-function",
+      summary: `Top sampled heap allocation function: ${nodeHeapTopFunction.functionName} ${nodeHeapTopFunction.selfSizeMb} MB`,
+      functionName: nodeHeapTopFunction.functionName,
+      selfSizeMb: nodeHeapTopFunction.selfSizeMb,
+      url: nodeHeapTopFunction.url
+    });
+  }
+  if (timelineSummary.slowestSpanName) {
+    findings.push({
+      kind: "openclaw-span",
+      summary: `Slowest OpenClaw span: ${timelineSummary.slowestSpanName} ${timelineSummary.slowestSpanMs}ms`,
+      span: timelineSummary.slowestSpanName,
+      durationMs: timelineSummary.slowestSpanMs
+    });
+  }
+  if (eventLoopDelayMs !== null) {
+    findings.push({
+      kind: "event-loop",
+      summary: `Max structured event-loop delay: ${eventLoopDelayMs}ms`,
+      durationMs: eventLoopDelayMs
+    });
+  }
+  if (runtimeDepsStagingMs !== null) {
+    findings.push({
+      kind: "runtime-deps",
+      summary: `Runtime dependency staging max: ${runtimeDepsStagingMs}ms`,
+      durationMs: runtimeDepsStagingMs
+    });
+  }
+  if (providerModelTimingMs !== null) {
+    findings.push({
+      kind: "provider-model",
+      summary: `Provider/model timing max: ${providerModelTimingMs}ms`,
+      durationMs: providerModelTimingMs
+    });
+  }
+  return {
+    schemaVersion: "kova.diagnosticCorrelation.v1",
+    findingCount: findings.length,
+    findings
+  };
+}
+
 function collectOpenClawDiagnostics(record) {
   const values = {
     pluginMetadataScanCount: null,
@@ -785,22 +936,18 @@ function collectOpenClawDiagnostics(record) {
 function allMetricObjects(record) {
   return [
     ...(record.phases ?? []).map((phase) => phase.metrics).filter(Boolean),
-    record.finalMetrics
+    record.finalMetrics,
+    record.failureDiagnostics
   ].filter(Boolean);
 }
 
 function countDiagnosticMetric(record, key) {
   let count = 0;
-  for (const phase of record.phases ?? []) {
-    const value = phase.metrics?.diagnostics?.[key];
+  for (const metrics of allMetricObjects(record)) {
+    const value = metrics?.diagnostics?.[key];
     if (typeof value === "number") {
       count = Math.max(count, value);
     }
-  }
-
-  const finalValue = record.finalMetrics?.diagnostics?.[key];
-  if (typeof finalValue === "number") {
-    count = Math.max(count, finalValue);
   }
   return count;
 }

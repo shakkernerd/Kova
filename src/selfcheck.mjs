@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { quoteShell, runCommand } from "./commands.mjs";
 import { summarizeCpuProfiles } from "./cpuprofile.mjs";
+import { summarizeHeapProfiles } from "./heapprofile.mjs";
 import { evaluateRecord } from "./evaluator.mjs";
 import { evaluateGate } from "./gate.mjs";
 import { assertSafeScenarioCommand } from "./safety.mjs";
@@ -58,6 +59,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await diagnosticsTimelineCheck());
     checks.push(readinessClassificationCheck());
     checks.push(await cpuProfileParserCheck());
+    checks.push(await heapProfileParserCheck());
     checks.push(await jsonCommandCheck(
       "dry-run-state-lifecycle-json",
       `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --state missing-plugin-index --report-dir ${quoteShell(tmp)} --json`,
@@ -441,6 +443,30 @@ async function cpuProfileParserCheck() {
       id: "cpu-profile-parser",
       status: "FAIL",
       command: "parse fixtures/diagnostics/sample.cpuprofile",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+async function heapProfileParserCheck() {
+  try {
+    const summary = await summarizeHeapProfiles(["fixtures/diagnostics/sample.heapprofile"], { limit: 3 });
+    assertEqual(summary.profileCount, 1, "heap profile count");
+    assertEqual(summary.parseErrorCount, 0, "heap profile parse errors");
+    assertEqual(summary.topFunctions[0]?.functionName, "loadBundledPluginMetadata", "top heap function");
+    assertEqual(summary.topFunctions[0]?.selfSizeMb, 7, "top heap size mb");
+    return {
+      id: "heap-profile-parser",
+      status: "PASS",
+      command: "parse fixtures/diagnostics/sample.heapprofile",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "heap-profile-parser",
+      status: "FAIL",
+      command: "parse fixtures/diagnostics/sample.heapprofile",
       durationMs: 0,
       message: error.message
     };

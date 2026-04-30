@@ -197,7 +197,12 @@ The repo has the first production skeleton:
 - gateway PID/RSS/CPU metrics on executed scenarios
 - continuous resource sampling during commands
 - optional Node CPU, heap, and trace profile artifacts with `--node-profile`
+- `--deep-profile` for CPU/heap/trace profiling, diagnostic reports, heap
+  snapshots, OpenClaw timeline envs, and denser resource sampling
 - optional OpenClaw diagnostics timeline ingestion
+- diagnostic correlation summaries that connect resource peaks, top profiler
+  functions, OpenClaw spans, event-loop delay, runtime deps, and provider/model
+  timing when available
 - threshold evaluation for command latency, peak RSS, missing dependency errors,
   and final gateway state
 - Markdown and JSON reports
@@ -205,6 +210,6 @@ The repo has the first production skeleton:
 - explicit execution mode
 - default cleanup of temporary envs
 
-Next work should make OpenClaw emit the diagnostics timeline contract so Kova can
-attribute slow spans, repeated plugin metadata scans, runtime dependency staging,
-provider/model loading, and event-loop delay to concrete OpenClaw phases.
+Next OpenClaw-side work should expand diagnostics timeline emission so Kova can
+attribute every slow startup phase to concrete OpenClaw spans rather than only
+external process/profile evidence.

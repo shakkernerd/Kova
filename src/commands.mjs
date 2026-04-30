@@ -244,6 +244,8 @@ function summarizeSamples(samples) {
   let maxTotalCpuPercent = null;
   let peakCommandTreeRssMb = null;
   let peakGatewayRssMb = null;
+  let peakRssSample = null;
+  let peakCpuSample = null;
   const byPid = new Map();
 
   for (const sample of samples) {
@@ -260,6 +262,22 @@ function summarizeSamples(samples) {
     maxTotalCpuPercent = maxNullable(maxTotalCpuPercent, totalCpuPercent);
     peakCommandTreeRssMb = maxNullable(peakCommandTreeRssMb, commandTreeRssMb);
     peakGatewayRssMb = maxNullable(peakGatewayRssMb, gatewayRssMb);
+    if (!peakRssSample || totalRssMb > peakRssSample.totalRssMb) {
+      peakRssSample = {
+        timestamp: sample.timestamp,
+        elapsedMs: sample.elapsedMs,
+        totalRssMb,
+        topProcess: sample.processes.toSorted((left, right) => right.rssMb - left.rssMb)[0] ?? null
+      };
+    }
+    if (!peakCpuSample || totalCpuPercent > peakCpuSample.totalCpuPercent) {
+      peakCpuSample = {
+        timestamp: sample.timestamp,
+        elapsedMs: sample.elapsedMs,
+        totalCpuPercent,
+        topProcess: sample.processes.toSorted((left, right) => right.cpuPercent - left.cpuPercent)[0] ?? null
+      };
+    }
 
     for (const process of sample.processes) {
       const existing = byPid.get(process.pid) ?? {
@@ -294,6 +312,8 @@ function summarizeSamples(samples) {
     maxTotalCpuPercent,
     peakCommandTreeRssMb,
     peakGatewayRssMb,
+    peakRssSample,
+    peakCpuSample,
     topByRss: processSummaries.toSorted((left, right) => right.peakRssMb - left.peakRssMb).slice(0, 5),
     topByCpu: processSummaries.toSorted((left, right) => right.maxCpuPercent - left.maxCpuPercent).slice(0, 5)
   };

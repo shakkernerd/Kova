@@ -19,6 +19,23 @@ OPENCLAW_DIAGNOSTICS_TIMELINE_PATH=<artifact-dir>/openclaw/timeline.jsonl
 OPENCLAW_DIAGNOSTICS_EVENT_LOOP=1
 ```
 
+When `--deep-profile` is enabled, Kova also launches OpenClaw commands with
+Node/V8 diagnostic flags through `NODE_OPTIONS`:
+
+```sh
+--cpu-prof
+--heap-prof
+--trace-events-enabled
+--heapsnapshot-signal=SIGUSR2
+--report-on-signal
+--report-signal=SIGUSR1
+```
+
+Kova stores the resulting raw profiles, trace events, diagnostic reports, and
+heap snapshots under the run artifact directory. Reports should summarize top
+functions, peak windows, and artifact counts rather than paste raw profiler
+content.
+
 OpenClaw should create the parent directory when needed and append JSON Lines to
 `OPENCLAW_DIAGNOSTICS_TIMELINE_PATH`. Writes should be best-effort and must not
 block the gateway hot path for long periods.
