@@ -77,8 +77,24 @@ export function validateStateShape(state, sourceName = "state") {
   if (state.source !== undefined) {
     validateSource(state.source, errors);
   }
+  if (state.auth !== undefined) {
+    validateAuth(state.auth, errors);
+  }
 
   assertNoShapeErrors(errors, sourceName);
+}
+
+function validateAuth(auth, errors) {
+  requireObject({ auth }, "auth", errors);
+  if (!auth || typeof auth !== "object" || Array.isArray(auth)) {
+    return;
+  }
+  if (auth.mode !== undefined && !["default", "mock", "live", "skip", "missing", "broken", "none"].includes(auth.mode)) {
+    errors.push("auth.mode must be one of default, mock, live, skip, missing, broken, none");
+  }
+  if (auth.reason !== undefined && (typeof auth.reason !== "string" || auth.reason.length === 0)) {
+    errors.push("auth.reason must be a non-empty string when set");
+  }
 }
 
 function validateKnownTraits(traits, errors) {

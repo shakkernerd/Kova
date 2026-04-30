@@ -51,25 +51,25 @@ export function runCommand(command, options = {}) {
     child.on("error", (error) => {
       clearTimeout(timer);
       settle({
-        command,
+        command: redact(command, options.redactValues),
         status: 127,
         signal: null,
         timedOut,
         durationMs: Date.now() - startedAt,
-        stdout,
-        stderr: error.message
+        stdout: redact(stdout, options.redactValues),
+        stderr: redact(error.message, options.redactValues)
       });
     });
     child.on("close", (status, signal) => {
       clearTimeout(timer);
       settle({
-        command,
+        command: redact(command, options.redactValues),
         status: timedOut ? 124 : (status ?? 1),
         signal,
         timedOut,
         durationMs: Date.now() - startedAt,
-        stdout: truncate(stdout, options.maxOutputChars ?? 20000),
-        stderr: truncate(stderr, options.maxOutputChars ?? 20000)
+        stdout: truncate(redact(stdout, options.redactValues), options.maxOutputChars ?? 20000),
+        stderr: truncate(redact(stderr, options.redactValues), options.maxOutputChars ?? 20000)
       });
     });
 
@@ -95,4 +95,15 @@ function truncate(value, limit = 20000) {
     return value;
   }
   return `${value.slice(0, limit)}\n[truncated ${value.length - limit} chars]`;
+}
+
+function redact(value, secrets = []) {
+  let output = String(value ?? "");
+  for (const secret of secrets ?? []) {
+    if (typeof secret !== "string" || secret.length === 0) {
+      continue;
+    }
+    output = output.replaceAll(secret, "[REDACTED]");
+  }
+  return output;
 }

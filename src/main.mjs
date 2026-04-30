@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { bundleReport, retainGateArtifacts } from "./artifacts.mjs";
+import { authReportSummary, resolveRunAuthContext } from "./auth.mjs";
 import { quoteShell, runCommand } from "./commands.mjs";
 import { compareReports, renderCompareFixerSummary, renderCompareSummary } from "./compare.mjs";
 import { parseFlags, printHelp, required, resolveFromCwd } from "./cli.mjs";
@@ -292,6 +293,7 @@ async function matrixRun(flags) {
   const fromPlan = flags.from ? resolveTarget(flags.from, "from") : null;
   const entries = applyMatrixControls(await expandProfile(profile), flags, platformInfo());
   const controls = matrixControlSummary(flags, targetPlan);
+  const auth = await resolveRunAuthContext(flags);
   const regressionThresholds = await loadRegressionThresholds(flags);
   const baselinePath = resolveBaselinePath(flags.baseline);
   const saveBaselinePath = resolveBaselinePath(flags.save_baseline);
@@ -331,7 +333,8 @@ async function matrixRun(flags) {
       resourceSampleIntervalMs: profileIntegerFlag(flags, "resource_sample_interval_ms", flags.deep_profile === true ? 250 : 1000),
       processRoles: registry.processRoles,
       surfacesById: Object.fromEntries(registry.surfaces.map((surface) => [surface.id, surface])),
-      targetSetup
+      targetSetup,
+      auth
     };
 
     if (entry.skipReason) {
@@ -369,6 +372,7 @@ async function matrixRun(flags) {
     target,
     from: flags.from ?? null,
     controls,
+    auth: authReportSummary(auth),
     state: null,
     platform: platformInfo(),
     targetCleanup,
@@ -799,6 +803,7 @@ async function run(flags) {
   const reportPath = join(reportRoot, `${runId}.md`);
   const jsonPath = join(reportRoot, `${runId}.json`);
   const repeat = positiveIntegerFlag(flags, "repeat", 1);
+  const auth = await resolveRunAuthContext(flags);
   const regressionThresholds = await loadRegressionThresholds(flags);
   const baselinePath = resolveBaselinePath(flags.baseline);
   const saveBaselinePath = resolveBaselinePath(flags.save_baseline);
@@ -826,7 +831,8 @@ async function run(flags) {
     resourceSampleIntervalMs: profileIntegerFlag(flags, "resource_sample_interval_ms", flags.deep_profile === true ? 250 : 1000),
     processRoles: registry.processRoles,
     surfacesById: Object.fromEntries(registry.surfaces.map((surface) => [surface.id, surface])),
-    targetSetup: { completed: false }
+    targetSetup: { completed: false },
+    auth
   };
   const records = [];
 
@@ -867,10 +873,12 @@ async function run(flags) {
     },
     platform: platformInfo(),
     targetCleanup,
+    auth: authReportSummary(auth),
     controls: {
       repeat,
       baseline: baselinePath,
-      saveBaseline: saveBaselinePath
+      saveBaseline: saveBaselinePath,
+      auth: auth.requestedMode
     },
     performance,
     baseline: null,

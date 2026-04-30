@@ -36,6 +36,21 @@ kova.report.v1
     "node": "v24.13.0"
   },
   "targetCleanup": null,
+  "auth": {
+    "schemaVersion": "kova.auth.report.v1",
+    "requestedMode": "mock",
+    "credentialStore": {
+      "schemaVersion": "kova.credentials.summary.v1",
+      "home": "/Users/example/.kova/credentials"
+    },
+    "live": {
+      "available": false,
+      "providerId": "openai",
+      "method": "mock",
+      "envVars": ["OPENAI_API_KEY"],
+      "reason": "no live provider configured"
+    }
+  },
   "performance": {
     "schemaVersion": "kova.performance.v1",
     "repeat": 3,
@@ -87,6 +102,8 @@ Important fields:
 - `from`: optional source selector
 - `state`: OpenClaw user-state fixture
 - `envName`: disposable Kova/OCM env name
+- `auth`: selected run-level auth policy for this scenario; secret values are
+  always redacted
 - `thresholds`: scenario threshold contract
 - `collectorArtifactDirs`: stable per-record artifact directories used by
   collectors

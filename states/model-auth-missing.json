@@ -34,6 +34,10 @@
     "missing-auth",
     "failure-state"
   ],
+  "auth": {
+    "mode": "missing",
+    "reason": "This state intentionally tests missing model credentials."
+  },
   "compatibleSurfaces": [
     "provider-models"
   ],

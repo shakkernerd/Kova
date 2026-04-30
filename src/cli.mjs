@@ -36,11 +36,12 @@ Usage:
   kova version [--json]
   kova --version
   kova setup [--ci] [--json]
+  kova setup auth [--provider <id>] [--method <mock|api-key|env-only|external-cli|oauth|skip>] [--env-var <name>] [--value <secret>] [--external-cli <name>] [--json]
   kova self-check [--json]
   kova plan [--scenario <id>] [--json]
-  kova run --target <selector> [--from <selector>] [--scenario <id>] [--state <id>] [--repeat <n>] [--baseline [path]] [--save-baseline [path]] [--regression-thresholds <json>] [--report-dir <path>] [--health-samples <n>] [--readiness-interval-ms <n>] [--resource-sample-interval-ms <n>] [--deep-profile] [--node-profile] [--heap-snapshot] [--profile-on-failure] [--execute] [--keep-env] [--retain-on-failure] [--json]
+  kova run --target <selector> [--from <selector>] [--scenario <id>] [--state <id>] [--auth <mock|live|skip>] [--repeat <n>] [--baseline [path]] [--save-baseline [path]] [--regression-thresholds <json>] [--report-dir <path>] [--health-samples <n>] [--readiness-interval-ms <n>] [--resource-sample-interval-ms <n>] [--deep-profile] [--node-profile] [--heap-snapshot] [--profile-on-failure] [--execute] [--keep-env] [--retain-on-failure] [--json]
   kova matrix plan --profile <id> --target <selector> [--from <selector>] [--include <filter>] [--exclude <filter>] [--parallel <n>] [--json]
-  kova matrix run --profile <id> --target <selector> [--from <selector>] [--include <filter>] [--exclude <filter>] [--parallel <n>] [--repeat <n>] [--baseline [path]] [--save-baseline [path]] [--regression-thresholds <json>] [--fail-fast] [--gate] [--report-dir <path>] [--health-samples <n>] [--readiness-interval-ms <n>] [--resource-sample-interval-ms <n>] [--deep-profile] [--node-profile] [--heap-snapshot] [--profile-on-failure] [--execute] [--keep-env] [--retain-on-failure] [--json]
+  kova matrix run --profile <id> --target <selector> [--from <selector>] [--include <filter>] [--exclude <filter>] [--auth <mock|live|skip>] [--parallel <n>] [--repeat <n>] [--baseline [path]] [--save-baseline [path]] [--regression-thresholds <json>] [--fail-fast] [--gate] [--report-dir <path>] [--health-samples <n>] [--readiness-interval-ms <n>] [--resource-sample-interval-ms <n>] [--deep-profile] [--node-profile] [--heap-snapshot] [--profile-on-failure] [--execute] [--keep-env] [--retain-on-failure] [--json]
   kova report summarize <report.json> [--json]
   kova report paste <report.json>
   kova report compare <baseline.json> <current.json> [--thresholds <json>] [--fixer] [--json]
@@ -61,6 +62,7 @@ Notes:
   Kova reports on OpenClaw behavior, not OCM behavior.
   run is dry-run/report-only unless --execute is passed.
   --repeat records independent samples and computes aggregate performance stats.
+  --auth defaults to mock so every disposable env has deliberate model auth unless a scenario opts out.
   --baseline compares executed aggregates against a Kova baseline store; without a path it uses the default store.
   --save-baseline writes executed aggregates into the selected baseline store.
   --deep-profile enables Node CPU/heap/trace profiling, OpenClaw timeline envs,

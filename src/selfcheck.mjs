@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { quoteShell, runCommand } from "./commands.mjs";
@@ -38,6 +38,12 @@ export async function runSelfCheck(flags = {}) {
       assertEqual(data.ok, true, "setup ok");
       assertArrayNotEmpty(data.checks, "setup checks");
     }));
+    checks.push(await credentialStoreSelfCheck(tmp));
+    checks.push(await failingCommandCheck(
+      "live-auth-requires-credentials",
+      `KOVA_HOME=${quoteShell(join(tmp, "empty-auth-home"))} node bin/kova.mjs run --target runtime:stable --scenario fresh-install --auth live --json`,
+      "--auth live requires configured live credentials"
+    ));
     checks.push(await jsonCommandCheck("plan-json", "node bin/kova.mjs plan --json", (data) => {
       assertEqual(data.schemaVersion, "kova.plan.v1", "plan schema");
       assertArrayNotEmpty(data.surfaces, "plan surfaces");
@@ -60,6 +66,24 @@ export async function runSelfCheck(flags = {}) {
     }));
     checks.push(await jsonCommandCheck("matrix-plan-repeat-json", "node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --include scenario:fresh-install --repeat 3 --json", (data) => {
       assertEqual(data.controls?.repeat, 3, "matrix repeat control");
+    }));
+    checks.push(await jsonCommandCheck("run-auth-default-mock-json", `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --report-dir ${quoteShell(tmp)} --json`, async (data) => {
+      const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
+      const record = report.records?.[0];
+      assertEqual(record?.auth?.mode, "mock", "default auth mode");
+      const phaseIds = record?.phases?.map((phase) => phase.id) ?? [];
+      if (!phaseIds.includes("auth-prepare") || !phaseIds.includes("auth-setup") || !phaseIds.includes("auth-cleanup")) {
+        throw new Error(`default mock auth phases missing: ${phaseIds.join(", ")}`);
+      }
+    }));
+    checks.push(await jsonCommandCheck("run-auth-missing-override-json", `node bin/kova.mjs run --target runtime:stable --scenario provider-models --state model-auth-missing --report-dir ${quoteShell(tmp)} --json`, async (data) => {
+      const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
+      const record = report.records?.[0];
+      assertEqual(record?.auth?.mode, "missing", "missing auth override mode");
+      const phaseIds = record?.phases?.map((phase) => phase.id) ?? [];
+      if (phaseIds.includes("auth-prepare") || phaseIds.includes("auth-setup")) {
+        throw new Error(`missing auth override should not inject auth phases: ${phaseIds.join(", ")}`);
+      }
     }));
     checks.push(await jsonCommandCheck("diagnostic-profile-plan-json", "node bin/kova.mjs matrix plan --profile diagnostic --target local-build:/tmp/openclaw --include scenario:release-runtime-startup --json", (data) => {
       assertEqual(data.schemaVersion, "kova.matrix.plan.v1", "diagnostic matrix plan schema");
@@ -120,7 +144,9 @@ export async function runSelfCheck(flags = {}) {
       `node bin/kova.mjs run --target runtime:stable --scenario upgrade-existing-user --source-env 'Team Env' --report-dir ${quoteShell(tmp)} --json`,
       async (data) => {
         const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
-        const command = report.records?.[0]?.phases?.[0]?.commands?.[0] ?? "";
+        const command = report.records?.[0]?.phases
+          ?.flatMap((phase) => phase.commands ?? [])
+          ?.find((item) => item.includes("ocm env clone")) ?? "";
         if (!command.includes("ocm env clone 'Team Env'")) {
           throw new Error(`source env was not shell-quoted: ${command}`);
         }
@@ -1219,6 +1245,39 @@ async function commandCheck(id, command) {
     durationMs: result.durationMs,
     message: result.status === 0 ? "" : result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`
   };
+}
+
+async function credentialStoreSelfCheck(tmp) {
+  const home = join(tmp, "credentials-home");
+  const command = `KOVA_HOME=${quoteShell(home)} node bin/kova.mjs setup auth --method env-only --provider openai --env-var OPENAI_API_KEY --json`;
+  const result = await runCommand(command, { timeoutMs: 30000, maxOutputChars: 1000000 });
+  try {
+    if (result.status !== 0) {
+      throw new Error(result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`);
+    }
+    const data = JSON.parse(result.stdout);
+    assertEqual(data.schemaVersion, "kova.setup.auth.v1", "setup auth schema");
+    const liveEnv = join(home, "credentials", "live.env");
+    const metadata = await stat(liveEnv);
+    const mode = metadata.mode & 0o777;
+    if (mode !== 0o600) {
+      throw new Error(`live.env permissions expected 0600, got ${mode.toString(8)}`);
+    }
+    return {
+      id: "credential-store",
+      status: "PASS",
+      command,
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "credential-store",
+      status: "FAIL",
+      command,
+      durationMs: result.durationMs,
+      message: error.message
+    };
+  }
 }
 
 async function failingCommandCheck(id, command, expectedMessage) {

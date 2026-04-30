@@ -2,11 +2,17 @@ import { access, mkdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import { checkCommand, runCommand } from "./commands.mjs";
 import { platformInfo } from "./platform.mjs";
-import { artifactsDir, reportsDir } from "./paths.mjs";
+import { artifactsDir, credentialsDir, liveEnvPath, providersPath, reportsDir } from "./paths.mjs";
+import { configureCredentialProvider, ensureCredentialStore } from "./auth.mjs";
 
 const requiredNodeMajor = 22;
 
 export async function runSetup(flags = {}) {
+  if (flags._?.[0] === "auth") {
+    await runAuthSetup(flags);
+    return;
+  }
+
   const checks = [];
 
   checks.push(nodeVersionCheck());
@@ -21,6 +27,7 @@ export async function runSetup(flags = {}) {
   }));
   checks.push(await directoryCheck("reports-dir", reportsDir));
   checks.push(await directoryCheck("artifacts-dir", artifactsDir));
+  checks.push(await credentialStoreCheck());
   checks.push(skillGuidanceCheck());
 
   const ok = checks.every((check) => !check.required || check.status === "PASS");
@@ -55,6 +62,35 @@ export async function runSetup(flags = {}) {
   if (!ok) {
     throw new Error("setup found missing required prerequisites");
   }
+}
+
+async function runAuthSetup(flags) {
+  const method = flags.method ? String(flags.method) : "mock";
+  const result = await configureCredentialProvider({
+    provider: flags.provider ? String(flags.provider) : "openai",
+    method,
+    envVar: flags.env_var ? String(flags.env_var) : undefined,
+    value: flags.value ? String(flags.value) : undefined,
+    externalCli: flags.external_cli ? String(flags.external_cli) : undefined,
+    fallbackPolicy: flags.fallback_policy ? String(flags.fallback_policy) : "mock"
+  });
+
+  const response = {
+    schemaVersion: "kova.setup.auth.v1",
+    generatedAt: new Date().toISOString(),
+    ok: true,
+    credentials: result
+  };
+
+  if (flags.json) {
+    console.log(JSON.stringify(response, null, 2));
+    return;
+  }
+
+  console.log(`PASS credentials-dir: ${credentialsDir}`);
+  console.log(`PASS providers: ${providersPath}`);
+  console.log(`PASS live-env: ${liveEnvPath}`);
+  console.log(`PASS provider ${response.credentials.defaultProvider}: ${method}`);
 }
 
 function nodeVersionCheck() {
@@ -136,6 +172,31 @@ async function directoryCheck(id, path) {
       required: true,
       status: "FAIL",
       path,
+      message: error.message
+    };
+  }
+}
+
+async function credentialStoreCheck() {
+  try {
+    const summary = await ensureCredentialStore();
+    return {
+      id: "credentials",
+      required: true,
+      status: "PASS",
+      path: credentialsDir,
+      providersPath,
+      liveEnvPath,
+      message: `${summary.defaultProvider} ${summary.providers?.[summary.defaultProvider]?.method ?? "mock"}`
+    };
+  } catch (error) {
+    return {
+      id: "credentials",
+      required: true,
+      status: "FAIL",
+      path: credentialsDir,
+      providersPath,
+      liveEnvPath,
       message: error.message
     };
   }

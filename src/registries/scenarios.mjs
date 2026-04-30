@@ -26,6 +26,9 @@ export function validateScenarioShape(scenario, sourceName = "scenario") {
   if (scenario.platforms !== undefined) {
     validatePlatforms(scenario.platforms, "platforms", errors);
   }
+  if (scenario.auth !== undefined) {
+    validateAuth(scenario.auth, "auth", errors);
+  }
 
   validateStringArray(scenario.tags, "tags", errors);
   validateStringArray(scenario.states, "states", errors, { optional: true });
@@ -33,6 +36,16 @@ export function validateScenarioShape(scenario, sourceName = "scenario") {
   validatePhases(scenario.phases, errors);
 
   assertNoShapeErrors(errors, sourceName);
+}
+
+function validateAuth(auth, prefix, errors) {
+  if (!auth || typeof auth !== "object" || Array.isArray(auth)) {
+    errors.push(`${prefix} must be an object`);
+    return;
+  }
+  if (auth.mode !== undefined && !["default", "mock", "live", "skip", "missing", "broken", "none"].includes(auth.mode)) {
+    errors.push(`${prefix}.mode must be one of default, mock, live, skip, missing, broken, none`);
+  }
 }
 
 function validatePhases(phases, errors) {

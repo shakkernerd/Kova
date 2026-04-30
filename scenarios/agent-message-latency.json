@@ -27,7 +27,7 @@
       "title": "Run Local Agent Turn",
       "intent": "Use OpenClaw's real local embedded agent CLI command and require a JSON assistant response.",
       "commands": [
-        "OPENAI_API_KEY=kova-mock-key ocm @{env} -- agent --local --agent main --session-id kova-agent-message-latency --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 120 --json"
+        "ocm @{env} -- agent --local --agent main --session-id kova-agent-message-latency --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 120 --json"
       ],
       "evidence": ["agent command duration", "final assistant text", "mock provider request log", "token usage"]
     },

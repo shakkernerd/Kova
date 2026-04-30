@@ -43,6 +43,7 @@ codex skills install https://github.com/shakkernerd/ocm/tree/main/skills/ocm-ope
 ```sh
 node bin/kova.mjs version
 node bin/kova.mjs setup
+node bin/kova.mjs setup auth --method env-only --provider openai --env-var OPENAI_API_KEY
 node bin/kova.mjs setup --json
 node bin/kova.mjs self-check
 node bin/kova.mjs plan
@@ -58,8 +59,25 @@ node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --state mi
 node bin/kova.mjs cleanup envs
 ```
 
+Kova runtime data lives outside the repo by default:
+
+```text
+~/.kova/
+  credentials/
+  reports/
+  artifacts/
+  baselines/
+```
+
+Set `KOVA_HOME` to use a different data home.
+
 `run` is dry-run by default. It writes Markdown and JSON reports showing the
 planned OpenClaw scenario.
+
+Every Kova-created disposable OpenClaw env receives deliberate model auth unless
+the scenario/state explicitly tests missing or broken auth. `--auth mock` is the
+default and uses Kova's deterministic local OpenAI-compatible provider.
+`--auth live` requires credentials configured through `kova setup auth`.
 
 `plan --json` is coverage-aware: scenarios map to declared OpenClaw surfaces,
 surfaces declare process roles and required metrics, and profile coverage gaps
@@ -76,6 +94,7 @@ node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --state st
 node bin/kova.mjs run --target npm:2026.4.27 --scenario gateway-performance --execute --node-profile
 node bin/kova.mjs run --target local-build:/path/to/openclaw --scenario release-runtime-startup --execute
 node bin/kova.mjs run --target npm:2026.4.27 --scenario plugin-external-install --execute
+node bin/kova.mjs run --target npm:2026.4.27 --scenario agent-message-latency --auth live --execute
 node bin/kova.mjs matrix run --profile smoke --target npm:2026.4.27 --execute
 node bin/kova.mjs matrix run --profile release --target npm:2026.4.27 --include tag:plugins --exclude state:broken-plugin-deps --parallel 2 --execute
 ```

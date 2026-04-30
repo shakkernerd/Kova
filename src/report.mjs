@@ -70,6 +70,9 @@ export function renderMarkdownReport(report) {
     if (record.state) {
       lines.push(`- State: \`${record.state.id}\` (${record.state.title})`);
     }
+    if (record.auth) {
+      lines.push(`- Auth: ${record.auth.mode} (${record.auth.source}; provider ${record.auth.providerId ?? "none"})`);
+    }
     lines.push(`- Harness env: \`${record.envName}\``);
     lines.push(`- Likely owner on failure: ${record.likelyOwner}`);
     lines.push(`- Objective: ${record.objective}`);

@@ -1,4 +1,10 @@
 import { runCommand } from "./commands.mjs";
+import {
+  buildAuthCleanupPhase,
+  buildAuthPreparePhase,
+  buildAuthSetupPhase,
+  scenarioAuthPolicy
+} from "./auth.mjs";
 import { materializeCommands } from "./registries/scenarios.mjs";
 import { quoteShell } from "./commands.mjs";
 import { collectEnvMetrics, collectNodeProfileMetrics } from "./metrics.mjs";
@@ -17,6 +23,7 @@ export function createRunId() {
 export function buildDryRunRecord(scenario, context) {
   const envName = envNameFor(scenario.id, context.state?.id, context.runId, context.repeat);
   const artifactDir = join(artifactsDir, context.runId, envName);
+  const authPolicy = scenarioAuthPolicy(context, scenario, context.state);
 
   return {
     scenario: scenario.id,
@@ -32,8 +39,9 @@ export function buildDryRunRecord(scenario, context) {
     objective: scenario.objective,
     thresholds: scenario.thresholds,
     cleanup: context.keepEnv ? "retained" : "planned",
+    auth: authPolicy.summary,
     collectorArtifactDirs: collectorArtifactDirs(artifactDir),
-    phases: buildPlannedPhases(scenario, context, envName, artifactDir)
+    phases: buildPlannedPhases(scenario, context, envName, artifactDir, authPolicy)
   };
 }
 
@@ -51,6 +59,7 @@ export async function executeScenario(scenario, context) {
   assertKovaEnvName(envName, "generated env");
   const artifactDir = join(artifactsDir, context.runId, envName);
   const record = buildDryRunRecord(scenario, context);
+  const authPolicy = scenarioAuthPolicy(context, scenario, context.state);
   record.status = "PASS";
   record.startedAt = new Date().toISOString();
   record.artifactDir = artifactDir;
@@ -78,7 +87,24 @@ export async function executeScenario(scenario, context) {
     }
 
     if (!scenarioFailed) {
-      const preparePhase = await executeStateLifecycleSteps(context, envName, scenario, "prepare", context.state?.prepare ?? [], artifactDir);
+      const authPreparePhase = await executeAuthPhase(
+        buildAuthPreparePhase(authPolicy, artifactDir),
+        context,
+        envName,
+        artifactDir,
+        authPolicy
+      );
+      if (authPreparePhase) {
+        record.phases.push(authPreparePhase);
+        if (authPreparePhase.results.some((result) => result.status !== 0)) {
+          record.status = "BLOCKED";
+          scenarioFailed = true;
+        }
+      }
+    }
+
+    if (!scenarioFailed) {
+      const preparePhase = await executeStateLifecycleSteps(context, envName, scenario, "prepare", context.state?.prepare ?? [], artifactDir, null, authPolicy);
       if (preparePhase) {
         record.phases.push(preparePhase);
         if (preparePhase.results.some((result) => result.status !== 0)) {
@@ -97,7 +123,7 @@ export async function executeScenario(scenario, context) {
         const commands = materializeCommands(phase.commands ?? [], commandValues(context, envName));
         const results = [];
         for (const [commandIndex, command] of commands.entries()) {
-          const result = await runScenarioCommand(command, context, envName, artifactDir, phase.id, commandIndex);
+          const result = await runScenarioCommand(command, context, envName, artifactDir, phase.id, commandIndex, authPolicy);
           results.push(result);
           if (result.status !== 0) {
             scenarioFailed = true;
@@ -116,7 +142,23 @@ export async function executeScenario(scenario, context) {
           metrics: await collectEnvMetrics(envName, metricOptions(context, scenario, phase, artifactDir))
         });
 
-        const statePhase = await executeStateSetupAfterPhase(context, envName, phase.id, scenario, artifactDir);
+        const authSetupPhase = shouldApplyAuthAfterPhase(phase, authPolicy, record)
+          ? await executeAuthPhase(buildAuthSetupPhase(authPolicy, envName, artifactDir), context, envName, artifactDir, authPolicy)
+          : null;
+        if (authSetupPhase) {
+          record.phases.push(authSetupPhase);
+          record.auth = authPolicy.summary;
+          record.auth.applied = authSetupPhase.results.every((result) => result.status === 0);
+          if (authSetupPhase.results.some((result) => result.status !== 0)) {
+            scenarioFailed = true;
+            record.status = "BLOCKED";
+          }
+        }
+        if (scenarioFailed) {
+          break;
+        }
+
+        const statePhase = await executeStateSetupAfterPhase(context, envName, phase.id, scenario, artifactDir, authPolicy);
         if (statePhase) {
           record.phases.push(statePhase);
           if (statePhase.results.some((result) => result.status !== 0)) {
@@ -146,7 +188,20 @@ export async function executeScenario(scenario, context) {
 
     const shouldRetain = context.keepEnv || (context.retainOnFailure && record.status !== "PASS");
     if (!shouldRetain) {
-      const cleanupPhase = await executeStateLifecycleSteps(context, envName, scenario, "cleanup", context.state?.cleanup ?? [], artifactDir);
+      const authCleanupPhase = await executeAuthPhase(
+        buildAuthCleanupPhase(authPolicy, artifactDir),
+        context,
+        envName,
+        artifactDir,
+        authPolicy
+      );
+      if (authCleanupPhase) {
+        record.phases.push(authCleanupPhase);
+        if (authCleanupPhase.results.some((result) => result.status !== 0) && record.status === "PASS") {
+          record.status = "BLOCKED";
+        }
+      }
+      const cleanupPhase = await executeStateLifecycleSteps(context, envName, scenario, "cleanup", context.state?.cleanup ?? [], artifactDir, null, authPolicy);
       if (cleanupPhase) {
         record.phases.push(cleanupPhase);
         if (cleanupPhase.results.some((result) => result.status !== 0) && record.status === "PASS") {
@@ -264,20 +319,25 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function executeStateSetupAfterPhase(context, envName, phaseId, scenario, artifactDir) {
+async function executeStateSetupAfterPhase(context, envName, phaseId, scenario, artifactDir, authPolicy) {
   const steps = (context.state?.setup ?? []).filter((step) => stateStepMatchesPhase(step, phaseId));
   if (steps.length === 0) {
     return null;
   }
 
-  return executeStateLifecycleSteps(context, envName, scenario, `state-${phaseId}`, steps, artifactDir, phaseId);
+  return executeStateLifecycleSteps(context, envName, scenario, `state-${phaseId}`, steps, artifactDir, phaseId, authPolicy);
 }
 
-function buildPlannedPhases(scenario, context, envName, artifactDir) {
+function buildPlannedPhases(scenario, context, envName, artifactDir, authPolicy) {
   const phases = [];
   const targetSetupPhase = buildTargetSetupPhase(context, envName);
   if (targetSetupPhase) {
     phases.push(targetSetupPhase);
+  }
+
+  const authPreparePhase = buildAuthPreparePhase(authPolicy, artifactDir);
+  if (authPreparePhase) {
+    phases.push(authPreparePhase);
   }
 
   const preparePhase = buildStateLifecyclePhase(context, envName, scenario, "prepare", context.state?.prepare ?? [], artifactDir);
@@ -297,6 +357,13 @@ function buildPlannedPhases(scenario, context, envName, artifactDir) {
       evidence: phase.evidence ?? []
     });
 
+    if (phaseSupportsAuthSetup(phase, authPolicy) && !phases.some((planned) => planned.id === "auth-setup")) {
+      const authSetupPhase = buildAuthSetupPhase(authPolicy, envName, artifactDir);
+      if (authSetupPhase) {
+        phases.push(authSetupPhase);
+      }
+    }
+
     const statePhase = buildStateLifecyclePhase(
       context,
       envName,
@@ -312,6 +379,10 @@ function buildPlannedPhases(scenario, context, envName, artifactDir) {
   }
 
   if (!context.keepEnv) {
+    const authCleanupPhase = buildAuthCleanupPhase(authPolicy, artifactDir);
+    if (authCleanupPhase) {
+      phases.push(authCleanupPhase);
+    }
     const cleanupPhase = buildStateLifecyclePhase(context, envName, scenario, "cleanup", context.state?.cleanup ?? [], artifactDir);
     if (cleanupPhase) {
       phases.push(cleanupPhase);
@@ -364,7 +435,7 @@ function buildStateLifecyclePhase(context, envName, scenario, kind, steps, artif
   };
 }
 
-async function executeStateLifecycleSteps(context, envName, scenario, kind, steps, artifactDir, phaseId = null) {
+async function executeStateLifecycleSteps(context, envName, scenario, kind, steps, artifactDir, phaseId = null, authPolicy = null) {
   if (!Array.isArray(steps) || steps.length === 0) {
     return null;
   }
@@ -379,7 +450,7 @@ async function executeStateLifecycleSteps(context, envName, scenario, kind, step
     evidence.push(...(step.evidence ?? []));
 
     for (const [commandIndex, command] of stepCommands.entries()) {
-      results.push(await runScenarioCommand(command, context, envName, artifactDir, kind, commandIndex));
+      results.push(await runScenarioCommand(command, context, envName, artifactDir, kind, commandIndex, authPolicy));
     }
   }
 
@@ -391,6 +462,21 @@ async function executeStateLifecycleSteps(context, envName, scenario, kind, step
     evidence,
     results,
     metrics: await collectEnvMetrics(envName, metricOptions(context, scenario, { id: phaseId }, artifactDir))
+  };
+}
+
+async function executeAuthPhase(phase, context, envName, artifactDir, authPolicy) {
+  if (!phase) {
+    return null;
+  }
+  const results = [];
+  for (const [commandIndex, command] of phase.commands.entries()) {
+    results.push(await runScenarioCommand(command, context, envName, artifactDir, phase.id, commandIndex, authPolicy));
+  }
+  return {
+    ...phase,
+    results,
+    metrics: await collectEnvMetrics(envName, metricOptions(context, null, { id: phase.id }, artifactDir))
   };
 }
 
@@ -497,11 +583,15 @@ function targetSetupCommand(targetPlan) {
   return `ocm runtime build-local ${quoteShell(targetPlan.runtimeName)} --repo ${quoteShell(targetPlan.repoPath)} --force`;
 }
 
-function runScenarioCommand(command, context, envName, artifactDir, phaseId, commandIndex) {
+function runScenarioCommand(command, context, envName, artifactDir, phaseId, commandIndex, authPolicy = null) {
   assertSafeScenarioCommand(command, context, envName);
   return runCommand(command, {
     timeoutMs: context.timeoutMs,
-    env: diagnosticsEnv(context, envName, artifactDir),
+    env: {
+      ...diagnosticsEnv(context, envName, artifactDir),
+      ...(authPolicy?.commandEnv ?? {})
+    },
+    redactValues: authPolicy?.redactionValues ?? context.auth?.redactionValues ?? [],
     resourceSample: context.resourceSampling === false ? null : {
       envName,
       intervalMs: context.resourceSampleIntervalMs,
@@ -509,6 +599,21 @@ function runScenarioCommand(command, context, envName, artifactDir, phaseId, com
       artifactPath: join(collectorArtifactDirs(artifactDir).resourceSamples, `${safeSegment(phaseId)}-${commandIndex + 1}.jsonl`)
     }
   });
+}
+
+function shouldApplyAuthAfterPhase(phase, authPolicy, record) {
+  if (!phaseSupportsAuthSetup(phase, authPolicy)) {
+    return false;
+  }
+  return !record.phases.some((planned) => planned.id === "auth-setup");
+}
+
+function phaseSupportsAuthSetup(phase, authPolicy) {
+  if (!authPolicy?.setup) {
+    return false;
+  }
+  const commands = phase.commands ?? [];
+  return commands.some((command) => /\bocm\s+(start|env clone)\b/.test(command));
 }
 
 function evaluatorContext(context, scenario) {
