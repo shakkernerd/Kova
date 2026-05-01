@@ -1,0 +1,47 @@
+{
+  "id": "browser-automation-smoke",
+  "surface": "browser-automation",
+  "title": "Browser Automation Smoke",
+  "objective": "Start OpenClaw's real browser automation surface, open a managed browser tab, capture browser state, stop the profile, and verify the gateway remains healthy.",
+  "tags": ["browser", "automation", "gateway", "plugins"],
+  "timeoutMs": 180000,
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "gatewayReadyHardTimeoutMs": 120000,
+    "statusMs": 10000,
+    "browserDoctorMs": 15000,
+    "browserStartMs": 30000,
+    "browserTabsMs": 10000,
+    "browserOpenMs": 15000,
+    "browserSnapshotMs": 15000,
+    "browserStopMs": 10000,
+    "browserTabCountMin": 1,
+    "browserProcessLeaks": 0,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0,
+    "peakRssMb": 1100
+  },
+  "phases": [
+    {
+      "id": "gateway",
+      "title": "Gateway Start",
+      "intent": "Start the gateway and prove it is healthy before browser automation.",
+      "commands": ["ocm start {env} {startSelector} --json", "ocm @{env} -- status"],
+      "evidence": ["gateway status", "gateway port", "readiness classification"]
+    },
+    {
+      "id": "browser-smoke",
+      "title": "Browser Automation Smoke",
+      "intent": "Use OpenClaw's browser CLI to start a managed headless profile, open a tab, list tabs, snapshot, and stop.",
+      "commands": ["node {kovaRoot}/support/browser-automation-smoke.mjs --env {env} --artifact-dir {artifactDir} --timeout-ms 45000"],
+      "evidence": ["browser start timing", "tabs timing", "opened tab count", "snapshot timing", "browser stop timing"]
+    },
+    {
+      "id": "post-browser-health",
+      "title": "Post-Browser Gateway Health",
+      "intent": "Verify browser automation did not leave the gateway degraded.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["status after browser automation", "browser plugin errors", "gateway errors"]
+    }
+  ]
+}

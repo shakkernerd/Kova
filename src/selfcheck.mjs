@@ -193,6 +193,15 @@ export async function runSelfCheck(flags = {}) {
       "mcp-runtime-role-patterns",
       "node -e \"const role=require('./process-roles/mcp-runtime.json'); if (role.commandPatterns.includes('mcp') || role.processPatterns.includes('mcp') || role.processPatterns.some((p)=>p.includes('modelcontextprotocol'))) process.exit(1);\""
     ));
+    checks.push(await jsonCommandCheck("browser-automation-dry-run-json", `node bin/kova.mjs run --target runtime:stable --scenario browser-automation-smoke --state fresh --report-dir ${quoteShell(tmp)} --json`, async (data) => {
+      const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
+      const record = report.records?.[0];
+      assertEqual(record?.surface, "browser-automation", "browser automation surface");
+      const commands = record?.phases?.flatMap((phase) => phase.commands ?? []) ?? [];
+      const browserCommand = commands.find((command) => command.includes("browser-automation-smoke.mjs")) ?? "";
+      assertEqual(browserCommand.includes("--artifact-dir '"), true, "browser helper receives quoted artifact dir");
+      assertEqual(record?.thresholds?.browserProcessLeaks, 0, "browser process leak threshold");
+    }));
     checks.push(await jsonCommandCheck("diagnostic-profile-plan-json", "node bin/kova.mjs matrix plan --profile diagnostic --target local-build:/tmp/openclaw --include scenario:release-runtime-startup --json", (data) => {
       assertEqual(data.schemaVersion, "kova.matrix.plan.v1", "diagnostic matrix plan schema");
       assertEqual(data.profile?.id, "diagnostic", "diagnostic profile id");
@@ -268,6 +277,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await soakLoopRunnerCheck(tmp));
     checks.push(soakTrendEvaluationCheck());
     checks.push(mcpBridgeEvidenceEvaluationCheck());
+    checks.push(browserAutomationEvidenceEvaluationCheck());
     checks.push(await jsonCommandCheck(
       "dry-run-state-lifecycle-json",
       `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --state missing-plugin-index --report-dir ${quoteShell(tmp)} --json`,
@@ -2333,6 +2343,106 @@ function mcpBridgeEvidenceEvaluationCheck() {
   }
 }
 
+function browserAutomationEvidenceEvaluationCheck() {
+  try {
+    const smoke = {
+      schemaVersion: "kova.browserAutomationSmoke.v1",
+      durationMs: 4200,
+      browserDoctorMs: 120,
+      browserStartMs: 1800,
+      browserTabsMs: 90,
+      browserOpenMs: 300,
+      browserSnapshotMs: 250,
+      browserStopMs: 180,
+      browserTabCount: 2,
+      browserSnapshotOk: true,
+      browserStopped: true,
+      errors: []
+    };
+    const record = {
+      scenario: "browser-automation-smoke",
+      status: "PASS",
+      phases: [{
+        id: "browser-smoke",
+        results: [{
+          command: "node support/browser-automation-smoke.mjs --env kova-self-check --artifact-dir /tmp/kova",
+          status: 0,
+          timedOut: false,
+          durationMs: 4200,
+          stdout: JSON.stringify(smoke),
+          stderr: ""
+        }],
+        metrics: { service: { gatewayState: "running" }, logs: zeroLogMetrics() }
+      }],
+      finalMetrics: { service: { gatewayState: "running" }, logs: zeroLogMetrics() }
+    };
+    evaluateRecord(record, {
+      id: "browser-automation-smoke",
+      thresholds: {
+        browserDoctorMs: 15000,
+        browserStartMs: 30000,
+        browserTabsMs: 10000,
+        browserOpenMs: 15000,
+        browserSnapshotMs: 15000,
+        browserStopMs: 10000,
+        browserTabCountMin: 1,
+        browserProcessLeaks: 0
+      }
+    }, { surface: { thresholds: {} }, targetPlan: { kind: "npm" } });
+
+    assertEqual(record.status, "PASS", "browser automation record status");
+    assertEqual(record.measurements.browserStartMs, 1800, "browser start ms");
+    assertEqual(record.measurements.browserOpenMs, 300, "browser open ms");
+    assertEqual(record.measurements.browserSnapshotMs, 250, "browser snapshot ms");
+    assertEqual(record.measurements.browserTabCount, 2, "browser tab count");
+    assertEqual(record.measurements.browserProcessLeaks, 0, "browser process leak count");
+
+    const failed = {
+      ...record,
+      status: "PASS",
+      violations: [],
+      measurements: undefined,
+      phases: [{
+        id: "browser-smoke",
+        results: [{
+          command: "node support/browser-automation-smoke.mjs --env kova-self-check --artifact-dir /tmp/kova",
+          status: 0,
+          timedOut: false,
+          durationMs: 4200,
+          stdout: JSON.stringify({ ...smoke, browserStopped: false, errors: ["browser stop failed"] }),
+          stderr: ""
+        }],
+        metrics: { service: { gatewayState: "running" }, logs: zeroLogMetrics() }
+      }]
+    };
+    evaluateRecord(failed, {
+      id: "browser-automation-smoke",
+      thresholds: { browserProcessLeaks: 0 }
+    }, { surface: { thresholds: {} }, targetPlan: { kind: "npm" } });
+    assertEqual(failed.status, "FAIL", "browser failed stop status");
+    assertEqual(
+      failed.violations.some((violation) => violation.metric === "browserProcessLeaks"),
+      true,
+      "browser process leak violation"
+    );
+
+    return {
+      id: "browser-automation-evidence-evaluation",
+      status: "PASS",
+      command: "evaluate synthetic browser automation evidence",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "browser-automation-evidence-evaluation",
+      status: "FAIL",
+      command: "evaluate synthetic browser automation evidence",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
 function agentColdWarmEvaluationCheck() {
   try {
     const coldCommand = "ocm @kova -- agent --local --agent main --session-id kova-agent-cold-warm --message hi --json";
@@ -3087,7 +3197,7 @@ async function resourceRootCommandRoleBoundaryCheck() {
 async function resourceRolePollutionCheck() {
   try {
     const processRoles = await loadProcessRoles();
-    const mockProviderCommand = "node support/mock-openai-server.mjs --marker KOVA_AGENT_OK";
+    const mockProviderCommand = "node /tmp/kova-browser-automation-smoke/mock-openai-server.mjs --marker KOVA_AGENT_OK";
     const mockProviderRoles = classifyRegistryRolesForProcess(
       { command: `/bin/zsh -lc ${mockProviderCommand}` },
       {
@@ -3109,6 +3219,7 @@ async function resourceRolePollutionCheck() {
     assertEqual(mockProviderRoles.includes("mock-provider"), true, "mock provider helper remains classified");
     assertEqual(mockProviderRoles.includes("agent-cli"), false, "KOVA_AGENT_OK marker must not imply agent-cli");
     assertEqual(mockProviderRoles.includes("agent-process"), false, "KOVA_AGENT_OK marker must not imply agent-process");
+    assertEqual(mockProviderRoles.includes("browser-sidecar"), false, "browser env name must not imply browser-sidecar");
     assertEqual(envNameRoles.includes("runtime-management"), false, "mcp-runtime env name must not imply runtime-management");
     assertEqual(envNameRoles.includes("model-cli"), false, "configure-openclaw fixture helper must not imply model-cli");
     return {

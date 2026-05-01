@@ -16,7 +16,7 @@
       "tui-cli": { "peakRssMb": 650, "maxCpuPercent": 250 },
       "dashboard-cli": { "peakRssMb": 650, "maxCpuPercent": 250 },
       "mcp-runtime": { "peakRssMb": 500, "maxCpuPercent": 200 },
-      "browser-sidecar": { "peakRssMb": 500, "maxCpuPercent": 250 },
+      "browser-sidecar": { "peakRssMb": 700, "maxCpuPercent": 250 },
       "mock-provider": { "peakRssMb": 300, "maxCpuPercent": 150 }
     },
     "surfaces": {
@@ -90,6 +90,20 @@
           "statusMs": 10000,
           "pluginLoadFailures": 0
         }
+      },
+      "browser-automation": {
+        "thresholds": {
+          "browserDoctorMs": 15000,
+          "browserStartMs": 30000,
+          "browserTabsMs": 10000,
+          "browserOpenMs": 15000,
+          "browserSnapshotMs": 15000,
+          "browserStopMs": 10000,
+          "browserTabCountMin": 1,
+          "browserProcessLeaks": 0,
+          "statusMs": 10000,
+          "pluginLoadFailures": 0
+        }
       }
     }
   },
@@ -137,6 +151,7 @@
           "soak:large-workspace",
           "workspace-scan:large-workspace",
           "mcp-runtime:fresh",
+          "browser-automation:fresh",
           "cross-platform-smoke:slow-filesystem"
         ]
       },
@@ -159,7 +174,7 @@
           "tui",
           "gateway-performance"
         ],
-        "warning": ["failure-containment", "soak", "workspace-scan", "mcp-runtime", "cross-platform-smoke"]
+        "warning": ["failure-containment", "soak", "workspace-scan", "mcp-runtime", "browser-automation", "cross-platform-smoke"]
       },
       "scenarios": {
         "blocking": [
@@ -177,7 +192,8 @@
         ],
         "warning": [
           "workspace-scan-pressure",
-          "mcp-runtime-start-stop"
+          "mcp-runtime-start-stop",
+          "browser-automation-smoke"
         ]
       }
     },
@@ -216,6 +232,7 @@
       { "scenario": "soak", "state": "large-workspace" },
       { "scenario": "workspace-scan-pressure", "state": "large-workspace" },
       { "scenario": "mcp-runtime-start-stop", "state": "fresh" },
+      { "scenario": "browser-automation-smoke", "state": "fresh", "timeoutMs": 180000 },
       { "scenario": "cross-platform-smoke", "state": "slow-filesystem" }
     ]
   },
@@ -361,6 +378,11 @@
     {
       "scenario": "mcp-runtime-start-stop",
       "state": "fresh"
+    },
+    {
+      "scenario": "browser-automation-smoke",
+      "state": "fresh",
+      "timeoutMs": 180000
     },
     {
       "scenario": "cross-platform-smoke",

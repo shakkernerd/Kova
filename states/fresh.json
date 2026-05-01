@@ -22,7 +22,8 @@
     "plugin-missing-runtime-deps",
     "dashboard",
     "tui",
-    "mcp-runtime"
+    "mcp-runtime",
+    "browser-automation"
   ],
   "incompatibleSurfaces": [
     "upgrade-existing-user"

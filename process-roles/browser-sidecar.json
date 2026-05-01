@@ -2,6 +2,18 @@
   "id": "browser-sidecar",
   "title": "Browser Sidecar",
   "description": "Browser automation sidecar processes and browser control services started by OpenClaw.",
-  "commandPatterns": ["browser", "playwright"],
-  "processPatterns": ["playwright", "browser/server", "chromium"]
+  "commandPatterns": [
+    "(^|\\s)browser(\\s|$)",
+    "browser-automation-smoke\\.mjs",
+    "playwright"
+  ],
+  "processPatterns": [
+    "openclaw-browser",
+    "chrome-devtools-mcp",
+    "Google Chrome",
+    "Chrome Helper",
+    "playwright",
+    "browser/server",
+    "chromium"
+  ]
 }

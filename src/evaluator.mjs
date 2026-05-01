@@ -78,6 +78,7 @@ export function evaluateRecord(record, scenario, options = {}) {
   const healthP95Ms = collectHealthP95(record);
   const soakEvidence = collectSoakEvidence(allResults);
   const mcpBridgeEvidence = collectMcpBridgeEvidence(allResults);
+  const browserAutomationEvidence = collectBrowserAutomationEvidence(allResults);
   const listeningFailures = countListeningFailures(record);
   const tcpConnectMaxMs = collectTcpConnectMax(record);
   const timeToListeningMs = collectTimeToListening(record);
@@ -290,6 +291,56 @@ export function evaluateRecord(record, scenario, options = {}) {
         expected: "0",
         actual: mcpBridgeEvidence.errors.length,
         message: `MCP bridge smoke reported ${mcpBridgeEvidence.errors.length} error(s): ${mcpBridgeEvidence.errors[0]}`
+      });
+    }
+  }
+
+  if (browserAutomationEvidence.available) {
+    checkEvidenceThreshold(violations, "browser", "browserDoctorMs", browserAutomationEvidence.browserDoctorMs, thresholds.browserDoctorMs, "Browser doctor");
+    checkEvidenceThreshold(violations, "browser", "browserStartMs", browserAutomationEvidence.browserStartMs, thresholds.browserStartMs, "Browser start");
+    checkEvidenceThreshold(violations, "browser", "browserTabsMs", browserAutomationEvidence.browserTabsMs, thresholds.browserTabsMs, "Browser tabs");
+    checkEvidenceThreshold(violations, "browser", "browserOpenMs", browserAutomationEvidence.browserOpenMs, thresholds.browserOpenMs, "Browser open");
+    checkEvidenceThreshold(violations, "browser", "browserSnapshotMs", browserAutomationEvidence.browserSnapshotMs, thresholds.browserSnapshotMs, "Browser snapshot");
+    checkEvidenceThreshold(violations, "browser", "browserStopMs", browserAutomationEvidence.browserStopMs, thresholds.browserStopMs, "Browser stop");
+
+    if (typeof thresholds.browserTabCountMin === "number" && browserAutomationEvidence.browserTabCount !== null && browserAutomationEvidence.browserTabCount < thresholds.browserTabCountMin) {
+      violations.push({
+        kind: "browser",
+        metric: "browserTabCountMin",
+        expected: `>= ${thresholds.browserTabCountMin}`,
+        actual: browserAutomationEvidence.browserTabCount,
+        message: `Browser automation saw ${browserAutomationEvidence.browserTabCount} tab(s), below required ${thresholds.browserTabCountMin}`
+      });
+    }
+
+    if (browserAutomationEvidence.browserSnapshotOk === false) {
+      violations.push({
+        kind: "browser",
+        metric: "browserSnapshotOk",
+        expected: true,
+        actual: false,
+        message: "Browser snapshot command did not complete successfully"
+      });
+    }
+
+    const leakCount = browserAutomationEvidence.browserStopped === false ? 1 : 0;
+    if (typeof thresholds.browserProcessLeaks === "number" && leakCount > thresholds.browserProcessLeaks) {
+      violations.push({
+        kind: "browser",
+        metric: "browserProcessLeaks",
+        expected: `<= ${thresholds.browserProcessLeaks}`,
+        actual: leakCount,
+        message: "Browser automation did not stop the managed browser profile cleanly"
+      });
+    }
+
+    if (browserAutomationEvidence.errors.length > 0) {
+      violations.push({
+        kind: "browser",
+        metric: "browserSmokeErrors",
+        expected: "0",
+        actual: browserAutomationEvidence.errors.length,
+        message: `Browser automation smoke reported ${browserAutomationEvidence.errors.length} error(s): ${browserAutomationEvidence.errors[0]}`
       });
     }
   }
@@ -568,6 +619,18 @@ export function evaluateRecord(record, scenario, options = {}) {
     mcpProcessExited: mcpBridgeEvidence.processExited,
     mcpProcessLeaks: mcpBridgeEvidence.available ? (mcpBridgeEvidence.processExited === false ? 1 : 0) : null,
     mcpErrors: mcpBridgeEvidence.errors,
+    browserAutomationEvidence,
+    browserDoctorMs: browserAutomationEvidence.browserDoctorMs,
+    browserStartMs: browserAutomationEvidence.browserStartMs,
+    browserTabsMs: browserAutomationEvidence.browserTabsMs,
+    browserOpenMs: browserAutomationEvidence.browserOpenMs,
+    browserSnapshotMs: browserAutomationEvidence.browserSnapshotMs,
+    browserStopMs: browserAutomationEvidence.browserStopMs,
+    browserTabCount: browserAutomationEvidence.browserTabCount,
+    browserSnapshotOk: browserAutomationEvidence.browserSnapshotOk,
+    browserStopped: browserAutomationEvidence.browserStopped,
+    browserProcessLeaks: browserAutomationEvidence.available ? (browserAutomationEvidence.browserStopped === false ? 1 : 0) : null,
+    browserErrors: browserAutomationEvidence.errors,
     soakDurationMs: soakEvidence.durationMs,
     soakIterations: soakEvidence.iterations,
     soakCommandP95Ms: soakEvidence.commandP95Ms,
@@ -1731,6 +1794,88 @@ function parseMcpBridgeSmokeOutput(result) {
     return parsed?.schemaVersion === "kova.mcpBridgeSmoke.v1" ? parsed : null;
   } catch {
     return null;
+  }
+}
+
+function collectBrowserAutomationEvidence(results) {
+  const smokes = results
+    .filter((result) => result.command?.includes("browser-automation-smoke.mjs"))
+    .map((result) => parseBrowserAutomationSmokeOutput(result))
+    .filter(Boolean);
+
+  if (smokes.length === 0) {
+    return {
+      schemaVersion: "kova.browserAutomationEvidence.v1",
+      available: false,
+      browserDoctorMs: null,
+      browserStartMs: null,
+      browserTabsMs: null,
+      browserOpenMs: null,
+      browserSnapshotMs: null,
+      browserStopMs: null,
+      browserTabCount: null,
+      browserSnapshotOk: null,
+      browserStopped: null,
+      errors: [],
+      smokes: []
+    };
+  }
+
+  return {
+    schemaVersion: "kova.browserAutomationEvidence.v1",
+    available: true,
+    browserDoctorMs: maxNullable(...smokes.map((smoke) => smoke.browserDoctorMs)),
+    browserStartMs: maxNullable(...smokes.map((smoke) => smoke.browserStartMs)),
+    browserTabsMs: maxNullable(...smokes.map((smoke) => smoke.browserTabsMs)),
+    browserOpenMs: maxNullable(...smokes.map((smoke) => smoke.browserOpenMs)),
+    browserSnapshotMs: maxNullable(...smokes.map((smoke) => smoke.browserSnapshotMs)),
+    browserStopMs: maxNullable(...smokes.map((smoke) => smoke.browserStopMs)),
+    browserTabCount: maxNullable(...smokes.map((smoke) => smoke.browserTabCount)),
+    browserSnapshotOk: smokes.every((smoke) => smoke.browserSnapshotOk === true),
+    browserStopped: smokes.every((smoke) => smoke.browserStopped === true),
+    errors: smokes.flatMap((smoke) => smoke.errors ?? []),
+    smokes: smokes.map((smoke) => ({
+      durationMs: smoke.durationMs ?? null,
+      browserDoctorMs: smoke.browserDoctorMs ?? null,
+      browserStartMs: smoke.browserStartMs ?? null,
+      browserTabsMs: smoke.browserTabsMs ?? null,
+      browserOpenMs: smoke.browserOpenMs ?? null,
+      browserSnapshotMs: smoke.browserSnapshotMs ?? null,
+      browserStopMs: smoke.browserStopMs ?? null,
+      browserTabCount: smoke.browserTabCount ?? null,
+      browserSnapshotOk: smoke.browserSnapshotOk ?? null,
+      browserStopped: smoke.browserStopped ?? null,
+      errors: smoke.errors ?? []
+    }))
+  };
+}
+
+function parseBrowserAutomationSmokeOutput(result) {
+  const text = result.stdout ?? "";
+  const jsonStart = text.indexOf("{");
+  if (jsonStart < 0) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(text.slice(jsonStart));
+    return parsed?.schemaVersion === "kova.browserAutomationSmoke.v1" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function checkEvidenceThreshold(violations, kind, metric, actual, threshold, label) {
+  if (typeof threshold !== "number" || actual === null) {
+    return;
+  }
+  if (actual > threshold) {
+    violations.push({
+      kind,
+      metric,
+      expected: `<= ${threshold}`,
+      actual,
+      message: `${label} took ${actual}ms, over threshold ${threshold}ms`
+    });
   }
 }
 
