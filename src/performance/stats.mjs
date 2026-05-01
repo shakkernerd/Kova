@@ -43,6 +43,7 @@ export function buildPerformanceSummary(records, options = {}) {
   const unstableGroups = groups.filter((group) =>
     Object.values(group.metrics).some((metric) => metric.classification === "unstable")
   );
+  const profiledRunCount = (records ?? []).filter((record) => record.profiling?.enabled === true).length;
 
   return {
     schemaVersion: PERFORMANCE_SCHEMA,
@@ -51,6 +52,7 @@ export function buildPerformanceSummary(records, options = {}) {
     metricCatalog: PERFORMANCE_METRICS.map(({ id, title, unit }) => ({ id, title, unit })),
     groupCount: groups.length,
     unstableGroupCount: unstableGroups.length,
+    profiledRunCount,
     groups
   };
 }
@@ -160,6 +162,10 @@ function summarizeGroup(records, options) {
     state: first.state?.id ?? null,
     title: first.title ?? null,
     sampleCount: records.length,
+    profiledRunCount: records.filter((record) => record.profiling?.enabled === true).length,
+    resourceInterpretation: records.some((record) => record.profiling?.enabled === true)
+      ? "instrumented"
+      : "normal",
     statuses: statusCounts(records),
     repeatIndexes: records.map((record) => record.repeat?.index ?? null).filter((value) => value !== null),
     metrics

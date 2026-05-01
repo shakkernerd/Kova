@@ -43,6 +43,7 @@ export function buildDryRunRecord(scenario, context) {
     thresholds: scenario.thresholds,
     cleanup: context.keepEnv ? "retained" : "planned",
     auth: authPolicy.summary,
+    profiling: profilingSummary(context),
     collectorArtifactDirs: collectorArtifactDirs(artifactDir),
     phases: buildPlannedPhases(scenario, context, envName, artifactDir, authPolicy)
   };
@@ -269,6 +270,28 @@ function attachNodeProfileMeasurements(record) {
   record.measurements.nodeHeapTopFunction = topHeap?.functionName ?? record.measurements.nodeHeapTopFunction ?? null;
   record.measurements.nodeHeapTopFunctionMb = topHeap?.selfSizeMb ?? record.measurements.nodeHeapTopFunctionMb ?? null;
   record.measurements.nodeHeapTopFunctionUrl = topHeap?.url ?? record.measurements.nodeHeapTopFunctionUrl ?? null;
+}
+
+function profilingSummary(context) {
+  const enabled = context.nodeProfile === true ||
+    context.deepProfile === true ||
+    context.heapSnapshot === true ||
+    context.diagnosticReport === true ||
+    context.profileOnFailure === true;
+  return {
+    schemaVersion: "kova.profiling.v1",
+    enabled,
+    deepProfile: context.deepProfile === true,
+    nodeProfile: context.nodeProfile === true,
+    heapSnapshot: context.heapSnapshot === true,
+    diagnosticReport: context.diagnosticReport === true,
+    profileOnFailure: context.profileOnFailure === true,
+    affectsResourceMeasurements: enabled,
+    baselineEligible: !enabled,
+    interpretation: enabled
+      ? "instrumented run; CPU/RSS can include profiler and diagnostic overhead"
+      : "normal user-path resource measurements"
+  };
 }
 
 function classifyEnvDestroyCleanup(result) {

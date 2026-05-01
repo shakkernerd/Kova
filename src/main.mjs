@@ -675,6 +675,7 @@ function summarizePerformanceReceipt(performance, baseline) {
     repeat: performance.repeat,
     groupCount: performance.groupCount,
     unstableGroupCount: performance.unstableGroupCount,
+    profiledRunCount: performance.profiledRunCount ?? 0,
     baselineRegressionCount: baseline?.comparison?.regressionCount ?? null,
     missingBaselineCount: baseline?.comparison?.missingBaselineCount ?? null,
     baselineReviewOk: baseline?.review?.ok ?? null,

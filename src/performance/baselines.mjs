@@ -162,6 +162,20 @@ export function reviewBaselineUpdate(report, options = {}) {
     });
   }
 
+  const profiledRecords = records.filter((record) => record.profiling?.enabled === true);
+  if (profiledRecords.length > 0) {
+    blockers.push({
+      kind: "profiled-run",
+      count: profiledRecords.length,
+      examples: profiledRecords.slice(0, 5).map((record) => ({
+        scenario: record.scenario ?? null,
+        state: record.state?.id ?? null,
+        profiling: record.profiling ?? null
+      })),
+      message: `baseline updates require normal user-path runs (${profiledRecords.length} profiled records)`
+    });
+  }
+
   const performance = report?.performance;
   const groups = Array.isArray(performance?.groups) ? performance.groups : [];
   if (groups.length === 0) {
@@ -183,6 +197,14 @@ export function reviewBaselineUpdate(report, options = {}) {
         unstableMetrics: unstableMetricIds(group)
       })),
       message: `baseline updates require stable performance samples (${performance?.unstableGroupCount ?? unstableGroups.length} unstable groups)`
+    });
+  }
+
+  if (profiledRecords.length === 0 && (performance?.profiledRunCount ?? 0) > 0) {
+    blockers.push({
+      kind: "profiled-performance",
+      count: performance.profiledRunCount,
+      message: `baseline updates reject profiled performance samples (${performance.profiledRunCount} profiled runs)`
     });
   }
 

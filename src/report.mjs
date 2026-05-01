@@ -197,6 +197,7 @@ export function renderMarkdownReport(report) {
           }
         }
       }
+      lines.push(`- Profiling: ${record.profiling?.enabled ? "enabled" : "off"} (${record.profiling?.interpretation ?? "unknown"})`);
       lines.push(`- V8 reports / heap snapshots: ${record.measurements.v8ReportCount ?? "unknown"} / ${record.measurements.heapSnapshotCount ?? "unknown"}`);
       lines.push(`- Node CPU/heap/trace profiles: ${record.measurements.nodeCpuProfileCount ?? "unknown"} / ${record.measurements.nodeHeapProfileCount ?? "unknown"} / ${record.measurements.nodeTraceEventCount ?? "unknown"}`);
       lines.push(`- Node profile top function: ${record.measurements.nodeProfileTopFunction ?? "unknown"} ${record.measurements.nodeProfileTopFunctionMs ?? "unknown"} ms`);
@@ -599,6 +600,9 @@ function summarizeMeasurements(measurements) {
     rssGrowthMb: measurements.rssGrowthMb ?? null,
     gatewayRssGrowthMb: measurements.gatewayRssGrowthMb ?? null,
     resourceTrend: measurements.resourceTrend ?? null,
+    profilingEnabled: measurements.profilingEnabled ?? null,
+    profilingResourceInterpretation: measurements.profilingResourceInterpretation ?? null,
+    profilingBaselineEligible: measurements.profilingBaselineEligible ?? null,
     nodeCpuProfileCount: measurements.nodeCpuProfileCount ?? null,
     nodeHeapProfileCount: measurements.nodeHeapProfileCount ?? null,
     nodeTraceEventCount: measurements.nodeTraceEventCount ?? null,
@@ -616,7 +620,8 @@ function formatPerformanceSection(performance, baseline) {
     "",
     `- Repeat: ${performance.repeat ?? "unknown"}`,
     `- Groups: ${performance.groupCount ?? 0}`,
-    `- Unstable groups: ${performance.unstableGroupCount ?? 0}`
+    `- Unstable groups: ${performance.unstableGroupCount ?? 0}`,
+    `- Profiled runs: ${performance.profiledRunCount ?? 0}`
   ];
 
   if (baseline?.comparison) {
@@ -640,7 +645,8 @@ function formatPerformanceSection(performance, baseline) {
     const metricText = compactPerformanceMetrics(group.metrics).slice(0, 5)
       .map((metric) => `${metric.id} median ${metric.median}${metric.unit} p95 ${metric.p95}${metric.unit} max ${metric.max}${metric.unit}${metric.classification === "unstable" ? " unstable" : ""}`)
       .join("; ");
-    lines.push(`- ${group.scenario}/${group.state ?? "none"}: ${group.sampleCount} sample(s)${metricText ? `; ${metricText}` : ""}`);
+    const interpretation = group.resourceInterpretation === "instrumented" ? "; instrumented resources" : "";
+    lines.push(`- ${group.scenario}/${group.state ?? "none"}: ${group.sampleCount} sample(s)${interpretation}${metricText ? `; ${metricText}` : ""}`);
   }
 
   lines.push("");
@@ -656,6 +662,7 @@ function summarizePerformance(performance, baseline) {
     repeat: performance.repeat ?? null,
     groupCount: performance.groupCount ?? 0,
     unstableGroupCount: performance.unstableGroupCount ?? 0,
+    profiledRunCount: performance.profiledRunCount ?? 0,
     baselineRegressionCount: baseline?.comparison?.regressionCount ?? null,
     missingBaselineCount: baseline?.comparison?.missingBaselineCount ?? null,
     baselineReviewOk: baseline?.review?.ok ?? null,

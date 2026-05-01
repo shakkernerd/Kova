@@ -130,6 +130,11 @@ export async function runSelfCheck(flags = {}) {
         throw new Error(`missing auth override should not inject auth phases: ${phaseIds.join(", ")}`);
       }
     }));
+    checks.push(await jsonCommandCheck("run-profiling-dry-run-json", `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --node-profile --report-dir ${quoteShell(tmp)} --json`, async (data) => {
+      const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
+      assertEqual(report.records?.[0]?.profiling?.enabled, true, "profiling marker");
+      assertEqual(report.performance?.profiledRunCount, 1, "profiled run count");
+    }));
     checks.push(await jsonCommandCheck("diagnostic-profile-plan-json", "node bin/kova.mjs matrix plan --profile diagnostic --target local-build:/tmp/openclaw --include scenario:release-runtime-startup --json", (data) => {
       assertEqual(data.schemaVersion, "kova.matrix.plan.v1", "diagnostic matrix plan schema");
       assertEqual(data.profile?.id, "diagnostic", "diagnostic profile id");
@@ -567,6 +572,22 @@ async function performanceBaselineCheck(tmp) {
     const failingReview = reviewBaselineUpdate(failingReport, { reviewedGood: true });
     assertEqual(failingReview.ok, false, "failing report rejected for baseline");
     assertEqual(failingReview.blockers.some((blocker) => blocker.kind === "non-passing-records"), true, "non-passing blocker");
+
+    const profiledReport = syntheticPerformanceReport({
+      runId: "profiled",
+      platform,
+      target: "local-build:/tmp/openclaw",
+      records: [
+        {
+          ...syntheticPerformanceRecord(1, { timeToHealthReadyMs: 1000, peakRssMb: 400 }),
+          profiling: { enabled: true, interpretation: "instrumented run", baselineEligible: false }
+        }
+      ]
+    });
+    profiledReport.performance = buildPerformanceSummary(profiledReport.records, { repeat: 1 });
+    const profiledReview = reviewBaselineUpdate(profiledReport, { reviewedGood: true });
+    assertEqual(profiledReview.ok, false, "profiled report rejected for baseline");
+    assertEqual(profiledReview.blockers.some((blocker) => blocker.kind === "profiled-run"), true, "profiled-run blocker");
 
     const savedStore = updateBaselineStore(await loadBaselineStore(baselinePath), baselineReport, { targetPlan, reviewedGood: true });
     await saveBaselineStore(baselinePath, savedStore);

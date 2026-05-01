@@ -107,7 +107,10 @@ node bin/kova.mjs matrix run --profile smoke --target runtime:stable --repeat 3 
 
 Do not pass `--reviewed-good` until the JSON/Markdown evidence is clean:
 records pass, violations are empty, performance groups are stable, and any gate
-or baseline comparison is not blocking.
+or baseline comparison is not blocking. Do not save baselines from
+`--node-profile`, `--heap-snapshot`, `--deep-profile`, or
+`--profile-on-failure` runs; those are instrumented diagnostic runs and their
+resource numbers can include profiler overhead.
 
 5. Read the generated JSON report first. Use the Markdown report for the human
 summary. For failures, start with `failureBrief` in `report summarize --json`
