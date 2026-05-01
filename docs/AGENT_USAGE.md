@@ -94,6 +94,11 @@ node bin/kova.mjs matrix run --profile release --target runtime:stable --include
 node bin/kova.mjs matrix run --profile release --target local-build:/path/to/openclaw --include scenario:release-runtime-startup --execute --gate --json
 ```
 
+The `exhaustive` profile cannot execute unless the command includes
+`--allow-exhaustive`. Use plan or filtered dry-runs first; only use the explicit
+flag when the machine is intentionally dedicated to a broad OpenClaw validation
+run.
+
 Matrix runs automatically produce a bundle path in the JSON receipt. Bundles
 include `artifact-index.json`, which lists evidence files with byte sizes and
 SHA-256 hashes.

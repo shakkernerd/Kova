@@ -195,6 +195,11 @@ export async function runSelfCheck(flags = {}) {
       "node bin/kova.mjs run --target runtime:stable --scenario fresh-install --execute --save-baseline --json",
       "--save-baseline requires --reviewed-good"
     ));
+    checks.push(await failingCommandCheck(
+      "exhaustive-execute-requires-explicit-flag",
+      "node bin/kova.mjs matrix run --profile exhaustive --target runtime:stable --execute --json",
+      "executing profile 'exhaustive' requires --allow-exhaustive"
+    ));
     checks.push(await jsonCommandCheck("cleanup-json", "node bin/kova.mjs cleanup envs --json", (data) => {
       assertEqual(data.schemaVersion, "kova.cleanup.envs.v1", "cleanup schema");
       assertEqual(data.execute, false, "cleanup execute flag");

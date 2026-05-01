@@ -292,6 +292,7 @@ async function loadRegressionThresholds(flags) {
 async function matrixRun(flags) {
   const registry = await loadRegistryContext();
   const profile = await loadProfile(required(flags.profile, "--profile"));
+  validateProfileExecutionFlags(profile, flags);
   const target = required(flags.target, "--target");
   validateBaselineExecutionFlags(flags);
   const targetPlan = resolveTarget(target, "target");
@@ -459,6 +460,12 @@ async function matrixRun(flags) {
     console.log(`Kova gate verdict: ${gate.verdict}`);
   }
   failGateIfNeeded(gate);
+}
+
+function validateProfileExecutionFlags(profile, flags) {
+  if (flags.execute === true && profile.id === "exhaustive" && flags.allow_exhaustive !== true) {
+    throw new Error("executing profile 'exhaustive' requires --allow-exhaustive");
+  }
 }
 
 async function retainFailedGateArtifacts(report, reportPath, jsonPath, bundle) {

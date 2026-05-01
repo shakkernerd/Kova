@@ -41,7 +41,7 @@ Usage:
   kova plan [--scenario <id>] [--json]
   kova run --target <selector> [--from <selector>] [--scenario <id>] [--state <id>] [--auth <mock|live|skip>] [--repeat <n>] [--baseline [path]] [--save-baseline [path] --reviewed-good] [--regression-thresholds <json>] [--report-dir <path>] [--health-samples <n>] [--readiness-interval-ms <n>] [--resource-sample-interval-ms <n>] [--deep-profile] [--node-profile] [--heap-snapshot] [--profile-on-failure] [--execute] [--keep-env] [--retain-on-failure] [--json]
   kova matrix plan --profile <id> --target <selector> [--from <selector>] [--include <filter>] [--exclude <filter>] [--parallel <n>] [--json]
-  kova matrix run --profile <id> --target <selector> [--from <selector>] [--include <filter>] [--exclude <filter>] [--auth <mock|live|skip>] [--parallel <n>] [--repeat <n>] [--baseline [path]] [--save-baseline [path] --reviewed-good] [--regression-thresholds <json>] [--fail-fast] [--gate] [--report-dir <path>] [--health-samples <n>] [--readiness-interval-ms <n>] [--resource-sample-interval-ms <n>] [--deep-profile] [--node-profile] [--heap-snapshot] [--profile-on-failure] [--execute] [--keep-env] [--retain-on-failure] [--json]
+  kova matrix run --profile <id> --target <selector> [--from <selector>] [--include <filter>] [--exclude <filter>] [--auth <mock|live|skip>] [--parallel <n>] [--repeat <n>] [--baseline [path]] [--save-baseline [path] --reviewed-good] [--regression-thresholds <json>] [--fail-fast] [--gate] [--report-dir <path>] [--health-samples <n>] [--readiness-interval-ms <n>] [--resource-sample-interval-ms <n>] [--deep-profile] [--node-profile] [--heap-snapshot] [--profile-on-failure] [--execute] [--allow-exhaustive] [--keep-env] [--retain-on-failure] [--json]
   kova report summarize <report.json> [--json]
   kova report paste <report.json>
   kova report compare <baseline.json> <current.json> [--thresholds <json>] [--fixer] [--json]
@@ -61,6 +61,7 @@ Notes:
   Kova uses OCM to create isolated OpenClaw envs and runtimes.
   Kova reports on OpenClaw behavior, not OCM behavior.
   run is dry-run/report-only unless --execute is passed.
+  Executed exhaustive matrix runs require --allow-exhaustive.
   --repeat records independent samples and computes aggregate performance stats.
   --auth defaults to mock so every disposable env has deliberate model auth unless a scenario opts out.
   setup provider/auth choices accept either numbers from the prompt or names such as openai, anthropic, env-only, api-key.
