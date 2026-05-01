@@ -70,6 +70,7 @@ export function evaluateRecord(record, scenario, options = {}) {
   const finalGatewayState = record.finalMetrics?.service?.gatewayState ?? null;
   const healthFailures = countHealthFailures(record);
   const healthP95Ms = collectHealthP95(record);
+  const soakEvidence = collectSoakEvidence(allResults);
   const listeningFailures = countListeningFailures(record);
   const tcpConnectMaxMs = collectTcpConnectMax(record);
   const timeToListeningMs = collectTimeToListening(record);
@@ -82,6 +83,8 @@ export function evaluateRecord(record, scenario, options = {}) {
   const statusMs = maxDurationWhere(allResults, (command) => command.includes(" -- status"));
   const pluginsListMs = maxDurationWhere(allResults, (command) => command.includes(" -- plugins list"));
   const modelsListMs = maxDurationWhere(allResults, (command) => command.includes(" -- models list"));
+  const rssGrowthMb = maxNullable(resourceSummary.maxTotalRssGrowthMb);
+  const gatewayRssGrowthMb = maxNullable(resourceSummary.maxGatewayRssGrowthMb);
 
   checkDuration(violations, allResults, "agentTurnMs", thresholds.agentTurnMs, isAgentMessageCommand);
   checkDuration(violations, allResults, "statusMs", thresholds.statusMs, (command) => command.includes(" -- status"));
@@ -168,6 +171,76 @@ export function evaluateRecord(record, scenario, options = {}) {
       expected: `<= ${thresholds.healthP95Ms}`,
       actual: healthP95Ms,
       message: `gateway health p95 ${healthP95Ms}ms exceeded threshold ${thresholds.healthP95Ms}ms`
+    });
+  }
+
+  if (typeof thresholds.soakMinDurationMs === "number" && soakEvidence.durationMs !== null && soakEvidence.durationMs < thresholds.soakMinDurationMs) {
+    violations.push({
+      kind: "soak",
+      metric: "soakDurationMs",
+      expected: `>= ${thresholds.soakMinDurationMs}`,
+      actual: soakEvidence.durationMs,
+      message: `soak loop ran for ${soakEvidence.durationMs}ms, below required duration ${thresholds.soakMinDurationMs}ms`
+    });
+  }
+
+  if (typeof thresholds.soakCommandP95Ms === "number" && soakEvidence.commandP95Ms !== null && soakEvidence.commandP95Ms > thresholds.soakCommandP95Ms) {
+    violations.push({
+      kind: "soak",
+      metric: "soakCommandP95Ms",
+      expected: `<= ${thresholds.soakCommandP95Ms}`,
+      actual: soakEvidence.commandP95Ms,
+      message: `soak command p95 ${soakEvidence.commandP95Ms}ms exceeded threshold ${thresholds.soakCommandP95Ms}ms`
+    });
+  }
+
+  if (typeof thresholds.soakCommandFailures === "number" && soakEvidence.commandFailures !== null && soakEvidence.commandFailures > thresholds.soakCommandFailures) {
+    violations.push({
+      kind: "soak",
+      metric: "soakCommandFailures",
+      expected: `<= ${thresholds.soakCommandFailures}`,
+      actual: soakEvidence.commandFailures,
+      message: `${soakEvidence.commandFailures} soak command(s) failed during repeated OpenClaw usage`
+    });
+  }
+
+  if (typeof thresholds.soakHealthP95Ms === "number" && soakEvidence.healthP95Ms !== null && soakEvidence.healthP95Ms > thresholds.soakHealthP95Ms) {
+    violations.push({
+      kind: "soak",
+      metric: "soakHealthP95Ms",
+      expected: `<= ${thresholds.soakHealthP95Ms}`,
+      actual: soakEvidence.healthP95Ms,
+      message: `soak health p95 ${soakEvidence.healthP95Ms}ms exceeded threshold ${thresholds.soakHealthP95Ms}ms`
+    });
+  }
+
+  if (typeof thresholds.soakHealthFailures === "number" && soakEvidence.healthFailures !== null && soakEvidence.healthFailures > thresholds.soakHealthFailures) {
+    violations.push({
+      kind: "soak",
+      metric: "soakHealthFailures",
+      expected: `<= ${thresholds.soakHealthFailures}`,
+      actual: soakEvidence.healthFailures,
+      message: `${soakEvidence.healthFailures} soak health check(s) failed during repeated OpenClaw usage`
+    });
+  }
+
+  if (typeof thresholds.rssGrowthMb === "number" && rssGrowthMb !== null && rssGrowthMb > thresholds.rssGrowthMb) {
+    violations.push({
+      kind: "soak",
+      metric: "rssGrowthMb",
+      expected: `<= ${thresholds.rssGrowthMb}`,
+      actual: rssGrowthMb,
+      message: `resource-sampled RSS grew by ${rssGrowthMb} MB, over threshold ${thresholds.rssGrowthMb} MB`
+    });
+  }
+
+  if (typeof thresholds.gatewayRssGrowthMb === "number" && gatewayRssGrowthMb !== null && gatewayRssGrowthMb > thresholds.gatewayRssGrowthMb) {
+    violations.push({
+      kind: "soak",
+      metric: "gatewayRssGrowthMb",
+      expected: `<= ${thresholds.gatewayRssGrowthMb}`,
+      actual: gatewayRssGrowthMb,
+      message: `gateway RSS grew by ${gatewayRssGrowthMb} MB during sampled execution, over threshold ${thresholds.gatewayRssGrowthMb} MB`
     });
   }
 
@@ -415,6 +488,17 @@ export function evaluateRecord(record, scenario, options = {}) {
     finalGatewayState,
     healthFailures,
     healthP95Ms,
+    soakEvidence,
+    soakDurationMs: soakEvidence.durationMs,
+    soakIterations: soakEvidence.iterations,
+    soakCommandP95Ms: soakEvidence.commandP95Ms,
+    soakCommandMaxMs: soakEvidence.commandMaxMs,
+    soakHealthP95Ms: soakEvidence.healthP95Ms,
+    soakHealthMaxMs: soakEvidence.healthMaxMs,
+    soakHealthFailures: soakEvidence.healthFailures,
+    soakCommandFailures: soakEvidence.commandFailures,
+    rssGrowthMb,
+    gatewayRssGrowthMb,
     listeningFailures,
     readinessFailures,
     gatewayRestartCount,
@@ -453,6 +537,7 @@ export function evaluateRecord(record, scenario, options = {}) {
     resourcePeakCpuAtMs: resourceSummary.peakCpuSample?.elapsedMs ?? null,
     resourcePeakRssProcess: compactSampleProcess(resourceSummary.peakRssSample?.topProcess),
     resourcePeakCpuProcess: compactSampleProcess(resourceSummary.peakCpuSample?.topProcess),
+    resourceTrend: resourceSummary.trend,
     resourceTopByRss: resourceSummary.topByRss,
     resourceTopByCpu: resourceSummary.topByCpu,
     openclawTimelineAvailable: timelineSummary.available,
@@ -1450,6 +1535,62 @@ function collectHealthP95(record) {
   return Math.max(...p95Values);
 }
 
+function collectSoakEvidence(results) {
+  const loops = results
+    .filter((result) => result.command?.includes("run-soak-loop.mjs"))
+    .map((result) => parseSoakLoopOutput(result))
+    .filter(Boolean);
+
+  if (loops.length === 0) {
+    return {
+      schemaVersion: "kova.soakEvidence.v1",
+      available: false,
+      durationMs: null,
+      iterations: null,
+      commandP95Ms: null,
+      commandMaxMs: null,
+      commandFailures: null,
+      healthP95Ms: null,
+      healthMaxMs: null,
+      healthFailures: null,
+      loops: []
+    };
+  }
+
+  return {
+    schemaVersion: "kova.soakEvidence.v1",
+    available: true,
+    durationMs: maxNullable(...loops.map((loop) => loop.durationMs)),
+    iterations: maxNullable(...loops.map((loop) => loop.iterations)),
+    commandP95Ms: maxNullable(...loops.map((loop) => loop.commandSummary?.p95Ms)),
+    commandMaxMs: maxNullable(...loops.map((loop) => loop.commandSummary?.maxMs)),
+    commandFailures: loops.reduce((total, loop) => total + (loop.commandSummary?.failureCount ?? 0), 0),
+    healthP95Ms: maxNullable(...loops.map((loop) => loop.healthSummary?.p95Ms)),
+    healthMaxMs: maxNullable(...loops.map((loop) => loop.healthSummary?.maxMs)),
+    healthFailures: loops.reduce((total, loop) => total + (loop.healthSummary?.failureCount ?? 0), 0),
+    loops: loops.map((loop) => ({
+      durationMs: loop.durationMs ?? null,
+      iterations: loop.iterations ?? null,
+      commandSummary: loop.commandSummary ?? null,
+      healthSummary: loop.healthSummary ?? null
+    }))
+  };
+}
+
+function parseSoakLoopOutput(result) {
+  const text = result.stdout ?? "";
+  const jsonStart = text.indexOf("{");
+  if (jsonStart < 0) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(text.slice(jsonStart));
+    return parsed?.schemaVersion === "kova.soakLoop.v1" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
 function healthFailureCount(samples) {
   return samples.filter((sample) => sample && !sample.ok).length;
 }
@@ -1553,6 +1694,9 @@ function collectResourceSummary(results) {
   let peakGatewayRssMb = null;
   let peakRssSample = null;
   let peakCpuSample = null;
+  let maxTotalRssGrowthMb = null;
+  let maxGatewayRssGrowthMb = null;
+  let trend = null;
   const artifacts = [];
   const byPid = new Map();
   const byRole = new Map();
@@ -1568,6 +1712,9 @@ function collectResourceSummary(results) {
     peakCommandTreeRssMb = maxNullable(peakCommandTreeRssMb, samples.peakCommandTreeRssMb);
     peakGatewayRssMb = maxNullable(peakGatewayRssMb, samples.peakGatewayRssMb);
     mergeRoleSummaries(byRole, samples.byRole ?? {});
+    maxTotalRssGrowthMb = maxNullable(maxTotalRssGrowthMb, samples.trend?.totalRssGrowthMb);
+    maxGatewayRssGrowthMb = maxNullable(maxGatewayRssGrowthMb, samples.trend?.gatewayRssGrowthMb);
+    trend = maxTrend(trend, samples.trend);
     peakRssSample = maxSample(peakRssSample, samples.peakRssSample, "totalRssMb");
     peakCpuSample = maxSample(peakCpuSample, samples.peakCpuSample, "totalCpuPercent");
     if (samples.artifactPath) {
@@ -1603,6 +1750,9 @@ function collectResourceSummary(results) {
     maxTotalCpuPercent,
     peakCommandTreeRssMb,
     peakGatewayRssMb,
+    maxTotalRssGrowthMb,
+    maxGatewayRssGrowthMb,
+    trend,
     byRole: roleSummaries,
     topRolesByRss: roleList.toSorted((left, right) => (right.peakRssMb ?? 0) - (left.peakRssMb ?? 0)).slice(0, 8),
     topRolesByCpu: roleList.toSorted((left, right) => (right.maxCpuPercent ?? 0) - (left.maxCpuPercent ?? 0)).slice(0, 8),
@@ -1612,6 +1762,18 @@ function collectResourceSummary(results) {
     topByRss: processes.toSorted((left, right) => right.peakRssMb - left.peakRssMb).slice(0, 5),
     topByCpu: processes.toSorted((left, right) => right.maxCpuPercent - left.maxCpuPercent).slice(0, 5)
   };
+}
+
+function maxTrend(current, candidate) {
+  if (!candidate?.available) {
+    return current;
+  }
+  if (!current) {
+    return candidate;
+  }
+  const currentGrowth = Math.max(current.totalRssGrowthMb ?? 0, current.gatewayRssGrowthMb ?? 0);
+  const candidateGrowth = Math.max(candidate.totalRssGrowthMb ?? 0, candidate.gatewayRssGrowthMb ?? 0);
+  return candidateGrowth > currentGrowth ? candidate : current;
 }
 
 function mergeRoleSummaries(target, source) {

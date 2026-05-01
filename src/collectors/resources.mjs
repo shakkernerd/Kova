@@ -157,6 +157,7 @@ export function summarizeResourceSamples(samples) {
     peakRssMb: roundNumber(process.peakRssMb),
     maxCpuPercent: roundNumber(process.maxCpuPercent)
   }));
+  const trend = summarizeResourceTrend(samples);
   const roleSummaries = Object.fromEntries([...byRole.entries()]
     .toSorted(([left], [right]) => left.localeCompare(right))
     .map(([role, summary]) => [role, finalizeRoleSummary(summary)]));
@@ -173,11 +174,56 @@ export function summarizeResourceSamples(samples) {
     byRole: roleSummaries,
     topRolesByRss: roleList.toSorted((left, right) => (right.peakRssMb ?? 0) - (left.peakRssMb ?? 0)).slice(0, 8),
     topRolesByCpu: roleList.toSorted((left, right) => (right.maxCpuPercent ?? 0) - (left.maxCpuPercent ?? 0)).slice(0, 8),
+    trend,
     peakRssSample,
     peakCpuSample,
     topByRss: processSummaries.toSorted((left, right) => right.peakRssMb - left.peakRssMb).slice(0, 5),
     topByCpu: processSummaries.toSorted((left, right) => right.maxCpuPercent - left.maxCpuPercent).slice(0, 5)
   };
+}
+
+function summarizeResourceTrend(samples) {
+  const usable = samples.filter((sample) => Array.isArray(sample.processes));
+  if (usable.length === 0) {
+    return {
+      schemaVersion: "kova.resourceTrend.v1",
+      available: false,
+      totalRssGrowthMb: null,
+      gatewayRssGrowthMb: null,
+      firstElapsedMs: null,
+      lastElapsedMs: null,
+      sampleCount: 0
+    };
+  }
+  const first = usable[0];
+  const last = usable.at(-1);
+  const firstTotal = totalRss(first.processes);
+  const lastTotal = totalRss(last.processes);
+  const firstGateway = roleRss(first.processes, "gateway");
+  const lastGateway = roleRss(last.processes, "gateway");
+  return {
+    schemaVersion: "kova.resourceTrend.v1",
+    available: true,
+    sampleCount: usable.length,
+    firstElapsedMs: first.elapsedMs ?? null,
+    lastElapsedMs: last.elapsedMs ?? null,
+    totalRssStartMb: firstTotal,
+    totalRssEndMb: lastTotal,
+    totalRssGrowthMb: roundNumber(lastTotal - firstTotal),
+    gatewayRssStartMb: firstGateway,
+    gatewayRssEndMb: lastGateway,
+    gatewayRssGrowthMb: roundNumber(lastGateway - firstGateway)
+  };
+}
+
+function totalRss(processes) {
+  return roundNumber(processes.reduce((total, process) => total + process.rssMb, 0));
+}
+
+function roleRss(processes, role) {
+  return roundNumber(processes
+    .filter((process) => process.roles?.includes(role) || process.role?.split(",").includes(role))
+    .reduce((total, process) => total + process.rssMb, 0));
 }
 
 export function captureProcessSnapshot(options = {}) {

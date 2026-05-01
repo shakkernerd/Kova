@@ -112,6 +112,9 @@ export function renderMarkdownReport(report) {
       lines.push(`- Final gateway state: ${record.measurements.finalGatewayState ?? "unknown"}`);
       lines.push(`- Health failures: ${record.measurements.healthFailures ?? "unknown"}`);
       lines.push(`- Health p95: ${record.measurements.healthP95Ms ?? "unknown"} ms`);
+      if (record.measurements.soakEvidence?.available) {
+        lines.push(`- Soak trend: duration ${record.measurements.soakDurationMs ?? "unknown"} ms; iterations ${record.measurements.soakIterations ?? "unknown"}; command p95 ${record.measurements.soakCommandP95Ms ?? "unknown"} ms; health p95 ${record.measurements.soakHealthP95Ms ?? "unknown"} ms; RSS growth ${record.measurements.rssGrowthMb ?? "unknown"} MB; gateway RSS growth ${record.measurements.gatewayRssGrowthMb ?? "unknown"} MB`);
+      }
       lines.push(`- Readiness failures: ${record.measurements.readinessFailures ?? "unknown"}`);
       lines.push(`- Gateway restarts: ${record.measurements.gatewayRestartCount ?? "unknown"}`);
       lines.push(`- Plugin load failures: ${record.measurements.pluginLoadFailures ?? "unknown"}`);
@@ -587,6 +590,15 @@ function summarizeMeasurements(measurements) {
     warmRuntimeDepsRestageCount: measurements.warmRuntimeDepsRestageCount ?? null,
     warmRuntimeDepsStagingMs: measurements.warmRuntimeDepsStagingMs ?? null,
     runtimeDepsWarmReuseOk: measurements.runtimeDepsWarmReuseOk ?? null,
+    soakDurationMs: measurements.soakDurationMs ?? null,
+    soakIterations: measurements.soakIterations ?? null,
+    soakCommandP95Ms: measurements.soakCommandP95Ms ?? null,
+    soakCommandFailures: measurements.soakCommandFailures ?? null,
+    soakHealthP95Ms: measurements.soakHealthP95Ms ?? null,
+    soakHealthFailures: measurements.soakHealthFailures ?? null,
+    rssGrowthMb: measurements.rssGrowthMb ?? null,
+    gatewayRssGrowthMb: measurements.gatewayRssGrowthMb ?? null,
+    resourceTrend: measurements.resourceTrend ?? null,
     nodeCpuProfileCount: measurements.nodeCpuProfileCount ?? null,
     nodeHeapProfileCount: measurements.nodeHeapProfileCount ?? null,
     nodeTraceEventCount: measurements.nodeTraceEventCount ?? null,
@@ -827,6 +839,15 @@ function briefEvidence(measurements, violations) {
   }
   if (measurements.warmRuntimeDepsStagingMs !== null && measurements.warmRuntimeDepsStagingMs !== undefined) {
     items.push(`warmRuntimeDepsStagingMs: ${measurements.warmRuntimeDepsStagingMs}`);
+  }
+  if (measurements.rssGrowthMb !== null && measurements.rssGrowthMb !== undefined) {
+    items.push(`rssGrowthMb: ${measurements.rssGrowthMb}`);
+  }
+  if (measurements.gatewayRssGrowthMb !== null && measurements.gatewayRssGrowthMb !== undefined) {
+    items.push(`gatewayRssGrowthMb: ${measurements.gatewayRssGrowthMb}`);
+  }
+  if (measurements.soakCommandP95Ms !== null && measurements.soakCommandP95Ms !== undefined) {
+    items.push(`soakCommandP95Ms: ${measurements.soakCommandP95Ms}`);
   }
   if (measurements.openclawOpenRequiredSpanCount > 0) {
     const span = measurements.openclawOpenSpans?.[0];

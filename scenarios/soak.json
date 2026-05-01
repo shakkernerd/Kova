@@ -6,7 +6,10 @@
   "tags": ["soak", "memory", "latency", "gateway"],
   "timeoutMs": 300000,
   "thresholds": {
-    "durationMs": 1800000,
+    "soakMinDurationMs": 60000,
+    "soakCommandP95Ms": 10000,
+    "soakCommandFailures": 0,
+    "soakHealthFailures": 0,
     "rssGrowthMb": 300,
     "healthP95Ms": 1000
   },
@@ -22,7 +25,9 @@
       "id": "loop",
       "title": "Repeated User Checks",
       "intent": "Repeat status, plugin list, model list, and health checks while tracking memory and latency.",
-      "commands": ["ocm @{env} -- status", "ocm @{env} -- plugins list", "ocm @{env} -- models list"],
+      "commands": [
+        "node support/run-soak-loop.mjs --env {env} --duration-ms 60000 --interval-ms 1000 --timeout-ms 30000"
+      ],
       "evidence": ["latency trend", "RSS trend", "logs during loop"]
     }
   ]
