@@ -4,7 +4,7 @@ import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, extname, join, relative, resolve } from "node:path";
-import { artifactsDir } from "./paths.mjs";
+import { artifactsDir } from "../paths.mjs";
 import { renderPasteSummary } from "./report.mjs";
 
 export async function bundleReport(reportPath, options = {}) {

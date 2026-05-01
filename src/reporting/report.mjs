@@ -1,4 +1,4 @@
-import { summarizeAgentTurnBreakdownForMarkdown } from "./collectors/agent-turns.mjs";
+import { summarizeAgentTurnBreakdownForMarkdown } from "../collectors/agent-turns.mjs";
 
 export function summarizeRecords(records) {
   const statuses = {};

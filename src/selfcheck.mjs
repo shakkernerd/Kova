@@ -32,8 +32,8 @@ import {
   parseTimelineProviderRequestLog
 } from "./collectors/provider.mjs";
 import { captureProcessSnapshot, classifyRegistryRolesForProcess, diffProcessSnapshots } from "./collectors/resources.mjs";
-import { renderMarkdownReport, renderPasteSummary, renderReportSummary } from "./report.mjs";
-import { compareReports, renderCompareSummary } from "./compare.mjs";
+import { renderMarkdownReport, renderPasteSummary, renderReportSummary } from "./reporting/report.mjs";
+import { compareReports, renderCompareSummary } from "./reporting/compare.mjs";
 import {
   ocmAt,
   ocmEnvDestroy,
