@@ -22,7 +22,11 @@ import {
   buildAgentTurnBreakdown,
   summarizeAgentTurnBreakdownForMarkdown
 } from "./collectors/agent-turns.mjs";
-import { computeProviderTurnAttribution, parseProviderRequestLog } from "./collectors/provider.mjs";
+import {
+  computeProviderTurnAttribution,
+  parseProviderRequestLog,
+  parseTimelineProviderRequestLog
+} from "./collectors/provider.mjs";
 import { captureProcessSnapshot, diffProcessSnapshots } from "./collectors/resources.mjs";
 import { renderMarkdownReport, renderPasteSummary, renderReportSummary } from "./report.mjs";
 
@@ -59,6 +63,8 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await interactiveSetupChoiceCheck(tmp));
     checks.push(await externalCliSetupCheck(tmp));
     checks.push(await externalCliOpenClawConfigCheck(tmp));
+    checks.push(await liveApiKeyExecutionCheck(tmp));
+    checks.push(await liveExternalCliDryRunCheck(tmp));
     checks.push(await failingCommandCheck(
       "setup-custom-provider-rejects-external-cli",
       `KOVA_HOME=${quoteShell(join(tmp, "custom-external-cli-home"))} node bin/kova.mjs setup --non-interactive --provider custom-openai --auth external-cli --json`,
@@ -691,6 +697,22 @@ async function providerEvidenceParserCheck() {
     assertEqual(evidence.requestCount, 2, "provider request count");
     assertEqual(evidence.providerDurationMs, 6700, "provider duration includes first through last response");
     assertEqual(evidence.firstByteLatencyMs, 15, "first byte latency");
+    const timelineEvidence = parseTimelineProviderRequestLog([
+      JSON.stringify({
+        schemaVersion: "openclaw.diagnostics.v1",
+        type: "provider.request",
+        timestamp: "2026-04-30T10:00:01.250Z",
+        name: "provider.request",
+        provider: "openai",
+        operation: "responses.create",
+        model: "gpt-5.5",
+        durationMs: 350,
+        ok: true
+      })
+    ].join("\n"));
+    assertEqual(timelineEvidence.requestCount, 1, "timeline provider request count");
+    assertEqual(timelineEvidence.providerDurationMs, 350, "timeline provider duration");
+    assertEqual(timelineEvidence.requests[0]?.route, "responses.create", "timeline provider route");
     const attribution = computeProviderTurnAttribution({
       command: "ocm @kova -- agent --local --agent main --session-id kova --message hi --json",
       startedAt: "2026-04-30T10:00:01.000Z",
@@ -719,6 +741,184 @@ async function providerEvidenceParserCheck() {
       message: error.message
     };
   }
+}
+
+async function liveApiKeyExecutionCheck(tmp) {
+  const home = join(tmp, "live-api-key-home");
+  const reportDir = join(tmp, "live-api-key-report");
+  const openclawHome = join(tmp, "live-api-key-openclaw-home");
+  const binDir = join(tmp, "live-api-key-bin");
+  const ocmLog = join(tmp, "live-api-key-ocm.log");
+  const secret = "kova-live-secret-selfcheck";
+  await mkdir(join(home, "credentials"), { recursive: true });
+  await mkdir(binDir, { recursive: true });
+  await writeFile(join(home, "credentials", "providers.json"), `${JSON.stringify({
+    schemaVersion: "kova.credentials.providers.v1",
+    defaultProvider: "openai",
+    providers: {
+      openai: {
+        id: "openai",
+        method: "api-key",
+        envVars: ["OPENAI_API_KEY"],
+        externalCli: null,
+        fallbackPolicy: "mock",
+        configuredAt: new Date().toISOString()
+      }
+    }
+  }, null, 2)}\n`, "utf8");
+  await writeFile(join(home, "credentials", "live.env"), `OPENAI_API_KEY=${secret}\n`, { encoding: "utf8", mode: 0o600 });
+  await writeFile(join(binDir, "ocm"), fakeOcmScript(), "utf8");
+  await chmod(join(binDir, "ocm"), 0o755);
+
+  const command = [
+    `KOVA_HOME=${quoteShell(home)}`,
+    `PATH=${quoteShell(`${binDir}:${process.env.PATH}`)}`,
+    `KOVA_FAKE_OPENCLAW_HOME=${quoteShell(openclawHome)}`,
+    `KOVA_MOCK_OCM_LOG=${quoteShell(ocmLog)}`,
+    `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --auth live --execute --report-dir ${quoteShell(reportDir)} --json`
+  ].join(" ");
+  const result = await runCommand(command, { timeoutMs: 30000, maxOutputChars: 1000000, redactValues: [secret] });
+
+  try {
+    if (result.status !== 0) {
+      throw new Error(result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`);
+    }
+    const receipt = JSON.parse(result.stdout);
+    const reportText = await readFile(receipt.jsonPath, "utf8");
+    if (reportText.includes(secret)) {
+      throw new Error("live API key leaked into JSON report");
+    }
+    const report = JSON.parse(reportText);
+    const record = report.records?.[0];
+    assertEqual(report.auth?.requestedMode, "live", "report requested live auth");
+    assertEqual(report.auth?.live?.environmentDependent, true, "top-level live env-dependent flag");
+    assertEqual(record?.auth?.mode, "live", "record live auth mode");
+    assertEqual(record?.auth?.source, "api-key", "record live auth source");
+    assertEqual(record?.auth?.environmentDependent, true, "record live env-dependent flag");
+    assertEqual(record?.auth?.secretValues, "redacted", "record secret values redacted");
+    assertEqual(record?.providerEvidence?.environmentDependent, true, "provider evidence live env-dependent flag");
+    const config = JSON.parse(await readFile(join(openclawHome, ".openclaw", "openclaw.json"), "utf8"));
+    assertEqual(config.models?.providers?.openai?.apiKey?.id, "OPENAI_API_KEY", "OpenClaw live config env ref");
+    const serializedConfig = JSON.stringify(config);
+    if (serializedConfig.includes(secret)) {
+      throw new Error("live API key leaked into OpenClaw config");
+    }
+    const statusResult = record.phases
+      ?.flatMap((phase) => phase.results ?? [])
+      ?.find((item) => item.command.includes(" -- status"));
+    if (!statusResult || statusResult.stdout.includes(secret) || !statusResult.stdout.includes("[REDACTED]")) {
+      throw new Error("live command env was not redacted in command output");
+    }
+    return {
+      id: "live-api-key-execution",
+      status: "PASS",
+      command,
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "live-api-key-execution",
+      status: "FAIL",
+      command,
+      durationMs: result.durationMs,
+      message: error.message
+    };
+  }
+}
+
+async function liveExternalCliDryRunCheck(tmp) {
+  const home = join(tmp, "live-external-cli-home");
+  const kovaHome = join(tmp, "live-external-cli-kova-home");
+  const fakeBin = join(tmp, "live-external-cli-bin");
+  const reportDir = join(tmp, "live-external-cli-report");
+  await mkdir(join(home, ".codex"), { recursive: true });
+  await mkdir(join(kovaHome, "credentials"), { recursive: true });
+  await mkdir(fakeBin, { recursive: true });
+  await writeFile(join(home, ".codex", "auth.json"), "{\"tokens\":{\"access_token\":\"redacted\"}}\n", "utf8");
+  await writeFile(join(fakeBin, "codex"), "#!/bin/sh\necho codex-selfcheck\n", "utf8");
+  await chmod(join(fakeBin, "codex"), 0o755);
+  await writeFile(join(kovaHome, "credentials", "providers.json"), `${JSON.stringify({
+    schemaVersion: "kova.credentials.providers.v1",
+    defaultProvider: "openai",
+    providers: {
+      openai: {
+        id: "openai",
+        method: "external-cli",
+        envVars: [],
+        externalCli: "codex",
+        fallbackPolicy: "mock",
+        configuredAt: new Date().toISOString()
+      }
+    }
+  }, null, 2)}\n`, "utf8");
+  await writeFile(join(kovaHome, "credentials", "live.env"), "", { encoding: "utf8", mode: 0o600 });
+
+  const command = [
+    `HOME=${quoteShell(home)}`,
+    `PATH=${quoteShell(`${fakeBin}:${process.env.PATH}`)}`,
+    `KOVA_HOME=${quoteShell(kovaHome)}`,
+    `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --auth live --report-dir ${quoteShell(reportDir)} --json`
+  ].join(" ");
+  const result = await runCommand(command, { timeoutMs: 30000, maxOutputChars: 1000000 });
+
+  try {
+    if (result.status !== 0) {
+      throw new Error(result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`);
+    }
+    const receipt = JSON.parse(result.stdout);
+    const report = JSON.parse(await readFile(receipt.jsonPath, "utf8"));
+    const record = report.records?.[0];
+    assertEqual(report.auth?.requestedMode, "live", "external cli requested live auth");
+    assertEqual(report.auth?.live?.method, "external-cli", "external cli live method");
+    assertEqual(report.auth?.live?.verification?.verified, true, "external cli verification");
+    assertEqual(record?.auth?.mode, "live", "external cli record live mode");
+    assertEqual(record?.auth?.source, "external-cli", "external cli record source");
+    assertEqual(record?.auth?.externalCli, "codex", "external cli record name");
+    const authSetupCommand = record.phases
+      ?.flatMap((phase) => phase.commands ?? [])
+      ?.find((item) => item.includes("configure-openclaw-live-auth.mjs")) ?? "";
+    if (!authSetupCommand.includes("--auth-method external-cli") || !/--external-cli\s+'?codex'?/.test(authSetupCommand)) {
+      throw new Error(`external-cli auth setup command missing expected args: ${authSetupCommand}`);
+    }
+    return {
+      id: "live-external-cli-dry-run",
+      status: "PASS",
+      command,
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "live-external-cli-dry-run",
+      status: "FAIL",
+      command,
+      durationMs: result.durationMs,
+      message: error.message
+    };
+  }
+}
+
+function fakeOcmScript() {
+  return `#!/bin/sh
+printf '%s\\n' "$*" >> "$KOVA_MOCK_OCM_LOG"
+case "$1:$2" in
+  service:status) echo '{"running":false,"desiredRunning":false,"childPid":null,"gatewayPort":null,"gatewayState":"stopped"}'; exit 0 ;;
+  env:exec)
+    env_name="$3"
+    shift 4
+    OPENCLAW_HOME="$KOVA_FAKE_OPENCLAW_HOME" "$@"
+    exit $?
+    ;;
+  env:destroy) echo '{"destroyed":true}'; exit 0 ;;
+esac
+case "$1" in
+  start) echo '{"ok":true}'; exit 0 ;;
+  logs) exit 0 ;;
+  @*) echo "live command key=$OPENAI_API_KEY"; exit 0 ;;
+  --version) echo 'mock-ocm'; exit 0 ;;
+esac
+echo "unhandled mock ocm command: $*" >&2
+exit 2
+`;
 }
 
 function agentTurnBreakdownCheck() {

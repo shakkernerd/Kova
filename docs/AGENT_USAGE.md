@@ -59,7 +59,8 @@ node bin/kova.mjs run --target runtime:stable --scenario fresh-install --state f
 Kova defaults to `--auth mock`, so dry-runs and executions model an OpenClaw
 assistant env with deliberate model auth unless the scenario/state explicitly
 tests missing or broken auth. Use `--auth live` only after credentials are
-configured with `kova setup`.
+configured with `kova setup`. Live runs are environment-dependent evidence, not
+deterministic baseline evidence.
 
 Interactive `kova setup` asks provider first and then auth method. Both prompts
 accept either the displayed number or the name.

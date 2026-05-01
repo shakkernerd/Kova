@@ -48,7 +48,8 @@ kova.report.v1
       "providerId": "openai",
       "method": "mock",
       "envVars": ["OPENAI_API_KEY"],
-      "reason": "no live provider configured"
+      "reason": "no live provider configured",
+      "environmentDependent": false
     }
   },
   "performance": {

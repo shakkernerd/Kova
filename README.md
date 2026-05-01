@@ -85,7 +85,9 @@ planned OpenClaw scenario.
 Every Kova-created disposable OpenClaw env receives deliberate model auth unless
 the scenario/state explicitly tests missing or broken auth. `--auth mock` is the
 default and uses Kova's deterministic local OpenAI-compatible provider.
-`--auth live` requires credentials configured through `kova setup`.
+`--auth live` requires credentials configured through `kova setup`; live results
+are marked environment-dependent and should be compared separately from mock
+baselines.
 
 `plan --json` is coverage-aware: scenarios map to declared OpenClaw surfaces,
 surfaces declare process roles and required metrics, and profile coverage gaps
