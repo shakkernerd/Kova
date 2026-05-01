@@ -24,7 +24,7 @@ export function runCommand(command, options = {}) {
   const startedAt = new Date(startedAtEpochMs).toISOString();
   return new Promise((resolve) => {
     const shell = process.env.SHELL || "/bin/sh";
-    const child = spawn(shell, ["-lc", command], {
+    const child = spawn(shell, ["-c", command], {
       cwd: repoRoot,
       env: { ...process.env, ...(options.env ?? {}) },
       stdio: ["ignore", "pipe", "pipe"]

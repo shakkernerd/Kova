@@ -199,7 +199,7 @@ if ! truthy "$skip_ocm"; then
 fi
 
 if command -v ocm >/dev/null 2>&1 && ! truthy "$skip_ocm"; then
-  KOVA_HOME="$prefix" node "${app_source}/bin/kova.mjs" setup --json >/dev/null
+  KOVA_HOME="$prefix" node "${app_source}/bin/kova.mjs" setup --ci --json >/dev/null
 else
   KOVA_HOME="$prefix" node "${app_source}/bin/kova.mjs" help >/dev/null
 fi
