@@ -45,6 +45,13 @@ import {
   ocmServiceStatusJson,
   ocmTargetSelector
 } from "./ocm/commands.mjs";
+import {
+  checkAggregateThreshold,
+  checkDuration,
+  checkEvidenceThreshold,
+  checkRoleThresholds,
+  checkTurnThreshold
+} from "./evaluation/violations.mjs";
 
 export async function runSelfCheck(flags = {}) {
   const checks = [];
@@ -97,6 +104,7 @@ export async function runSelfCheck(flags = {}) {
     ));
     checks.push(await externalCliRunAuthVerificationCheck(tmp));
     checks.push(ocmCommandBuildersCheck());
+    checks.push(evaluationViolationHelpersCheck());
     checks.push(await jsonCommandCheck("plan-json", "node bin/kova.mjs plan --json", (data) => {
       assertEqual(data.schemaVersion, "kova.plan.v1", "plan schema");
       assertArrayNotEmpty(data.surfaces, "plan surfaces");
@@ -479,6 +487,34 @@ function ocmCommandBuildersCheck() {
       id: "ocm-command-builders",
       status: "FAIL",
       command: "validate centralized OCM command builders",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function evaluationViolationHelpersCheck() {
+  try {
+    const violations = [];
+    checkDuration(violations, [{ command: "openclaw status", durationMs: 51 }], "statusMs", 50, (command) => command.includes("status"));
+    checkEvidenceThreshold(violations, "media", "mediaDescribeMs", 101, 100, "Media describe");
+    checkRoleThresholds(violations, { gateway: { peakRssMb: 901, maxCpuPercent: 41 } }, { gateway: { peakRssMb: 900, maxCpuPercent: 40 } });
+    checkAggregateThreshold(violations, 201, "agentTurnP95Ms", 200);
+    checkTurnThreshold(violations, { phaseId: "turn", preProviderMs: 301 }, "preProviderMs", 300, "pre-provider latency was 301ms");
+    assertEqual(violations.length, 6, "violation helper count");
+    assertEqual(violations.some((violation) => violation.metric === "resourceByRole.gateway.peakRssMb"), true, "role RSS violation");
+    assertEqual(violations.some((violation) => violation.phaseId === "turn"), true, "turn threshold violation");
+    return {
+      id: "evaluation-violation-helpers",
+      status: "PASS",
+      command: "validate evaluation violation helper contract",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "evaluation-violation-helpers",
+      status: "FAIL",
+      command: "validate evaluation violation helper contract",
       durationMs: 0,
       message: error.message
     };
