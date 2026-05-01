@@ -1,0 +1,39 @@
+{
+  "id": "agent-auth-missing",
+  "title": "Agent Auth Missing",
+  "objective": "A disposable OpenClaw env with no model/provider credentials so Kova can verify agent turns fail clearly and do not degrade the gateway.",
+  "tags": [
+    "agent",
+    "auth",
+    "providers",
+    "failure"
+  ],
+  "setup": [],
+  "traits": [
+    "agent-state",
+    "provider-pressure",
+    "missing-auth",
+    "failure-state"
+  ],
+  "auth": {
+    "mode": "missing",
+    "reason": "This state intentionally bypasses Kova's default mock provider auth to test missing model credentials."
+  },
+  "compatibleSurfaces": [
+    "agent-message"
+  ],
+  "incompatibleSurfaces": [],
+  "riskArea": "agent-provider-auth",
+  "ownerArea": "agent-runtime",
+  "setupEvidence": [
+    "run-level auth policy is missing",
+    "no mock provider is injected"
+  ],
+  "cleanupGuarantees": [
+    "disposable env cleanup removes the unauthenticated OpenClaw home"
+  ],
+  "source": {
+    "kind": "auth-policy-fixture",
+    "mode": "missing"
+  }
+}

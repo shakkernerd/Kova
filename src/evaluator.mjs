@@ -55,6 +55,7 @@ export function evaluateRecord(record, scenario, options = {}) {
     providerTurn,
     thresholds,
     timelineSummary,
+    authMode: record.auth?.mode ?? null,
     expectedProviderMode: scenario.mockProvider?.mode ?? "normal",
     providerSimulation: agentProviderSimulation
   });
@@ -902,6 +903,13 @@ function buildAgentFailureFixerSummary(latencyDiagnosis, providerSimulation, con
       likelyOwner: latencyDiagnosis.likelyOwner
     });
   }
+  if (latencyDiagnosis?.kind === "auth-failure") {
+    items.push({
+      kind: "auth-failure",
+      summary: "Agent turn failed before provider work because model/provider auth was missing; verify OpenClaw reports credential setup guidance and keeps the gateway usable.",
+      likelyOwner: latencyDiagnosis.likelyOwner
+    });
+  }
   if ((containment?.processLeakCount ?? 0) > 0) {
     const first = containment.leakedProcesses?.[0];
     items.push({
@@ -1016,11 +1024,19 @@ function checkTurnThreshold(violations, turn, metric, threshold, message) {
   });
 }
 
-function diagnoseAgentLatency({ coldAgentTurn, warmAgentTurn, providerTurn, thresholds, timelineSummary, expectedProviderMode = "normal", providerSimulation = null }) {
+function diagnoseAgentLatency({ coldAgentTurn, warmAgentTurn, providerTurn, thresholds, timelineSummary, authMode = null, expectedProviderMode = "normal", providerSimulation = null }) {
   if (!providerTurn) {
     return null;
   }
   if (providerTurn.missingProviderRequest === true) {
+    if (providerTurn.expectedFailure === true && ["missing", "broken", "none", "skip"].includes(authMode)) {
+      return {
+        kind: "auth-failure",
+        severity: "info",
+        summary: `Agent turn failed before provider work because auth mode is ${authMode}.`,
+        likelyOwner: "agent-runtime/auth"
+      };
+    }
     return {
       kind: "no-provider-request",
       severity: "fail",

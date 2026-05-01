@@ -1,0 +1,48 @@
+{
+  "id": "agent-auth-missing",
+  "surface": "agent-message",
+  "title": "Agent Auth Missing",
+  "objective": "Prove OpenClaw fails a local agent turn clearly when model auth is missing, keeps the gateway responsive, and leaves no leaked child processes.",
+  "tags": ["agent", "message", "auth", "failure", "containment"],
+  "states": ["agent-auth-missing"],
+  "timeoutMs": 180000,
+  "auth": { "mode": "missing" },
+  "agent": {
+    "expectedFailure": true
+  },
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "agentTurnMs": 60000,
+    "agentContainmentHealthFailures": 0,
+    "agentProcessLeaks": 0,
+    "peakRssMb": 900,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision Missing-Auth Env",
+      "intent": "Start a disposable OpenClaw gateway without Kova mock or live model credentials.",
+      "commands": ["ocm start {env} {startSelector} --json"],
+      "evidence": ["gateway port", "runtime binding", "startup readiness", "no Kova auth setup phase"]
+    },
+    {
+      "id": "missing-auth-agent-turn",
+      "title": "Missing Auth Agent Turn",
+      "intent": "Send a local agent message that must fail quickly and clearly because no provider credentials are configured.",
+      "expectedAgentFailure": true,
+      "commands": [
+        "node {kovaRoot}/support/expect-command-fails.mjs -- ocm @{env} -- agent --local --agent main --session-id kova-agent-auth-missing --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 30 --json"
+      ],
+      "evidence": ["clear auth failure", "no provider request", "process leak snapshot", "role resource samples"]
+    },
+    {
+      "id": "post-auth-failure-health",
+      "title": "Post-Auth-Failure Gateway Health",
+      "intent": "Verify the gateway remains responsive after the missing-auth agent failure.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["gateway status", "auth failure logs", "plugin errors", "memory after auth failure"]
+    }
+  ]
+}

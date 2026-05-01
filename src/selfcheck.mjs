@@ -170,6 +170,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(agentColdWarmEvaluationCheck());
     checks.push(await concurrentAgentRunnerCheck(tmp));
     checks.push(providerConcurrentEvaluationCheck());
+    checks.push(agentAuthFailureEvaluationCheck());
     checks.push(await jsonCommandCheck(
       "dry-run-state-lifecycle-json",
       `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --state missing-plugin-index --report-dir ${quoteShell(tmp)} --json`,
@@ -1596,6 +1597,102 @@ function providerConcurrentEvaluationCheck() {
       id: "provider-concurrent-evaluation",
       status: "FAIL",
       command: "evaluate synthetic concurrent provider pressure",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function agentAuthFailureEvaluationCheck() {
+  try {
+    const command = "node support/expect-command-fails.mjs -- ocm @kova-self-check -- agent --local --agent main --session-id kova-agent-auth-missing --message hi --json";
+    const record = {
+      scenario: "agent-auth-missing",
+      status: "PASS",
+      auth: { mode: "missing", source: "override:missing", providerId: null },
+      phases: [
+        {
+          id: "missing-auth-agent-turn",
+          expectedAgentFailure: true,
+          results: [{
+            command,
+            status: 0,
+            timedOut: false,
+            startedAt: "2026-04-30T10:00:01.000Z",
+            startedAtEpochMs: 1777543201000,
+            finishedAt: "2026-04-30T10:00:02.000Z",
+            finishedAtEpochMs: 1777543202000,
+            durationMs: 1000,
+            stdout: "",
+            stderr: "missing OpenAI credentials",
+            processSnapshots: {
+              leaks: {
+                schemaVersion: "kova.processLeakSummary.v1",
+                leakCount: 0,
+                leakedProcesses: [],
+                leaksByRole: {}
+              }
+            }
+          }],
+          metrics: { logs: zeroLogMetrics(), health: { ok: true } }
+        },
+        {
+          id: "post-auth-failure-health",
+          results: [{
+            command: "ocm @kova-self-check -- status",
+            status: 0,
+            timedOut: false,
+            durationMs: 100,
+            stdout: "status ok",
+            stderr: ""
+          }],
+          metrics: { logs: zeroLogMetrics(), health: { ok: true } }
+        }
+      ],
+      providerEvidence: {
+        available: false,
+        requestCount: 0,
+        requests: [],
+        errors: [],
+        error: "provider request log not found"
+      },
+      finalMetrics: {
+        service: { gatewayState: "running" },
+        logs: zeroLogMetrics()
+      }
+    };
+
+    evaluateRecord(record, {
+      id: "agent-auth-missing",
+      auth: { mode: "missing" },
+      agent: { expectedFailure: true },
+      thresholds: {
+        agentContainmentHealthFailures: 0,
+        agentProcessLeaks: 0
+      }
+    }, { surface: { thresholds: {} }, targetPlan: { kind: "npm" } });
+
+    assertEqual(record.status, "PASS", "agent auth failure scenario status");
+    assertEqual(record.measurements.agentTurnCount, 1, "auth failure agent turn count");
+    assertEqual(record.measurements.agentTurns[0].expectedFailureObserved, true, "auth failure observed");
+    assertEqual(record.measurements.agentLatencyDiagnosis.kind, "auth-failure", "auth failure diagnosis");
+    assertEqual(record.measurements.agentFailureContainment.gatewayHealthy, true, "auth failure gateway healthy");
+    assertEqual(
+      record.measurements.agentFailureFixerSummary.items.some((item) => item.kind === "auth-failure"),
+      true,
+      "auth failure fixer evidence"
+    );
+    return {
+      id: "agent-auth-failure-evaluation",
+      status: "PASS",
+      command: "evaluate synthetic missing-auth agent failure containment",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "agent-auth-failure-evaluation",
+      status: "FAIL",
+      command: "evaluate synthetic missing-auth agent failure containment",
       durationMs: 0,
       message: error.message
     };

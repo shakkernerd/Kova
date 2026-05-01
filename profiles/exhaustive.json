@@ -26,6 +26,7 @@
     { "scenario": "provider-models", "state": "model-auth-configured" },
     { "scenario": "provider-models", "state": "model-auth-missing" },
     { "scenario": "agent-cold-warm-message", "state": "mock-openai-provider", "timeoutMs": 180000 },
+    { "scenario": "agent-auth-missing", "state": "agent-auth-missing", "timeoutMs": 180000 },
     { "scenario": "agent-long-session", "state": "mock-openai-provider", "timeoutMs": 360000 },
     { "scenario": "agent-provider-slow", "state": "mock-openai-provider", "timeoutMs": 180000 },
     { "scenario": "agent-provider-timeout", "state": "mock-openai-provider", "timeoutMs": 180000 },
