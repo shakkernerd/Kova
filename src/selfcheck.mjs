@@ -149,6 +149,8 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await cpuProfileParserCheck());
     checks.push(await heapProfileParserCheck());
     checks.push(await providerEvidenceParserCheck());
+    checks.push(await mockProviderBehaviorCheck(tmp));
+    checks.push(providerFailureEvaluationCheck());
     checks.push(agentColdWarmEvaluationCheck());
     checks.push(await jsonCommandCheck(
       "dry-run-state-lifecycle-json",
@@ -706,6 +708,169 @@ async function providerEvidenceParserCheck() {
       id: "provider-evidence-parser",
       status: "FAIL",
       command: "parse fixtures/provider/mock-requests.jsonl",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+async function mockProviderBehaviorCheck(tmp) {
+  const dir = join(tmp, "mock-provider-behavior");
+  await mkdir(dir, { recursive: true });
+  const command = [
+    `node support/mock-openai-server.mjs --port-file ${quoteShell(join(dir, "port"))} --request-log ${quoteShell(join(dir, "requests.jsonl"))} --mode error-then-recover --error-status 503 >${quoteShell(join(dir, "server.log"))} 2>&1 & echo $! >${quoteShell(join(dir, "pid"))}`,
+    `for i in $(seq 1 50); do test -s ${quoteShell(join(dir, "port"))} && break; sleep 0.1; done`,
+    `port=$(cat ${quoteShell(join(dir, "port"))})`,
+    "node -e 'const port=process.argv[1]; const body=JSON.stringify({model:\"gpt-5.5\",stream:false}); const send=()=>fetch(`http://127.0.0.1:${port}/v1/responses`,{method:\"POST\",headers:{\"content-type\":\"application/json\"},body}).then(async r=>({status:r.status,text:await r.text()})); const first=await send(); const second=await send(); console.log(JSON.stringify({first:first.status,second:second.status}));' \"$port\"",
+    `kill "$(cat ${quoteShell(join(dir, "pid"))})" 2>/dev/null || true`
+  ].join("; ");
+  const result = await runCommand(command, { timeoutMs: 10000 });
+  try {
+    if (result.status !== 0) {
+      throw new Error(`mock provider behavior command failed: ${result.stderr || result.stdout}`);
+    }
+    const response = JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
+    assertEqual(response.first, 503, "first transient provider status");
+    assertEqual(response.second, 200, "second recovered provider status");
+    const evidence = parseProviderRequestLog(await readFile(join(dir, "requests.jsonl"), "utf8"));
+    assertEqual(evidence.requestCount, 2, "behavior request count");
+    assertEqual(evidence.requests[0]?.mode, "error-then-recover", "first request behavior");
+    assertEqual(evidence.requests[0]?.errorClass, "provider-error", "first request error class");
+    assertEqual(evidence.requests[1]?.mode, "normal", "second request behavior");
+    return {
+      id: "mock-provider-behavior",
+      status: "PASS",
+      command,
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "mock-provider-behavior",
+      status: "FAIL",
+      command,
+      durationMs: result.durationMs,
+      message: error.message
+    };
+  }
+}
+
+function providerFailureEvaluationCheck() {
+  try {
+    const failCommand = "node support/expect-command-fails.mjs -- ocm @kova -- agent --local --agent main --session-id kova-agent-provider-recovery --message hi --json";
+    const recoverCommand = "ocm @kova -- agent --local --agent main --session-id kova-agent-provider-recovery --message hi --json";
+    const record = {
+      scenario: "agent-provider-recovery",
+      status: "PASS",
+      auth: { mode: "mock", source: "mock", providerId: "openai" },
+      phases: [
+        {
+          id: "transient-provider-failure-turn",
+          expectedAgentFailure: true,
+          results: [{
+            command: failCommand,
+            status: 0,
+            timedOut: false,
+            startedAt: "2026-04-30T10:00:01.000Z",
+            startedAtEpochMs: 1777543201000,
+            finishedAt: "2026-04-30T10:00:02.000Z",
+            finishedAtEpochMs: 1777543202000,
+            durationMs: 1000,
+            stdout: "",
+            stderr: "provider failed"
+          }],
+          metrics: { logs: zeroLogMetrics(), health: { ok: true } }
+        },
+        {
+          id: "recovery-provider-turn",
+          results: [{
+            command: recoverCommand,
+            status: 0,
+            timedOut: false,
+            startedAt: "2026-04-30T10:00:05.000Z",
+            startedAtEpochMs: 1777543205000,
+            finishedAt: "2026-04-30T10:00:06.000Z",
+            finishedAtEpochMs: 1777543206000,
+            durationMs: 1000,
+            stdout: "{\"finalAssistantVisibleText\":\"KOVA_AGENT_OK\"}",
+            stderr: ""
+          }],
+          metrics: { logs: zeroLogMetrics(), health: { ok: true } }
+        }
+      ],
+      providerEvidence: {
+        available: true,
+        requestCount: 2,
+        requests: [
+          {
+            requestId: "provider-error",
+            mode: "error-then-recover",
+            outcome: "completed",
+            errorClass: "provider-error",
+            receivedAt: "2026-04-30T10:00:01.500Z",
+            receivedAtEpochMs: 1777543201500,
+            respondedAt: "2026-04-30T10:00:01.520Z",
+            respondedAtEpochMs: 1777543201520,
+            firstByteLatencyMs: 10,
+            firstChunkLatencyMs: 10,
+            route: "/v1/responses",
+            model: "gpt-5.5",
+            stream: true,
+            status: 503,
+            statusClass: "5xx"
+          },
+          {
+            requestId: "provider-recover",
+            mode: "normal",
+            outcome: "completed",
+            errorClass: null,
+            receivedAt: "2026-04-30T10:00:05.500Z",
+            receivedAtEpochMs: 1777543205500,
+            respondedAt: "2026-04-30T10:00:05.700Z",
+            respondedAtEpochMs: 1777543205700,
+            firstByteLatencyMs: 20,
+            firstChunkLatencyMs: 20,
+            route: "/v1/responses",
+            model: "gpt-5.5",
+            stream: true,
+            status: 200,
+            statusClass: "2xx"
+          }
+        ]
+      },
+      finalMetrics: {
+        service: { gatewayState: "running" },
+        logs: zeroLogMetrics()
+      }
+    };
+
+    evaluateRecord(record, {
+      id: "agent-provider-recovery",
+      mockProvider: { mode: "error-then-recover" },
+      agent: { expectedText: "KOVA_AGENT_OK" },
+      thresholds: {
+        providerFinalMs: 10000,
+        providerFailureHealthFailures: 0
+      }
+    }, { surface: { thresholds: {} }, targetPlan: { kind: "npm" } });
+
+    assertEqual(record.status, "PASS", "provider recovery scenario status");
+    assertEqual(record.measurements.agentProviderSimulation.mode, "error-then-recover", "provider simulation mode");
+    assertEqual(record.measurements.agentProviderSimulation.recoveryOk, true, "provider recovery ok");
+    assertEqual(record.measurements.agentProviderSimulation.containmentOk, true, "provider containment ok");
+    assertEqual(record.measurements.agentTurns[0].expectedFailureObserved, true, "expected provider failure observed");
+    assertEqual(record.measurements.agentTurns[1].responseOk, true, "recovery response ok");
+    assertEqual(record.measurements.agentLatencyDiagnosis.kind, "provider-error", "provider failure diagnosis");
+    return {
+      id: "provider-failure-evaluation",
+      status: "PASS",
+      command: "evaluate synthetic provider failure containment",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "provider-failure-evaluation",
+      status: "FAIL",
+      command: "evaluate synthetic provider failure containment",
       durationMs: 0,
       message: error.message
     };

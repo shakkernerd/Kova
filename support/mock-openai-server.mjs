@@ -5,7 +5,17 @@ import http from "node:http";
 const options = parseArgs(process.argv.slice(2));
 const marker = options.marker ?? "KOVA_AGENT_OK";
 const requestLog = options.requestLog ?? null;
+const providerMode = options.mode ?? "normal";
+const delayMs = options.delayMs ?? 0;
+const stallMs = options.stallMs ?? 65000;
+const errorStatus = options.errorStatus ?? 503;
 let nextRequestId = 1;
+let providerPostCount = 0;
+
+const supportedModes = new Set(["normal", "slow", "timeout", "malformed", "streaming-stall", "error-then-recover", "concurrent-pressure"]);
+if (!supportedModes.has(providerMode)) {
+  throw new Error(`unsupported mock provider mode '${providerMode}'`);
+}
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -35,6 +45,42 @@ function writeSse(res, events) {
   }
   res.write("data: [DONE]\n\n");
   res.end();
+}
+
+function writeMalformed(res, stream) {
+  if (stream) {
+    res.writeHead(200, {
+      "cache-control": "no-store",
+      connection: "keep-alive",
+      "content-type": "text/event-stream"
+    });
+    res.write("data: {this-is-not-json}\n\n");
+    res.end();
+    return;
+  }
+  res.writeHead(200, { "content-type": "application/json" });
+  res.end("{this-is-not-json");
+}
+
+async function writeStreamingStall(res, stream, call) {
+  if (!stream) {
+    await sleep(stallMs);
+    if (!res.destroyed && !res.writableEnded) {
+      writeJson(res, 504, { error: { message: `mock provider ${call.mode} timed out` } });
+    }
+    return;
+  }
+  res.writeHead(200, {
+    "cache-control": "no-store",
+    connection: "keep-alive",
+    "content-type": "text/event-stream"
+  });
+  res.write(`data: ${JSON.stringify({ type: "response.output_item.added", item: { type: "message", id: "msg_kova_stall", role: "assistant" } })}\n\n`);
+  await sleep(stallMs);
+  if (!res.destroyed && !res.writableEnded) {
+    res.write("data: [DONE]\n\n");
+    res.end();
+  }
 }
 
 function responseEvents(text) {
@@ -123,15 +169,32 @@ const server = http.createServer(async (req, res) => {
   let loggable = false;
   let stream = false;
   let model = null;
+  let behavior = {
+    mode: providerMode,
+    outcome: null,
+    errorClass: null,
+    providerCallIndex: null
+  };
+  let logged = false;
 
-  res.on("finish", () => {
+  function logRequest(outcome) {
     if (!requestLog || !loggable) {
       return;
     }
+    if (logged) {
+      return;
+    }
+    logged = true;
     const respondedAtEpochMs = Date.now();
+    const status = outcome === "aborted" && !res.writableEnded ? 499 : res.statusCode;
     const entry = {
       schemaVersion: "kova.mockProvider.request.v1",
       requestId: String(requestId),
+      mode: behavior.mode,
+      behavior: behavior.mode,
+      outcome,
+      errorClass: behavior.errorClass,
+      providerCallIndex: behavior.providerCallIndex,
       receivedAt,
       receivedAtEpochMs,
       respondedAt: new Date(respondedAtEpochMs).toISOString(),
@@ -148,12 +211,21 @@ const server = http.createServer(async (req, res) => {
       path: url.pathname,
       model,
       stream,
-      status: res.statusCode,
-      statusClass: `${Math.floor(res.statusCode / 100)}xx`,
+      status,
+      statusClass: typeof status === "number" ? `${Math.floor(status / 100)}xx` : null,
       bodyBytes: Buffer.byteLength(bodyText),
       parseError
     };
     fs.appendFileSync(requestLog, `${JSON.stringify(entry)}\n`);
+  }
+
+  res.on("finish", () => {
+    logRequest("completed");
+  });
+  res.on("close", () => {
+    if (!res.writableEnded) {
+      logRequest("aborted");
+    }
   });
 
   if (req.method === "GET" && url.pathname === "/health") {
@@ -181,6 +253,11 @@ const server = http.createServer(async (req, res) => {
   loggable = url.pathname.startsWith("/v1/");
 
   if (req.method === "POST" && url.pathname === "/v1/responses") {
+    behavior = behaviorForProviderCall();
+    await applyDelayForBehavior(behavior);
+    if (await maybeWriteFailureBehavior(res, behavior, stream)) {
+      return;
+    }
     if (body.stream === false) {
       writeJson(res, 200, {
         id: "resp_kova",
@@ -204,12 +281,72 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
+    behavior = behaviorForProviderCall();
+    await applyDelayForBehavior(behavior);
+    if (await maybeWriteFailureBehavior(res, behavior, body.stream !== false)) {
+      return;
+    }
     writeChatCompletion(res, body.stream !== false);
     return;
   }
 
   writeJson(res, 404, { error: { message: `unhandled mock route: ${req.method} ${url.pathname}` } });
 });
+
+function behaviorForProviderCall() {
+  providerPostCount += 1;
+  if (providerMode === "error-then-recover" && providerPostCount > 1) {
+    return {
+      mode: "normal",
+      outcome: null,
+      errorClass: null,
+      providerCallIndex: providerPostCount
+    };
+  }
+  return {
+    mode: providerMode,
+    outcome: null,
+    errorClass: null,
+    providerCallIndex: providerPostCount
+  };
+}
+
+async function applyDelayForBehavior(behavior) {
+  if (behavior.mode === "slow" || behavior.mode === "concurrent-pressure") {
+    await sleep(delayMs);
+  }
+}
+
+async function maybeWriteFailureBehavior(res, behavior, stream) {
+  if (behavior.mode === "timeout") {
+    behavior.errorClass = "provider-timeout";
+    await sleep(stallMs);
+    if (!res.destroyed && !res.writableEnded) {
+      writeJson(res, 504, { error: { message: "mock provider timeout" } });
+    }
+    return true;
+  }
+  if (behavior.mode === "malformed") {
+    behavior.errorClass = "malformed-response";
+    writeMalformed(res, stream);
+    return true;
+  }
+  if (behavior.mode === "streaming-stall") {
+    behavior.errorClass = "streaming-stall";
+    await writeStreamingStall(res, stream, behavior);
+    return true;
+  }
+  if (behavior.mode === "error-then-recover") {
+    behavior.errorClass = "provider-error";
+    writeJson(res, errorStatus, { error: { message: "mock provider transient failure", type: "kova_mock_provider_error" } });
+    return true;
+  }
+  return false;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 server.listen(Number(options.port ?? 0), "127.0.0.1", () => {
   const address = server.address();
@@ -242,6 +379,21 @@ function parseArgs(args) {
     marker: parsed.marker,
     port: parsed.port,
     portFile: parsed.portfile,
-    requestLog: parsed.requestlog
+    requestLog: parsed.requestlog,
+    mode: parsed.mode,
+    delayMs: positiveInteger(parsed.delayms, "delay-ms", 0),
+    stallMs: positiveInteger(parsed.stallms, "stall-ms", 65000),
+    errorStatus: positiveInteger(parsed.errorstatus, "error-status", 503)
   };
+}
+
+function positiveInteger(value, name, fallback) {
+  if (value === undefined) {
+    return fallback;
+  }
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    throw new Error(`--${name} must be a non-negative integer`);
+  }
+  return parsed;
 }

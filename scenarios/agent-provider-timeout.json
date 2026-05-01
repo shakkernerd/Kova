@@ -1,0 +1,48 @@
+{
+  "id": "agent-provider-timeout",
+  "surface": "agent-message",
+  "title": "Agent Provider Timeout",
+  "objective": "Prove OpenClaw surfaces provider timeout failure clearly, keeps the gateway healthy, and leaves no retained child process state after a failed agent turn.",
+  "tags": ["agent", "message", "provider-failure", "timeout", "containment"],
+  "timeoutMs": 180000,
+  "auth": { "mode": "mock" },
+  "mockProvider": {
+    "mode": "timeout",
+    "stallMs": 45000
+  },
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "agentTurnMs": 90000,
+    "providerFinalMs": 90000,
+    "providerFailureHealthFailures": 0,
+    "peakRssMb": 900,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision Agent Env",
+      "intent": "Start a disposable OpenClaw gateway before wiring the timeout mock provider.",
+      "commands": ["ocm start {env} {startSelector} --json"],
+      "evidence": ["gateway port", "runtime binding", "startup readiness"]
+    },
+    {
+      "id": "timeout-provider-turn",
+      "title": "Timeout Provider Turn",
+      "intent": "Send a simple message that must fail because the provider never completes before the agent timeout.",
+      "expectedAgentFailure": true,
+      "commands": [
+        "node {kovaRoot}/support/expect-command-fails.mjs -- ocm @{env} -- agent --local --agent main --session-id kova-agent-provider-timeout --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 20 --json"
+      ],
+      "evidence": ["clear command failure", "provider timeout/abort timing", "gateway remains supervised", "role resource samples"]
+    },
+    {
+      "id": "post-failure-health",
+      "title": "Post-Failure Gateway Health",
+      "intent": "Verify the gateway remains responsive after the timeout failure.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["gateway status", "provider logs", "plugin errors", "memory after timeout"]
+    }
+  ]
+}

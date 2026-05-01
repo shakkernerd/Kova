@@ -39,13 +39,22 @@ export function evaluateRecord(record, scenario, options = {}) {
   const runtimeDepsStagingMs = maxNullable(openclawDiagnostics.runtimeDepsStagingMs, timelineSummary.runtimeDepsStageMaxMs);
   const eventLoopDelayMs = maxNullable(openclawDiagnostics.eventLoopDelayMs, timelineSummary.eventLoopMaxMs);
   const providerModelTimingMs = maxNullable(openclawDiagnostics.providerModelTimingMs, timelineSummary.providerRequestMaxMs);
-  const agentTurns = collectAgentTurns(record, record.providerEvidence, scenario.agent?.expectedText ?? null);
+  const agentTurns = collectAgentTurns(record, record.providerEvidence, scenario);
   const coldAgentTurn = selectAgentTurn(agentTurns, "cold") ?? agentTurns[0] ?? null;
   const warmAgentTurn = selectAgentTurn(agentTurns, "warm") ?? agentTurns[1] ?? null;
   const providerTurn = collectSlowestProviderTurn(agentTurns);
   const agentTurnMs = maxNullable(maxDurationWhere(allResults, isAgentMessageCommand), maxTurnDuration(agentTurns));
   const agentResponseOk = agentTurns.length === 0 ? null : agentTurns.every((turn) => turn.responseOk === true);
-  const agentLatencyDiagnosis = diagnoseAgentLatency({ coldAgentTurn, warmAgentTurn, providerTurn, thresholds, timelineSummary });
+  const agentProviderSimulation = evaluateProviderSimulation({ turns: agentTurns, scenario, record, thresholds });
+  const agentLatencyDiagnosis = diagnoseAgentLatency({
+    coldAgentTurn,
+    warmAgentTurn,
+    providerTurn,
+    thresholds,
+    timelineSummary,
+    expectedProviderMode: scenario.mockProvider?.mode ?? "normal",
+    providerSimulation: agentProviderSimulation
+  });
   const finalGatewayState = record.finalMetrics?.service?.gatewayState ?? null;
   const healthFailures = countHealthFailures(record);
   const healthP95Ms = collectHealthP95(record);
@@ -291,6 +300,7 @@ export function evaluateRecord(record, scenario, options = {}) {
   }
   checkAgentTurnCorrectness(violations, agentTurns, scenario.agent?.expectedText ?? null);
   checkAgentTurnThresholds(violations, agentTurns, { coldAgentTurn, warmAgentTurn, providerTurn, agentLatencyDiagnosis }, thresholds, record);
+  checkProviderSimulation(violations, agentProviderSimulation);
 
   record.measurements = {
     peakRssMb,
@@ -316,6 +326,11 @@ export function evaluateRecord(record, scenario, options = {}) {
     coldFirstByteLatencyMs: coldAgentTurn?.firstByteLatencyMs ?? null,
     warmFirstByteLatencyMs: warmAgentTurn?.firstByteLatencyMs ?? null,
     agentLatencyDiagnosis,
+    agentProviderSimulation,
+    agentProviderMode: agentProviderSimulation.mode,
+    agentProviderIssue: agentProviderSimulation.observedIssue,
+    agentProviderContainmentOk: agentProviderSimulation.containmentOk,
+    agentProviderRecoveryOk: agentProviderSimulation.recoveryOk,
     providerRequestCount: record.providerEvidence?.requestCount ?? null,
     providerFirstRequestAt: record.providerEvidence?.firstRequestStartAt ?? null,
     providerLastResponseAt: record.providerEvidence?.lastResponseEndAt ?? null,
@@ -422,25 +437,31 @@ export function evaluateRecord(record, scenario, options = {}) {
   return record;
 }
 
-function collectAgentTurns(record, providerEvidence, expectedText) {
+function collectAgentTurns(record, providerEvidence, scenario) {
   const turns = [];
   let index = 0;
+  const expectedText = scenario.agent?.expectedText ?? null;
   for (const phase of record.phases ?? []) {
     for (const result of phase.results ?? []) {
       if (!isAgentMessageCommand(result.command)) {
         continue;
       }
       index += 1;
+      const expectedFailure = phase.expectedAgentFailure === true || scenario.agent?.expectedFailure === true;
       const attribution = computeProviderTurnAttribution(result, providerEvidence);
       const response = extractAgentResponse(result);
       const expectedTextPresent = typeof expectedText === "string" && expectedText.length > 0
         ? responseContainsExpectedText(response, result, expectedText)
         : null;
+      const expectedFailureObserved = expectedFailure === true && result.status === 0 && result.timedOut !== true;
+      const normalResponseOk = result.status === 0 && result.timedOut !== true && response.usable === true && (expectedTextPresent !== false);
       turns.push({
         schemaVersion: "kova.agentTurnEvidence.v1",
         index,
         phaseId: phase.id,
         label: agentTurnLabel(phase.id, index),
+        expectedFailure,
+        expectedFailureObserved,
         command: result.command,
         status: result.status,
         timedOut: result.timedOut === true,
@@ -450,7 +471,8 @@ function collectAgentTurns(record, providerEvidence, expectedText) {
         commandFinishedAt: result.finishedAt ?? null,
         commandFinishedAtEpochMs: result.finishedAtEpochMs ?? null,
         responseText: response.text,
-        responseOk: result.status === 0 && result.timedOut !== true && response.usable === true && (expectedTextPresent !== false),
+        responseOk: expectedFailure ? expectedFailureObserved : normalResponseOk,
+        assistantResponseOk: normalResponseOk,
         expectedTextPresent,
         preProviderMs: attribution?.preProviderMs ?? null,
         providerFinalMs: attribution?.providerFinalMs ?? null,
@@ -464,6 +486,9 @@ function collectAgentTurns(record, providerEvidence, expectedText) {
         providerRoutes: attribution?.routes ?? [],
         providerModels: attribution?.models ?? [],
         providerStatuses: attribution?.statuses ?? [],
+        providerModes: attribution?.modes ?? [],
+        providerOutcomes: attribution?.outcomes ?? [],
+        providerErrorClasses: attribution?.errorClasses ?? [],
         providerErrors: attribution?.errors ?? [],
         healthOk: phase.metrics?.health?.ok ?? null,
         healthP95Ms: phase.metrics?.healthSummary?.p95Ms ?? null,
@@ -492,6 +517,19 @@ function maxTurnDuration(turns) {
 
 function checkAgentTurnCorrectness(violations, turns, expectedText) {
   for (const turn of turns) {
+    if (turn.expectedFailure === true) {
+      if (turn.expectedFailureObserved !== true) {
+        violations.push({
+          kind: "agent",
+          metric: "agentTurn.expectedFailureObserved",
+          phaseId: turn.phaseId,
+          expected: "provider failure surfaced as command failure",
+          actual: turn.status,
+          message: `${turn.label} agent turn was expected to fail from provider behavior, but the failure was not observed clearly`
+        });
+      }
+      continue;
+    }
     if (turn.responseOk !== true) {
       violations.push({
         kind: "agent",
@@ -512,6 +550,107 @@ function checkAgentTurnCorrectness(violations, turns, expectedText) {
         message: `${turn.label} agent turn response did not include expected marker ${expectedText}`
       });
     }
+  }
+}
+
+function evaluateProviderSimulation({ turns, scenario, record, thresholds }) {
+  const mode = scenario.mockProvider?.mode ?? "normal";
+  const expected = mode !== "normal";
+  const issue = classifyProviderIssue(turns);
+  const expectedFailureTurns = turns.filter((turn) => turn.expectedFailure === true);
+  const normalTurns = turns.filter((turn) => turn.expectedFailure !== true);
+  const healthLimit = typeof thresholds.providerFailureHealthFailures === "number" ? thresholds.providerFailureHealthFailures : 0;
+  const healthFailures = countHealthFailures(record);
+  const finalGatewayState = record.finalMetrics?.service?.gatewayState ?? null;
+  const containmentOk = !expected || (
+    finalGatewayState === "running" &&
+    healthFailures <= healthLimit
+  );
+  const recoveryOk = mode === "error-then-recover"
+    ? turns.some((turn) => hasProviderFailureEvidence(turn)) &&
+      turns.some((turn) => turn.responseOk === true && hasSuccessfulProviderRequest(turn))
+    : null;
+  const providerSlowMinMs = thresholds.providerSlowMinMs ?? scenario.mockProvider?.delayMs ?? null;
+  const slowObserved = mode === "slow"
+    ? turns.some((turn) => typeof turn.providerFinalMs === "number" && typeof providerSlowMinMs === "number" && turn.providerFinalMs >= providerSlowMinMs)
+    : null;
+
+  return {
+    schemaVersion: "kova.agentProviderSimulation.v1",
+    mode,
+    expected,
+    observedIssue: issue.kind,
+    observedIssueSummary: issue.summary,
+    containmentOk,
+    recoveryOk,
+    slowObserved,
+    expectedFailureCount: expectedFailureTurns.length,
+    expectedFailureObservedCount: expectedFailureTurns.filter((turn) => turn.expectedFailureObserved === true).length,
+    successfulTurnCount: normalTurns.filter((turn) => turn.responseOk === true).length,
+    finalGatewayState,
+    healthFailures,
+    healthLimit,
+    providerSlowMinMs
+  };
+}
+
+function checkProviderSimulation(violations, simulation) {
+  if (!simulation.expected) {
+    return;
+  }
+  if (simulation.mode === "slow" && simulation.slowObserved !== true) {
+    violations.push({
+      kind: "provider-simulation",
+      metric: "providerSlowObserved",
+      expected: `>= ${simulation.providerSlowMinMs ?? "configured delay"}ms provider work`,
+      actual: simulation.observedIssueSummary,
+      message: "mock provider slow mode did not produce observable slow provider work"
+    });
+  }
+  if (simulation.mode === "timeout" && !["provider-timeout", "streaming-stall", "provider-aborted", "http-error"].includes(simulation.observedIssue)) {
+    violations.push({
+      kind: "provider-simulation",
+      metric: "providerTimeoutObserved",
+      expected: "provider timeout or aborted request",
+      actual: simulation.observedIssue,
+      message: "mock provider timeout mode did not produce observable timeout/abort evidence"
+    });
+  }
+  if (simulation.mode === "streaming-stall" && !["streaming-stall", "provider-aborted", "provider-timeout", "http-error"].includes(simulation.observedIssue)) {
+    violations.push({
+      kind: "provider-simulation",
+      metric: "providerStreamingStallObserved",
+      expected: "streaming stall or aborted request",
+      actual: simulation.observedIssue,
+      message: "mock provider streaming-stall mode did not produce observable stall/abort evidence"
+    });
+  }
+  if (simulation.mode === "malformed" && simulation.observedIssue !== "malformed-response") {
+    violations.push({
+      kind: "provider-simulation",
+      metric: "providerMalformedObserved",
+      expected: "malformed provider response",
+      actual: simulation.observedIssue,
+      message: "mock provider malformed mode did not produce malformed response evidence"
+    });
+  }
+  if (simulation.mode === "error-then-recover" && simulation.recoveryOk !== true) {
+    violations.push({
+      kind: "provider-simulation",
+      metric: "providerRecoveryOk",
+      expected: "first request fails and later request succeeds",
+      actual: simulation.recoveryOk,
+      message: "mock provider error-then-recover mode did not prove agent recovery"
+    });
+  }
+  if (simulation.containmentOk !== true) {
+    violations.push({
+      kind: "provider-containment",
+      metric: "providerFailureContainmentOk",
+      expected: `gateway running and health failures <= ${simulation.healthLimit}`,
+      actual: `gateway=${simulation.finalGatewayState ?? "unknown"} healthFailures=${simulation.healthFailures}`,
+      message: `provider ${simulation.mode} failure was not contained; gateway=${simulation.finalGatewayState ?? "unknown"}, health failures=${simulation.healthFailures}`
+    });
   }
 }
 
@@ -585,7 +724,7 @@ function checkTurnThreshold(violations, turn, metric, threshold, message) {
   });
 }
 
-function diagnoseAgentLatency({ coldAgentTurn, warmAgentTurn, providerTurn, thresholds, timelineSummary }) {
+function diagnoseAgentLatency({ coldAgentTurn, warmAgentTurn, providerTurn, thresholds, timelineSummary, expectedProviderMode = "normal", providerSimulation = null }) {
   if (!providerTurn) {
     return null;
   }
@@ -595,6 +734,16 @@ function diagnoseAgentLatency({ coldAgentTurn, warmAgentTurn, providerTurn, thre
       severity: "fail",
       summary: "No provider request happened during the agent turn.",
       likelyOwner: "agent-runtime/auth/provider-routing"
+    };
+  }
+
+  const providerIssue = classifyProviderIssue([providerTurn]);
+  if (providerIssue.kind !== "none") {
+    return {
+      kind: providerIssue.kind,
+      severity: expectedProviderMode === "normal" ? "fail" : "info",
+      summary: providerSimulation?.observedIssueSummary ?? providerIssue.summary,
+      likelyOwner: "provider"
     };
   }
 
@@ -632,6 +781,42 @@ function diagnoseAgentLatency({ coldAgentTurn, warmAgentTurn, providerTurn, thre
     summary: `${providerTurn.label} agent turn ${providerTurn.totalTurnMs ?? "unknown"}ms; pre-provider ${providerTurn.preProviderMs ?? "unknown"}ms; provider ${providerTurn.providerFinalMs ?? "unknown"}ms.`,
     likelyOwner: "OpenClaw"
   };
+}
+
+function classifyProviderIssue(turns) {
+  const errors = turns.flatMap((turn) => turn.providerErrors ?? []);
+  const errorKinds = new Set(errors.map((error) => error.kind).filter(Boolean));
+  if (errorKinds.has("provider-timeout")) {
+    return { kind: "provider-timeout", summary: "Provider timed out before completing the agent turn." };
+  }
+  if (errorKinds.has("streaming-stall")) {
+    return { kind: "streaming-stall", summary: "Provider stream stalled before completing the agent turn." };
+  }
+  if (errorKinds.has("malformed-response")) {
+    return { kind: "malformed-response", summary: "Provider returned a malformed response." };
+  }
+  if (errorKinds.has("provider-error")) {
+    return { kind: "provider-error", summary: "Provider returned an explicit error before recovery or failure handling." };
+  }
+  if (errorKinds.has("provider-aborted")) {
+    return { kind: "provider-aborted", summary: "Provider request was aborted before a normal response completed." };
+  }
+  if (errors.some((error) => error.kind === "http" && typeof error.status === "number" && error.status >= 400)) {
+    const first = errors.find((error) => error.kind === "http" && typeof error.status === "number" && error.status >= 400);
+    return { kind: "http-error", summary: `Provider returned HTTP ${first.status}.` };
+  }
+  return { kind: "none", summary: "No provider failure evidence found." };
+}
+
+function hasSuccessfulProviderRequest(turn) {
+  return (turn.providerStatuses ?? []).some((status) => Number(status.value) >= 200 && Number(status.value) < 300);
+}
+
+function hasProviderFailureEvidence(turn) {
+  return (turn.providerErrors ?? []).some((error) =>
+    ["provider-error", "provider-timeout", "streaming-stall", "malformed-response", "provider-aborted"].includes(error.kind) ||
+    (error.kind === "http" && typeof error.status === "number" && error.status >= 400)
+  );
 }
 
 function relevantAgentSpans(timelineSummary) {

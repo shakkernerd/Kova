@@ -32,6 +32,9 @@ export function validateScenarioShape(scenario, sourceName = "scenario") {
   if (scenario.agent !== undefined) {
     validateAgent(scenario.agent, "agent", errors);
   }
+  if (scenario.mockProvider !== undefined) {
+    validateMockProvider(scenario.mockProvider, "mockProvider", errors);
+  }
 
   validateStringArray(scenario.tags, "tags", errors);
   validateStringArray(scenario.states, "states", errors, { optional: true });
@@ -58,6 +61,25 @@ function validateAgent(agent, prefix, errors) {
   }
   if (agent.expectedText !== undefined && (typeof agent.expectedText !== "string" || agent.expectedText.length === 0)) {
     errors.push(`${prefix}.expectedText must be a non-empty string when set`);
+  }
+  if (agent.expectedFailure !== undefined && typeof agent.expectedFailure !== "boolean") {
+    errors.push(`${prefix}.expectedFailure must be a boolean when set`);
+  }
+}
+
+function validateMockProvider(mockProvider, prefix, errors) {
+  if (!mockProvider || typeof mockProvider !== "object" || Array.isArray(mockProvider)) {
+    errors.push(`${prefix} must be an object`);
+    return;
+  }
+  const modes = ["normal", "slow", "timeout", "malformed", "streaming-stall", "error-then-recover", "concurrent-pressure"];
+  if (mockProvider.mode !== undefined && !modes.includes(mockProvider.mode)) {
+    errors.push(`${prefix}.mode must be one of ${modes.join(", ")}`);
+  }
+  for (const key of ["delayMs", "stallMs", "errorStatus"]) {
+    if (mockProvider[key] !== undefined && (!Number.isInteger(mockProvider[key]) || mockProvider[key] < 0)) {
+      errors.push(`${prefix}.${key} must be a non-negative integer when set`);
+    }
   }
 }
 
@@ -87,6 +109,9 @@ function validatePhases(phases, errors) {
 
     validateStringArray(phase.commands, `${prefix}.commands`, errors);
     validateStringArray(phase.evidence, `${prefix}.evidence`, errors);
+    if (phase.expectedAgentFailure !== undefined && typeof phase.expectedAgentFailure !== "boolean") {
+      errors.push(`${prefix}.expectedAgentFailure must be a boolean when set`);
+    }
   }
 }
 

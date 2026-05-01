@@ -1,0 +1,47 @@
+{
+  "id": "agent-provider-malformed",
+  "surface": "agent-message",
+  "title": "Agent Provider Malformed",
+  "objective": "Prove OpenClaw handles malformed provider responses as contained agent failures without taking down the gateway.",
+  "tags": ["agent", "message", "provider-failure", "malformed", "containment"],
+  "timeoutMs": 180000,
+  "auth": { "mode": "mock" },
+  "mockProvider": {
+    "mode": "malformed"
+  },
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "agentTurnMs": 90000,
+    "providerFinalMs": 10000,
+    "providerFailureHealthFailures": 0,
+    "peakRssMb": 900,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision Agent Env",
+      "intent": "Start a disposable OpenClaw gateway before wiring the malformed mock provider.",
+      "commands": ["ocm start {env} {startSelector} --json"],
+      "evidence": ["gateway port", "runtime binding", "startup readiness"]
+    },
+    {
+      "id": "malformed-provider-turn",
+      "title": "Malformed Provider Turn",
+      "intent": "Send a simple message that must fail because the provider returns malformed response payload.",
+      "expectedAgentFailure": true,
+      "commands": [
+        "node {kovaRoot}/support/expect-command-fails.mjs -- ocm @{env} -- agent --local --agent main --session-id kova-agent-provider-malformed --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 60 --json"
+      ],
+      "evidence": ["clear command failure", "malformed provider evidence", "gateway remains supervised", "role resource samples"]
+    },
+    {
+      "id": "post-failure-health",
+      "title": "Post-Failure Gateway Health",
+      "intent": "Verify the gateway remains responsive after the malformed provider response.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["gateway status", "provider logs", "plugin errors", "memory after malformed response"]
+    }
+  ]
+}

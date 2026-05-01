@@ -1,0 +1,52 @@
+{
+  "id": "agent-provider-slow",
+  "surface": "agent-message",
+  "title": "Agent Provider Slow",
+  "objective": "Prove Kova can attribute a slow assistant turn to provider latency while confirming OpenClaw still returns a valid response and keeps the gateway healthy.",
+  "tags": ["agent", "message", "provider-failure", "latency", "containment"],
+  "timeoutMs": 180000,
+  "auth": { "mode": "mock" },
+  "mockProvider": {
+    "mode": "slow",
+    "delayMs": 2500
+  },
+  "agent": {
+    "expectedText": "KOVA_AGENT_OK"
+  },
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "agentTurnMs": 90000,
+    "providerFinalMs": 10000,
+    "providerSlowMinMs": 1500,
+    "providerFailureHealthFailures": 0,
+    "preProviderDominanceRatio": 0.98,
+    "peakRssMb": 900,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision Agent Env",
+      "intent": "Start a disposable OpenClaw gateway before wiring the slow mock provider.",
+      "commands": ["ocm start {env} {startSelector} --json"],
+      "evidence": ["gateway port", "runtime binding", "startup readiness"]
+    },
+    {
+      "id": "slow-provider-turn",
+      "title": "Slow Provider Turn",
+      "intent": "Send a simple message through the real agent path while the mock provider delays its response.",
+      "commands": [
+        "ocm @{env} -- agent --local --agent main --session-id kova-agent-provider-slow --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 120 --json"
+      ],
+      "evidence": ["assistant response", "provider delay timing", "pre-provider timing", "role resource samples"]
+    },
+    {
+      "id": "post-failure-health",
+      "title": "Post-Failure Gateway Health",
+      "intent": "Verify the gateway remains responsive after the slow provider turn.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["gateway status", "provider logs", "plugin errors", "memory after provider delay"]
+    }
+  ]
+}

@@ -11,6 +11,7 @@ export const authOverrideModes = ["default", "mock", "live", "skip", "missing", 
 
 const defaultProviderId = "openai";
 const mockApiKey = "kova-mock-key";
+const mockProviderModes = new Set(["normal", "slow", "timeout", "malformed", "streaming-stall", "error-then-recover", "concurrent-pressure"]);
 
 export async function ensureCredentialStore() {
   await mkdir(credentialsDir, { recursive: true });
@@ -138,6 +139,7 @@ export function scenarioAuthPolicy(context, scenario, state) {
     mode: "mock",
     providerId: defaultProviderId,
     source: "default-mock",
+    mockProvider: mockProviderPolicy(scenario, state),
     setup: true,
     commandEnv: {
       OPENAI_API_KEY: mockApiKey
@@ -148,7 +150,8 @@ export function scenarioAuthPolicy(context, scenario, state) {
       providerId: defaultProviderId,
       source: "default-mock",
       setup: true,
-      envVars: ["OPENAI_API_KEY"]
+      envVars: ["OPENAI_API_KEY"],
+      mockProvider: mockProviderPolicy(scenario, state)
     })
   };
 }
@@ -162,8 +165,8 @@ export function buildAuthPreparePhase(authPolicy, artifactDir) {
     id: "auth-prepare",
     title: "Auth Prepare",
     intent: "Start Kova's deterministic mock provider for the disposable OpenClaw env.",
-    commands: [startMockProviderCommand(dir)],
-    evidence: ["mock provider port", "mock provider request log", "mock provider health"]
+    commands: [startMockProviderCommand(dir, authPolicy.mockProvider)],
+    evidence: ["mock provider port", "mock provider request log", "mock provider behavior mode", "mock provider health"]
   };
 }
 
@@ -213,6 +216,7 @@ export function authDisplay(policy) {
     externalCli: policy.externalCli ?? null,
     setup: policy.setup === true,
     envVars: policy.envVars ?? [],
+    mockProvider: policy.mockProvider ? mockProviderDisplay(policy.mockProvider) : null,
     secretValues: "redacted"
   };
 }
@@ -451,19 +455,67 @@ function mockDir(artifactDir) {
   return join(artifactDir, "mock-openai");
 }
 
-function startMockProviderCommand(dir) {
+function startMockProviderCommand(dir, mockProvider = {}) {
   const server = join(repoRoot, "support/mock-openai-server.mjs");
   const portFile = join(dir, "port");
   const requestLog = join(dir, "requests.jsonl");
   const serverLog = join(dir, "server.log");
   const pidFile = join(dir, "pid");
+  const mode = mockProvider.mode ?? "normal";
+  const args = [
+    "--port-file", portFile,
+    "--request-log", requestLog,
+    "--marker", "KOVA_AGENT_OK",
+    "--mode", mode
+  ];
+  for (const [key, flag] of [
+    ["delayMs", "--delay-ms"],
+    ["stallMs", "--stall-ms"],
+    ["errorStatus", "--error-status"]
+  ]) {
+    if (mockProvider[key] !== undefined) {
+      args.push(flag, String(mockProvider[key]));
+    }
+  }
+  const argText = args.map(quoteShell).join(" ");
   return [
     `mkdir -p ${quoteShell(dir)}`,
-    `node ${quoteShell(server)} --port-file ${quoteShell(portFile)} --request-log ${quoteShell(requestLog)} --marker KOVA_AGENT_OK >${quoteShell(serverLog)} 2>&1 & echo $! >${quoteShell(pidFile)}`,
+    `node ${quoteShell(server)} ${argText} >${quoteShell(serverLog)} 2>&1 & echo $! >${quoteShell(pidFile)}`,
     `for i in $(seq 1 100); do test -s ${quoteShell(portFile)} && node -e 'fetch("http://127.0.0.1:"+process.argv[1]+"/health").then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))' "$(cat ${quoteShell(portFile)})" && exit 0; sleep 0.1; done`,
     `cat ${quoteShell(serverLog)} >&2`,
     "exit 1"
   ].join("; ");
+}
+
+function mockProviderPolicy(scenario, state) {
+  const raw = {
+    ...(state?.mockProvider ?? {}),
+    ...(scenario?.mockProvider ?? {})
+  };
+  const mode = raw.mode ?? "normal";
+  if (!mockProviderModes.has(mode)) {
+    throw new Error(`mockProvider.mode must be one of ${[...mockProviderModes].join(", ")}`);
+  }
+  const policy = { mode };
+  for (const key of ["delayMs", "stallMs", "errorStatus"]) {
+    if (raw[key] !== undefined) {
+      const value = Number(raw[key]);
+      if (!Number.isInteger(value) || value < 0) {
+        throw new Error(`mockProvider.${key} must be a non-negative integer`);
+      }
+      policy[key] = value;
+    }
+  }
+  return policy;
+}
+
+function mockProviderDisplay(policy) {
+  return {
+    mode: policy.mode,
+    delayMs: policy.delayMs ?? null,
+    stallMs: policy.stallMs ?? null,
+    errorStatus: policy.errorStatus ?? null
+  };
 }
 
 function configureMockAuthCommand(envName, dir) {

@@ -93,6 +93,10 @@
       { "scenario": "gateway-performance", "state": "many-bundled-plugins" }
     ],
     "warning": [
+      { "scenario": "agent-provider-slow", "state": "mock-openai-provider" },
+      { "scenario": "agent-provider-timeout", "state": "mock-openai-provider" },
+      { "scenario": "agent-provider-malformed", "state": "mock-openai-provider" },
+      { "scenario": "agent-provider-recovery", "state": "mock-openai-provider" },
       { "scenario": "failure-injection", "state": "broken-plugin-deps" },
       { "scenario": "soak", "state": "large-workspace" },
       { "scenario": "cross-platform-smoke", "state": "slow-filesystem" }
@@ -160,6 +164,26 @@
       "scenario": "agent-cold-warm-message",
       "state": "mock-openai-provider",
       "timeoutMs": 180000
+    },
+    {
+      "scenario": "agent-provider-slow",
+      "state": "mock-openai-provider",
+      "timeoutMs": 180000
+    },
+    {
+      "scenario": "agent-provider-timeout",
+      "state": "mock-openai-provider",
+      "timeoutMs": 180000
+    },
+    {
+      "scenario": "agent-provider-malformed",
+      "state": "mock-openai-provider",
+      "timeoutMs": 180000
+    },
+    {
+      "scenario": "agent-provider-recovery",
+      "state": "mock-openai-provider",
+      "timeoutMs": 240000
     },
     {
       "scenario": "dashboard-readiness",

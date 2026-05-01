@@ -1,0 +1,59 @@
+{
+  "id": "agent-provider-recovery",
+  "surface": "agent-message",
+  "title": "Agent Provider Recovery",
+  "objective": "Prove a transient provider failure is contained and provider recovery produces a normal assistant response in the same OpenClaw env/session lifecycle.",
+  "tags": ["agent", "message", "provider-failure", "recovery", "containment"],
+  "timeoutMs": 240000,
+  "auth": { "mode": "mock" },
+  "mockProvider": {
+    "mode": "error-then-recover",
+    "errorStatus": 503
+  },
+  "agent": {
+    "expectedText": "KOVA_AGENT_OK"
+  },
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "agentTurnMs": 90000,
+    "providerFinalMs": 10000,
+    "providerFailureHealthFailures": 0,
+    "peakRssMb": 900,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision Agent Env",
+      "intent": "Start a disposable OpenClaw gateway before wiring the transient-failure mock provider.",
+      "commands": ["ocm start {env} {startSelector} --json"],
+      "evidence": ["gateway port", "runtime binding", "startup readiness"]
+    },
+    {
+      "id": "transient-provider-failure-turn",
+      "title": "Transient Provider Recovery Turn",
+      "intent": "Send a simple message while the first provider request returns a transient error and require OpenClaw to recover to a normal assistant response.",
+      "commands": [
+        "ocm @{env} -- agent --local --agent main --session-id kova-agent-provider-recovery --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 120 --json"
+      ],
+      "evidence": ["assistant response", "provider 503 evidence", "provider 200 recovery evidence", "gateway remains supervised", "role resource samples"]
+    },
+    {
+      "id": "recovery-provider-turn",
+      "title": "Recovery Provider Turn",
+      "intent": "Send a second message after the transient provider failure and require a normal assistant response.",
+      "commands": [
+        "ocm @{env} -- agent --local --agent main --session-id kova-agent-provider-recovery --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 120 --json"
+      ],
+      "evidence": ["assistant response", "provider recovery timing", "gateway remains healthy", "role resource samples"]
+    },
+    {
+      "id": "post-failure-health",
+      "title": "Post-Failure Gateway Health",
+      "intent": "Verify the gateway remains responsive after provider failure and recovery.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["gateway status", "provider logs", "plugin errors", "memory after recovery"]
+    }
+  ]
+}

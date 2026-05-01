@@ -110,6 +110,9 @@ export function parseProviderRequestLog(text) {
     firstChunkLatencyMs: firstChunk?.firstChunkLatencyMs ?? null,
     routes: summarizeBy(requests, "route"),
     models: summarizeBy(requests, "model"),
+    modes: summarizeBy(requests, "mode"),
+    outcomes: summarizeBy(requests, "outcome"),
+    errorClasses: summarizeBy(requests, "errorClass"),
     statuses: summarizeBy(requests, "status"),
     errors: [...parseErrors, ...requestErrors(requests)],
     requests
@@ -154,6 +157,9 @@ export function computeProviderTurnAttribution(result, providerEvidence) {
       routes: [],
       models: [],
       statuses: [],
+      modes: [],
+      outcomes: [],
+      errorClasses: [],
       errors: [],
       providerDominates: null,
       preProviderDominates: null,
@@ -188,6 +194,9 @@ export function computeProviderTurnAttribution(result, providerEvidence) {
     routes: summarizeBy(requests, "route"),
     models: summarizeBy(requests, "model"),
     statuses: summarizeBy(requests, "status"),
+    modes: summarizeBy(requests, "mode"),
+    outcomes: summarizeBy(requests, "outcome"),
+    errorClasses: summarizeBy(requests, "errorClass"),
     errors: requestErrors(requests),
     providerDominates: dominanceRatio(Math.max(0, lastProviderResponseAt - firstProviderRequestAt), Math.max(0, commandFinishedAt - commandStartedAt)),
     preProviderDominates: dominanceRatio(Math.max(0, firstProviderRequestAt - commandStartedAt), Math.max(0, commandFinishedAt - commandStartedAt)),
@@ -231,6 +240,11 @@ function normalizeProviderRequest(raw, line) {
     firstChunkAtEpochMs,
     firstChunkLatencyMs: numberOrNull(raw.firstChunkLatencyMs) ?? durationBetween(receivedAtEpochMs, firstChunkAtEpochMs),
     method: raw.method ?? null,
+    mode: raw.mode ?? raw.behavior ?? null,
+    behavior: raw.behavior ?? raw.mode ?? null,
+    outcome: raw.outcome ?? null,
+    errorClass: raw.errorClass ?? null,
+    providerCallIndex: numberOrNull(raw.providerCallIndex),
     route,
     path: raw.path ?? route,
     model: raw.model ?? modelFromBody(raw.body),
@@ -264,6 +278,27 @@ function requestErrors(requests) {
         route: request.route,
         status: request.status,
         statusClass: request.statusClass
+      });
+    }
+    if (request.errorClass) {
+      errors.push({
+        kind: request.errorClass,
+        line: request.line,
+        requestId: request.requestId,
+        route: request.route,
+        status: request.status,
+        mode: request.mode,
+        outcome: request.outcome
+      });
+    }
+    if (request.outcome === "aborted") {
+      errors.push({
+        kind: "provider-aborted",
+        line: request.line,
+        requestId: request.requestId,
+        route: request.route,
+        status: request.status,
+        mode: request.mode
       });
     }
     if (request.parseError) {
