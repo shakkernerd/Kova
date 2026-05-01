@@ -7,8 +7,11 @@ const provider = options.provider || "openai";
 const envVar = options.envVar || "OPENAI_API_KEY";
 const authMethod = options.authMethod || "env";
 const externalCli = options.externalCli || null;
-const model = options.model || defaultModel(provider);
-const providerKey = providerConfigKey(provider);
+const externalRuntime = authMethod === "external-cli"
+  ? externalCliRuntimeConfig(provider, externalCli, options.model)
+  : null;
+const model = externalRuntime?.model || options.model || defaultModel(provider);
+const providerKey = externalRuntime?.providerKey || providerConfigKey(provider);
 
 const stateDir = process.env.OPENCLAW_STATE_DIR || path.join(requiredEnv("OPENCLAW_HOME"), ".openclaw");
 const configPath = process.env.OPENCLAW_CONFIG_PATH || path.join(stateDir, "openclaw.json");
@@ -21,30 +24,38 @@ try {
   config = {};
 }
 
-const existingProvider = config.models?.providers?.[providerKey] || {};
-const providerConfig = authMethod === "external-cli"
-  ? {
-      ...withoutApiKey(existingProvider),
-      models: mergeModels(existingProvider.models, model)
+if (authMethod !== "external-cli") {
+  const existingProvider = config.models?.providers?.[providerKey] || {};
+  config.models = {
+    ...(config.models || {}),
+    mode: "merge",
+    providers: {
+      ...(config.models?.providers || {}),
+      [providerKey]: {
+        ...existingProvider,
+        apiKey: {
+          source: "env",
+          provider: "default",
+          id: envVar
+        },
+        models: mergeModels(existingProvider.models, model)
+      }
     }
-  : {
-      ...existingProvider,
-      apiKey: {
-        source: "env",
-        provider: "default",
-        id: envVar
-      },
-      models: mergeModels(existingProvider.models, model)
-    };
+  };
+}
 
-config.models = {
-  ...(config.models || {}),
-  mode: "merge",
-  providers: {
-    ...(config.models?.providers || {}),
-    [providerKey]: providerConfig
-  }
-};
+if (externalRuntime?.pluginEntry) {
+  config.plugins = {
+    ...(config.plugins || {}),
+    entries: {
+      ...(config.plugins?.entries || {}),
+      [externalRuntime.pluginEntry]: {
+        ...(config.plugins?.entries?.[externalRuntime.pluginEntry] || {}),
+        enabled: true
+      }
+    }
+  };
+}
 
 config.agents = {
   ...(config.agents || {}),
@@ -57,7 +68,7 @@ config.agents = {
     ...(authMethod === "external-cli" ? {
       agentRuntime: {
         ...(config.agents?.defaults?.agentRuntime || {}),
-        id: agentRuntimeForExternalCli(externalCli),
+        id: externalRuntime.agentRuntime,
         fallback: "none"
       }
     } : {})
@@ -98,19 +109,36 @@ function providerConfigKey(provider) {
   return provider;
 }
 
-function agentRuntimeForExternalCli(cli) {
-  if (cli === "codex") {
-    return "codex";
+function externalCliRuntimeConfig(provider, cli, modelId) {
+  if (provider === "openai" && cli === "codex") {
+    return {
+      providerKey: "codex",
+      agentRuntime: "codex",
+      pluginEntry: "codex",
+      model: {
+        ...defaultModel("openai"),
+        id: modelId || "gpt-5.5",
+        name: modelId || "gpt-5.5",
+        api: "openai-codex-responses",
+        contextWindow: 272000,
+        contextTokens: 272000,
+        maxTokens: 128000
+      }
+    };
   }
-  if (cli === "claude") {
-    return "claude-cli";
+  if (provider === "anthropic" && cli === "claude") {
+    return {
+      providerKey: "anthropic",
+      agentRuntime: "claude-cli",
+      pluginEntry: "anthropic",
+      model: {
+        ...defaultModel("anthropic"),
+        id: modelId || "claude-sonnet-4-5",
+        name: modelId || "claude-sonnet-4-5"
+      }
+    };
   }
-  throw new Error(`unsupported external CLI runtime: ${cli || "<missing>"}`);
-}
-
-function withoutApiKey(provider) {
-  const { apiKey: _apiKey, ...rest } = provider || {};
-  return rest;
+  throw new Error(`unsupported external CLI runtime for provider ${provider}: ${cli || "<missing>"}`);
 }
 
 function parseArgs(args) {
@@ -132,7 +160,8 @@ function parseArgs(args) {
     provider: parsed.provider,
     envVar: parsed.envvar,
     authMethod: parsed.authmethod,
-    externalCli: parsed.externalcli
+    externalCli: parsed.externalcli,
+    model: parsed.model
   };
 }
 
