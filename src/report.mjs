@@ -33,6 +33,9 @@ export function renderMarkdownReport(report) {
     ...Object.entries(report.summary.statuses).map(([status, count]) => `- ${status}: ${count}`),
     ""
   );
+  if (!report.gate) {
+    lines.push(...formatRecordFailureCards(report.records));
+  }
   if (report.gate) {
     lines.push(...formatGateSection(report.gate));
   }
@@ -462,6 +465,47 @@ function formatMetrics(metrics) {
   }
 
   return lines.length > 0 ? lines : ["- unavailable"];
+}
+
+function formatRecordFailureCards(records = []) {
+  const cards = records
+    .filter((record) => !["PASS", "DRY-RUN"].includes(record.status))
+    .map(recordFailureCard);
+  if (cards.length === 0) {
+    return [];
+  }
+
+  const lines = ["## Failure Cards", ""];
+  for (const card of cards.slice(0, 8)) {
+    lines.push(`- ${card.status} ${card.scenario}${card.state ? `/${card.state}` : ""}: ${card.summary}`);
+    lines.push(`  - likely owner: ${card.likelyOwner}`);
+    if (card.command) {
+      lines.push(`  - command: \`${card.command}\``);
+    }
+    for (const item of card.evidence.slice(0, 4)) {
+      lines.push(`  - evidence: ${item}`);
+    }
+  }
+  if (cards.length > 8) {
+    lines.push(`- ${cards.length - 8} additional failure card(s) omitted from Markdown. See JSON report for full records.`);
+  }
+  lines.push("");
+  return lines;
+}
+
+function recordFailureCard(record) {
+  const failed = firstFailedCommand(record);
+  const violationMessages = (record.violations ?? []).map((violation) => violation.message);
+  const summary = violationMessages[0] ?? summarizeFailureReason(failed) ?? `${record.status} ${record.scenario}`;
+  return {
+    status: record.status,
+    scenario: record.scenario,
+    state: record.state?.id ?? null,
+    summary,
+    likelyOwner: record.likelyOwner ?? "OpenClaw",
+    command: failed?.command ? shortCommand(failed.command) : null,
+    evidence: briefEvidence(record.measurements ?? {}, violationMessages)
+  };
 }
 
 function indentFence(value) {

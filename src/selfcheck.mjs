@@ -206,6 +206,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(runtimeDepsLogParserCheck());
     checks.push(runtimeDepsWarmReuseEvaluationCheck());
     checks.push(await performanceBaselineCheck(tmp));
+    checks.push(markdownFailureCardsCheck());
     checks.push(readinessClassificationCheck());
     checks.push(await resourceRoleAttributionCheck(tmp));
     checks.push(await processSnapshotCheck(tmp));
@@ -3028,6 +3029,67 @@ function thresholdPolicyCalibrationCheck() {
       id: "threshold-policy-calibration",
       status: "FAIL",
       command: "evaluate synthetic profile threshold calibration",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function markdownFailureCardsCheck() {
+  try {
+    const rendered = renderMarkdownReport({
+      generatedAt: "2026-05-01T00:00:00.000Z",
+      runId: "self-check-failure-cards",
+      mode: "execution",
+      target: "runtime:stable",
+      platform: { os: "test", release: "test", arch: "test", node: "test" },
+      summary: { total: 1, statuses: { FAIL: 1 } },
+      records: [{
+        scenario: "gateway-performance",
+        title: "Gateway Performance",
+        status: "FAIL",
+        target: "runtime:stable",
+        envName: "kova-self-check",
+        likelyOwner: "gateway-runtime",
+        objective: "Synthetic failure card check",
+        phases: [{
+          id: "start",
+          title: "Start",
+          intent: "Start gateway",
+          commands: ["ocm start kova-self-check --runtime stable --json"],
+          evidence: [],
+          results: [{
+            command: "ocm start kova-self-check --runtime stable --json",
+            status: 1,
+            timedOut: false,
+            durationMs: 45000,
+            stdout: "",
+            stderr: "gateway did not become healthy"
+          }]
+        }],
+        measurements: {
+          timeToHealthReadyMs: 45000,
+          peakRssMb: 1100,
+          resourceTopRolesByRss: [{ role: "gateway", peakRssMb: 1100, maxCpuPercent: 220 }]
+        },
+        violations: [{ message: "gateway readiness exceeded threshold" }]
+      }]
+    });
+    assertEqual(rendered.includes("## Failure Cards"), true, "markdown failure cards section");
+    assertEqual(rendered.includes("FAIL gateway-performance: gateway readiness exceeded threshold"), true, "failure card summary");
+    assertEqual(rendered.includes("likely owner: gateway-runtime"), true, "failure card owner");
+    assertEqual(rendered.includes("evidence: timeToHealthReadyMs: 45000"), true, "failure card evidence");
+    return {
+      id: "markdown-failure-cards",
+      status: "PASS",
+      command: "render synthetic failure Markdown",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "markdown-failure-cards",
+      status: "FAIL",
+      command: "render synthetic failure Markdown",
       durationMs: 0,
       message: error.message
     };
