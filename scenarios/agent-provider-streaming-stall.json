@@ -1,0 +1,50 @@
+{
+  "id": "agent-provider-streaming-stall",
+  "surface": "agent-message",
+  "title": "Agent Provider Streaming Stall",
+  "objective": "Prove OpenClaw contains a provider stream that starts but stalls, keeps the gateway responsive, and leaves no leaked agent/plugin child processes.",
+  "tags": ["agent", "message", "provider-failure", "streaming-stall", "containment"],
+  "timeoutMs": 180000,
+  "auth": { "mode": "mock" },
+  "mockProvider": {
+    "mode": "streaming-stall",
+    "stallMs": 45000
+  },
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "agentTurnMs": 90000,
+    "providerFinalMs": 90000,
+    "providerFailureHealthFailures": 0,
+    "agentContainmentHealthFailures": 0,
+    "agentProcessLeaks": 0,
+    "peakRssMb": 900,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision Agent Env",
+      "intent": "Start a disposable OpenClaw gateway before wiring the streaming-stall mock provider.",
+      "commands": ["ocm start {env} {startSelector} --json"],
+      "evidence": ["gateway port", "runtime binding", "startup readiness"]
+    },
+    {
+      "id": "streaming-stall-provider-turn",
+      "title": "Streaming Stall Provider Turn",
+      "intent": "Send a simple message that must fail or cancel cleanly because the provider stream starts and then stalls.",
+      "expectedAgentFailure": true,
+      "commands": [
+        "node {kovaRoot}/support/expect-command-fails.mjs -- ocm @{env} -- agent --local --agent main --session-id kova-agent-provider-streaming-stall --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 20 --json"
+      ],
+      "evidence": ["clear command failure or timeout", "streaming stall provider evidence", "process leak snapshot", "gateway remains supervised", "role resource samples"]
+    },
+    {
+      "id": "post-failure-health",
+      "title": "Post-Failure Gateway Health",
+      "intent": "Verify the gateway remains responsive after the stalled provider stream.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["gateway status", "provider logs", "plugin errors", "memory after streaming stall"]
+    }
+  ]
+}
