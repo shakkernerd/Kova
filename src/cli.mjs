@@ -47,6 +47,7 @@ Usage:
   kova report compare <baseline.json> <current.json> [--thresholds <json>] [--fixer] [--json]
   kova report bundle <report.json> [--output-dir <path>] [--json]
   kova cleanup envs [--execute] [--json]
+  kova cleanup artifacts [--older-than-days <n>] [--execute] [--json]
 
 Selectors:
   npm:<version>              Published OpenClaw release
@@ -62,6 +63,7 @@ Notes:
   Kova reports on OpenClaw behavior, not OCM behavior.
   run is dry-run/report-only unless --execute is passed.
   Executed exhaustive matrix runs require --allow-exhaustive.
+  cleanup artifacts is dry-run by default and only targets Kova-owned run artifact dirs.
   --repeat records independent samples and computes aggregate performance stats.
   --auth defaults to mock so every disposable env has deliberate model auth unless a scenario opts out.
   setup provider/auth choices accept either numbers from the prompt or names such as openai, anthropic, env-only, api-key.

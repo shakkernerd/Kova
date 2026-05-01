@@ -197,6 +197,13 @@ Destroy only Kova-owned envs with:
 node bin/kova.mjs cleanup envs --execute
 ```
 
+Prune stale Kova run artifact directories with a dry-run first:
+
+```sh
+node bin/kova.mjs cleanup artifacts --older-than-days 14 --json
+node bin/kova.mjs cleanup artifacts --older-than-days 14 --execute
+```
+
 Agents should never mutate durable envs like `Shaks` or `Violet` directly for
 Kova tests unless a human explicitly asks for that exact env to be changed.
 

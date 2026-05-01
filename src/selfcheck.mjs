@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { quoteShell, runCommand } from "./commands.mjs";
@@ -205,6 +205,7 @@ export async function runSelfCheck(flags = {}) {
       assertEqual(data.execute, false, "cleanup execute flag");
       assertArray(data.envs, "cleanup envs");
     }));
+    checks.push(await cleanupArtifactsCheck(tmp));
     checks.push(await diagnosticsTimelineCheck());
     checks.push(await diagnosticsOpenSpanCheck());
     checks.push(diagnosticsTimelineEvaluationCheck());
@@ -2705,6 +2706,68 @@ function runtimeDepsRecord({ coldLog, warmLog }) {
       service: { gatewayState: "running" },
       logs: zeroLogMetrics()
     }
+  };
+}
+
+async function cleanupArtifactsCheck(tmp) {
+  const home = join(tmp, "artifact-cleanup-home");
+  const staleDir = join(home, "artifacts", "kova-2000-01-01t000000z");
+  const keepDir = join(home, "artifacts", "not-a-kova-run");
+  await mkdir(staleDir, { recursive: true });
+  await mkdir(keepDir, { recursive: true });
+  await writeFile(join(staleDir, "sample.txt"), "stale artifact\n", "utf8");
+  const oldDate = new Date("2000-01-01T00:00:00.000Z");
+  await utimes(staleDir, oldDate, oldDate);
+
+  const dryRun = await runCommand(
+    `KOVA_HOME=${quoteShell(home)} node bin/kova.mjs cleanup artifacts --older-than-days 1 --json`,
+    { timeoutMs: 30000, maxOutputChars: 1000000 }
+  );
+  if (dryRun.status !== 0) {
+    return {
+      id: "cleanup-artifacts",
+      status: "FAIL",
+      command: dryRun.command,
+      durationMs: dryRun.durationMs,
+      message: dryRun.stderr.trim() || dryRun.stdout.trim()
+    };
+  }
+  const dryRunJson = JSON.parse(dryRun.stdout);
+  assertEqual(dryRunJson.schemaVersion, "kova.cleanup.artifacts.v1", "cleanup artifacts schema");
+  assertEqual(dryRunJson.execute, false, "cleanup artifacts dry-run");
+  assertEqual(dryRunJson.candidates.length, 1, "cleanup artifacts candidate count");
+  assertEqual(dryRunJson.candidates[0].name, "kova-2000-01-01t000000z", "cleanup artifacts candidate name");
+
+  const execute = await runCommand(
+    `KOVA_HOME=${quoteShell(home)} node bin/kova.mjs cleanup artifacts --older-than-days 1 --execute --json`,
+    { timeoutMs: 30000, maxOutputChars: 1000000 }
+  );
+  if (execute.status !== 0) {
+    return {
+      id: "cleanup-artifacts",
+      status: "FAIL",
+      command: execute.command,
+      durationMs: execute.durationMs,
+      message: execute.stderr.trim() || execute.stdout.trim()
+    };
+  }
+  const executeJson = JSON.parse(execute.stdout);
+  assertEqual(executeJson.execute, true, "cleanup artifacts execute");
+  assertEqual(executeJson.results.length, 1, "cleanup artifacts result count");
+  let staleStillExists = true;
+  try {
+    await stat(staleDir);
+  } catch (error) {
+    staleStillExists = error.code !== "ENOENT";
+  }
+  assertEqual(staleStillExists, false, "stale artifact directory removed");
+  assertEqual((await stat(keepDir)).isDirectory(), true, "non-kova artifact directory retained");
+
+  return {
+    id: "cleanup-artifacts",
+    status: "PASS",
+    command: "node bin/kova.mjs cleanup artifacts --older-than-days 1 --execute --json",
+    durationMs: dryRun.durationMs + execute.durationMs
   };
 }
 
