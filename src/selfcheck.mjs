@@ -84,6 +84,7 @@ export async function runSelfCheck(flags = {}) {
       assertEqual(data.schemaVersion, "kova.plan.v1", "plan schema");
       assertArrayNotEmpty(data.surfaces, "plan surfaces");
       assertArrayNotEmpty(data.processRoles, "plan process roles");
+      assertArrayNotEmpty(data.metrics, "plan metrics");
       assertArrayNotEmpty(data.scenarios, "plan scenarios");
       assertArrayNotEmpty(data.states, "plan states");
       assertArrayNotEmpty(data.profiles, "profiles");
@@ -2720,6 +2721,35 @@ function stateRegistryValidationCheck() {
         /state compatible surfaces/.test(error.message);
     }
     assertEqual(rejectedCoveragePair, true, "invalid coverage state/surface pair rejected");
+
+    let rejectedMetric = false;
+    try {
+      validateRegistryReferences({
+        scenarios: [{
+          id: "scenario",
+          surface: "known-surface",
+          thresholds: { madeUpMetric: 1 },
+          states: [],
+          targetKinds: [],
+          processRoles: []
+        }],
+        states: [],
+        profiles: [],
+        surfaces: [{
+          id: "known-surface",
+          processRoles: [],
+          requiredStates: [],
+          requiredMetrics: ["knownMetric"],
+          thresholds: { knownMetric: 1 },
+          targetKinds: []
+        }],
+        processRoles: [],
+        metrics: [{ id: "knownMetric" }]
+      });
+    } catch (error) {
+      rejectedMetric = /unknown metric 'madeUpMetric'/.test(error.message);
+    }
+    assertEqual(rejectedMetric, true, "unknown scenario metric rejected");
 
     return {
       id: "state-registry-validation",

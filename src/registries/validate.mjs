@@ -25,12 +25,13 @@ export async function loadJsonRegistry({ dir, kind, selectedId, validate }) {
   return filtered;
 }
 
-export function validateRegistryReferences({ scenarios, states, profiles, surfaces, processRoles }) {
+export function validateRegistryReferences({ scenarios, states, profiles, surfaces, processRoles, metrics = [] }) {
   const errors = [];
   const scenarioIds = idSet(scenarios);
   const stateIds = idSet(states);
   const surfaceIds = idSet(surfaces);
   const processRoleIds = idSet(processRoles);
+  const metricIds = idSet(metrics);
   const traitIds = new Set(states.flatMap((state) => state.traits ?? []));
   const scenarioById = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
   const stateById = new Map(states.map((state) => [state.id, state]));
@@ -41,7 +42,7 @@ export function validateRegistryReferences({ scenarios, states, profiles, surfac
       errors.push(`scenario '${scenario.id}' references unknown surface '${scenario.surface}'`);
       continue;
     }
-    validateScenarioContract(scenario, surfaceById.get(scenario.surface), { stateIds, processRoleIds }, errors);
+    validateScenarioContract(scenario, surfaceById.get(scenario.surface), { stateIds, processRoleIds, metricIds }, errors);
   }
 
   for (const state of states) {
@@ -73,6 +74,11 @@ export function validateRegistryReferences({ scenarios, states, profiles, surfac
         errors.push(`surface '${surface.id}' references unknown required state '${state}'`);
       }
     }
+    validateMetricList(surface.requiredMetrics ?? [], metricIds, errors, `surface '${surface.id}' requiredMetrics`);
+    validateThresholdMetrics(surface.thresholds ?? {}, metricIds, errors, `surface '${surface.id}' thresholds`);
+    for (const [role, thresholds] of Object.entries(surface.roleThresholds ?? {})) {
+      validateThresholdMetrics(thresholds, metricIds, errors, `surface '${surface.id}' roleThresholds.${role}`);
+    }
   }
 
   for (const profile of profiles) {
@@ -99,6 +105,29 @@ function validateScenarioContract(scenario, surface, refs, errors) {
   for (const targetKind of scenario.targetKinds ?? []) {
     if (surfaceTargetKinds.size > 0 && !surfaceTargetKinds.has(targetKind)) {
       errors.push(`scenario '${scenario.id}' targetKinds references '${targetKind}' which is not supported by surface '${surface.id}'`);
+    }
+  }
+  validateThresholdMetrics(scenario.thresholds ?? {}, refs.metricIds, errors, `scenario '${scenario.id}' thresholds`);
+}
+
+function validateMetricList(metrics, metricIds, errors, prefix) {
+  for (const metric of metrics) {
+    if (!metricIds.has(metric)) {
+      errors.push(`${prefix} references unknown metric '${metric}'`);
+    }
+  }
+}
+
+function validateThresholdMetrics(thresholds, metricIds, errors, prefix) {
+  for (const [metric, value] of Object.entries(thresholds ?? {})) {
+    if (metric === "roleThresholds") {
+      for (const [role, roleThresholds] of Object.entries(value ?? {})) {
+        validateThresholdMetrics(roleThresholds, metricIds, errors, `${prefix}.roleThresholds.${role}`);
+      }
+      continue;
+    }
+    if (!metricIds.has(metric)) {
+      errors.push(`${prefix} references unknown metric '${metric}'`);
     }
   }
 }

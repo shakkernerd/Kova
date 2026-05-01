@@ -18,6 +18,7 @@ import { buildPerformanceSummary } from "./performance/stats.mjs";
 import { platformInfo } from "./platform.mjs";
 import { repoRoot, reportsDir } from "./paths.mjs";
 import { loadProcessRoles } from "./registries/process-roles.mjs";
+import { loadMetrics } from "./registries/metrics.mjs";
 import { loadProfile, loadProfiles } from "./registries/profiles.mjs";
 import { loadScenarios, validateScenarioRun } from "./registries/scenarios.mjs";
 import { loadState, loadStates } from "./registries/states.mjs";
@@ -98,15 +99,16 @@ async function versionCommand(flags = {}) {
 }
 
 async function loadRegistryContext() {
-  const [surfaces, processRoles, scenarios, states, profiles] = await Promise.all([
+  const [surfaces, processRoles, metrics, scenarios, states, profiles] = await Promise.all([
     loadSurfaces(),
     loadProcessRoles(),
+    loadMetrics(),
     loadScenarios(),
     loadStates(),
     loadProfiles()
   ]);
-  validateRegistryReferences({ scenarios, states, profiles, surfaces, processRoles });
-  return { surfaces, processRoles, scenarios, states, profiles };
+  validateRegistryReferences({ scenarios, states, profiles, surfaces, processRoles, metrics });
+  return { surfaces, processRoles, metrics, scenarios, states, profiles };
 }
 
 function filterRegistry(items, selectedId, kind) {
@@ -134,6 +136,7 @@ async function plan(flags) {
       platform: platformInfo(),
       surfaces: registry.surfaces,
       processRoles: registry.processRoles,
+      metrics: registry.metrics,
       scenarios,
       states,
       profiles: profiles.map(profileSummary),
