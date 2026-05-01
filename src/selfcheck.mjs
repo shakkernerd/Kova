@@ -18,9 +18,13 @@ import { validateStateShape } from "./registries/states.mjs";
 import { validateRegistryReferences } from "./registries/validate.mjs";
 import { assertSafeScenarioCommand } from "./safety.mjs";
 import { parseTimelineText } from "./collectors/timeline.mjs";
+import {
+  buildAgentTurnBreakdown,
+  summarizeAgentTurnBreakdownForMarkdown
+} from "./collectors/agent-turns.mjs";
 import { computeProviderTurnAttribution, parseProviderRequestLog } from "./collectors/provider.mjs";
 import { captureProcessSnapshot, diffProcessSnapshots } from "./collectors/resources.mjs";
-import { renderPasteSummary, renderReportSummary } from "./report.mjs";
+import { renderMarkdownReport, renderPasteSummary, renderReportSummary } from "./report.mjs";
 
 export async function runSelfCheck(flags = {}) {
   const checks = [];
@@ -151,6 +155,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await cpuProfileParserCheck());
     checks.push(await heapProfileParserCheck());
     checks.push(await providerEvidenceParserCheck());
+    checks.push(agentTurnBreakdownCheck());
     checks.push(await mockProviderBehaviorCheck(tmp));
     checks.push(providerFailureEvaluationCheck());
     checks.push(agentColdWarmEvaluationCheck());
@@ -714,6 +719,209 @@ async function providerEvidenceParserCheck() {
       message: error.message
     };
   }
+}
+
+function agentTurnBreakdownCheck() {
+  try {
+    const normal = syntheticTurn({
+      startedAtEpochMs: 1000,
+      firstProviderRequestAtEpochMs: 1200,
+      firstByteLatencyMs: 15,
+      firstChunkLatencyMs: 18,
+      lastProviderResponseAtEpochMs: 1600,
+      finishedAtEpochMs: 2000,
+      timelineSummary: {
+        available: true,
+        spanTotals: {
+          "agent.prepare": { count: 1, totalDurationMs: 90, maxDurationMs: 90 },
+          "models.catalog.gateway": { count: 1, totalDurationMs: 70, maxDurationMs: 70 },
+          "channel.plugin.load": { count: 1, totalDurationMs: 25, maxDurationMs: 25 }
+        },
+        keySpans: {}
+      }
+    });
+    assertEqual(normal.breakdown.buckets.preProviderOpenClawMs, 200, "normal pre-provider bucket");
+    assertEqual(normal.breakdown.buckets.providerMs, 400, "normal provider bucket");
+    assertEqual(normal.breakdown.buckets.postProviderMs, 400, "normal post-provider bucket");
+    assertEqual(normal.breakdown.buckets.unknownMs, 15, "normal unattributed pre-provider bucket");
+    assertEqual(normal.breakdown.provider.firstByteLatencyMs, 15, "normal first byte latency");
+    assertEqual(normal.breakdown.sourceSpans.categories.modelCatalog.totalDurationMs, 70, "model catalog source span");
+
+    const preProviderStall = syntheticTurn({
+      startedAtEpochMs: 1000,
+      firstProviderRequestAtEpochMs: 62000,
+      lastProviderResponseAtEpochMs: 62800,
+      finishedAtEpochMs: 63000,
+      timelineSummary: null
+    });
+    assertEqual(preProviderStall.breakdown.evidenceQuality, "outside-in-only", "pre-provider missing timeline quality");
+    assertEqual(preProviderStall.breakdown.buckets.preProviderOpenClawMs, 61000, "pre-provider stall bucket");
+    assertEqual(preProviderStall.breakdown.buckets.unknownMs, 61000, "pre-provider stall unknown");
+
+    const providerStall = syntheticTurn({
+      startedAtEpochMs: 1000,
+      firstProviderRequestAtEpochMs: 1500,
+      lastProviderResponseAtEpochMs: 21500,
+      finishedAtEpochMs: 22000,
+      timelineSummary: null
+    });
+    assertEqual(providerStall.breakdown.buckets.providerMs, 20000, "provider stall bucket");
+    assertEqual(providerStall.breakdown.buckets.unknownMs, 500, "provider stall unknown pre-provider");
+
+    const cleanupStall = syntheticTurn({
+      startedAtEpochMs: 1000,
+      firstProviderRequestAtEpochMs: 1500,
+      lastProviderResponseAtEpochMs: 1800,
+      finishedAtEpochMs: 77000,
+      timelineSummary: {
+        available: true,
+        spanTotals: {
+          "agent.cleanup": { count: 1, totalDurationMs: 74000, maxDurationMs: 74000 }
+        },
+        keySpans: {}
+      }
+    });
+    assertEqual(cleanupStall.breakdown.buckets.cleanupMs, 74000, "cleanup stall bucket");
+    assertEqual(cleanupStall.breakdown.sourceSpans.categories.agentCleanup.totalDurationMs, 74000, "cleanup source span");
+
+    const missingTimeline = syntheticTurn({
+      startedAtEpochMs: 1000,
+      firstProviderRequestAtEpochMs: 1500,
+      lastProviderResponseAtEpochMs: 1800,
+      finishedAtEpochMs: 1900,
+      timelineSummary: { available: false, spanTotals: {}, keySpans: {} }
+    });
+    assertEqual(missingTimeline.breakdown.evidenceQuality, "outside-in-only", "missing timeline fallback quality");
+    assertEqual(missingTimeline.breakdown.buckets.unknownMs, 500, "missing timeline unknown");
+
+    const record = {
+      scenario: "agent-cold-warm-message",
+      title: "Agent cold/warm message",
+      status: "PASS",
+      cleanup: "done",
+      phases: [{
+        id: "cold-agent-turn",
+        title: "Cold agent turn",
+        intent: "Synthetic self-check",
+        commands: [normal.result.command],
+        evidence: [],
+        results: [{
+          ...normal.result,
+          status: 0,
+          timedOut: false,
+          stdout: "{\"finalAssistantVisibleText\":\"KOVA_AGENT_OK\"}",
+          stderr: ""
+        }],
+        metrics: {
+          logs: zeroLogMetrics(),
+          health: { ok: true },
+          timeline: {
+            available: true,
+            eventCount: 3,
+            parseErrorCount: 0,
+            spanTotals: {
+              "agent.prepare": { count: 1, totalDurationMs: 90, maxDurationMs: 90 },
+              "models.catalog.gateway": { count: 1, totalDurationMs: 70, maxDurationMs: 70 }
+            },
+            keySpans: {}
+          }
+        }
+      }],
+      providerEvidence: {
+        available: true,
+        requestCount: 1,
+        requests: [normal.request]
+      },
+      finalMetrics: {
+        service: { gatewayState: "running" },
+        logs: zeroLogMetrics()
+      }
+    };
+    evaluateRecord(record, {
+      id: "agent-cold-warm-message",
+      agent: { expectedText: "KOVA_AGENT_OK" },
+      thresholds: {}
+    }, { surface: { thresholds: {} }, targetPlan: { kind: "local-build" } });
+    const rendered = renderMarkdownReport({
+      generatedAt: "2026-05-01T00:00:00.000Z",
+      runId: "self-check-agent-turn-breakdown",
+      mode: "self-check",
+      target: "runtime:stable",
+      platform: { os: "test", release: "test", arch: "test", node: "test" },
+      records: [record],
+      summary: { statuses: { PASS: 1 } }
+    });
+    assertEqual(rendered.includes("breakdown:"), true, "markdown includes agent turn breakdown");
+    assertEqual(rendered.includes("models.catalog.* 70ms"), true, "markdown includes source span evidence");
+    assertEqual(
+      summarizeAgentTurnBreakdownForMarkdown(normal.breakdown).includes("unknown 15ms"),
+      true,
+      "breakdown markdown helper includes unknown bucket"
+    );
+
+    return {
+      id: "agent-turn-breakdown",
+      status: "PASS",
+      command: "evaluate synthetic agent turn phase breakdowns",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "agent-turn-breakdown",
+      status: "FAIL",
+      command: "evaluate synthetic agent turn phase breakdowns",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function syntheticTurn({
+  startedAtEpochMs,
+  firstProviderRequestAtEpochMs,
+  firstByteLatencyMs = null,
+  firstChunkLatencyMs = null,
+  lastProviderResponseAtEpochMs,
+  finishedAtEpochMs,
+  timelineSummary
+}) {
+  const result = {
+    command: "ocm @kova -- agent --local --agent main --session-id kova --message hi --json",
+    startedAt: new Date(startedAtEpochMs).toISOString(),
+    startedAtEpochMs,
+    finishedAt: new Date(finishedAtEpochMs).toISOString(),
+    finishedAtEpochMs,
+    durationMs: finishedAtEpochMs - startedAtEpochMs,
+    processSnapshots: {
+      before: { capturedAt: new Date(startedAtEpochMs - 10).toISOString(), processCount: 2 },
+      after: { capturedAt: new Date(finishedAtEpochMs + 10).toISOString(), processCount: 2 },
+      leaks: { leakCount: 0, leaksByRole: {}, leakedProcesses: [] }
+    }
+  };
+  const request = {
+    requestId: "self-check-provider",
+    receivedAt: new Date(firstProviderRequestAtEpochMs).toISOString(),
+    receivedAtEpochMs: firstProviderRequestAtEpochMs,
+    firstByteLatencyMs,
+    firstChunkLatencyMs,
+    respondedAt: new Date(lastProviderResponseAtEpochMs).toISOString(),
+    respondedAtEpochMs: lastProviderResponseAtEpochMs,
+    route: "/v1/responses",
+    model: "gpt-5.5",
+    stream: true,
+    status: 200,
+    statusClass: "2xx"
+  };
+  const attribution = computeProviderTurnAttribution(result, {
+    available: true,
+    requests: [request]
+  });
+  return {
+    result,
+    request,
+    attribution,
+    breakdown: buildAgentTurnBreakdown({ result, attribution, timelineSummary })
+  };
 }
 
 async function mockProviderBehaviorCheck(tmp) {
