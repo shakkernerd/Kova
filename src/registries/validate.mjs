@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { isKnownPlatformCoverageKey } from "../platform.mjs";
 
 export async function loadJsonRegistry({ dir, kind, selectedId, validate }) {
   const names = await readdir(dir);
@@ -175,7 +176,22 @@ function validateProfileReferences(profile, refs, errors) {
   validateCoverageRefs(profile, refs, errors, "scenarios", refs.scenarioIds);
   validateCoverageRefs(profile, refs, errors, "states", refs.stateIds);
   validateCoverageRefs(profile, refs, errors, "traits", refs.traitIds);
+  validatePlatformCoverageRefs(profile, errors);
   validateStateSurfaceCoverageRefs(profile, refs, errors);
+}
+
+function validatePlatformCoverageRefs(profile, errors) {
+  const coverage = profile.gate?.coverage?.platforms;
+  if (!coverage) {
+    return;
+  }
+  for (const level of ["blocking", "warning"]) {
+    for (const value of coverage[level] ?? []) {
+      if (!isKnownPlatformCoverageKey(value)) {
+        errors.push(`profile '${profile.id}' gate.coverage.platforms.${level} references unknown platform coverage key '${value}'`);
+      }
+    }
+  }
 }
 
 function validateScenarioStatePair({ profileId, location, scenarioId, stateId, refs, errors }) {

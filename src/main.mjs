@@ -127,13 +127,14 @@ async function plan(flags) {
   const scenarios = filterRegistry(registry.scenarios, flags.scenario, "scenario");
   const states = filterRegistry(registry.states, flags.state, "state");
   const profiles = flags.profile ? filterRegistry(registry.profiles, flags.profile, "profile") : registry.profiles;
-  const coverage = buildCoverage(registry);
+  const platform = platformInfo();
+  const coverage = buildCoverage({ ...registry, platform });
 
   if (flags.json) {
     console.log(JSON.stringify({
       schemaVersion: "kova.plan.v1",
       generatedAt: new Date().toISOString(),
-      platform: platformInfo(),
+      platform,
       surfaces: registry.surfaces,
       processRoles: registry.processRoles,
       metrics: registry.metrics,
@@ -362,6 +363,7 @@ async function matrixRun(flags) {
     repeat: controls.repeat,
     regressionThresholds
   });
+  const platform = platformInfo();
   const reportBase = {
     schemaVersion: reportSchemaVersion,
     generatedAt: new Date().toISOString(),
@@ -377,7 +379,7 @@ async function matrixRun(flags) {
     controls,
     auth: authReportSummary(auth),
     state: null,
-    platform: platformInfo(),
+    platform,
     targetCleanup,
     performance,
     baseline: null,
@@ -398,6 +400,7 @@ async function matrixRun(flags) {
       controls,
       performance,
       baseline: reportBase.baseline,
+      platform: reportBase.platform,
       records
     }, profile)
     : null;

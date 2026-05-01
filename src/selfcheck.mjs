@@ -90,6 +90,9 @@ export async function runSelfCheck(flags = {}) {
       assertArrayNotEmpty(data.profiles, "profiles");
       assertEqual(data.coverage?.schemaVersion, "kova.coverage.v1", "coverage schema");
       assertArrayNotEmpty(data.coverage?.scenarioSurfaceMap, "scenario surface map");
+      const releaseCoverage = data.coverage?.profiles?.find((profile) => profile.id === "release");
+      assertArrayNotEmpty(releaseCoverage?.required?.platforms, "release required platform coverage");
+      assertArrayNotEmpty(releaseCoverage?.currentPlatformKeys, "current platform coverage keys");
       if (data.scenarios.some((scenario) => typeof scenario.surface !== "string" || scenario.surface.length === 0)) {
         throw new Error("every scenario must expose a surface");
       }
@@ -235,6 +238,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await gateDryRunCheck(tmp));
     checks.push(gatePartialFailureCheck());
     checks.push(gatePartialPassCheck());
+    checks.push(gatePlatformCoverageCheck());
     checks.push(gateSubsystemSummaryCheck());
     checks.push(safetyGuardCheck());
     checks.push(await failingCommandCheck(
@@ -387,6 +391,67 @@ function gatePartialPassCheck() {
       id: "gate-partial-pass",
       status: "FAIL",
       command: "evaluate synthetic partial release gate pass",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function gatePlatformCoverageCheck() {
+  try {
+    const gate = evaluateGate({
+      mode: "execution",
+      controls: {
+        include: [],
+        exclude: []
+      },
+      platform: {
+        os: "darwin",
+        arch: "arm64",
+        release: "25.3.0",
+        node: "v24.13.0"
+      },
+      records: [
+        {
+          scenario: "release-runtime-startup",
+          state: { id: "fresh" },
+          status: "PASS",
+          title: "Release Runtime Startup",
+          likelyOwner: "OpenClaw",
+          phases: []
+        }
+      ]
+    }, {
+      id: "release",
+      gate: {
+        id: "test-release-gate",
+        coverage: {
+          platforms: {
+            blocking: ["darwin-arm64"],
+            warning: ["linux-x64"]
+          }
+        },
+        blocking: [
+          { scenario: "release-runtime-startup", state: "fresh" }
+        ]
+      }
+    });
+
+    assertEqual(gate.verdict, "SHIP", "current required platform coverage should pass");
+    assertEqual(gate.complete, true, "platform-covered gate completeness");
+    assertEqual(gate.cards.some((card) => card.coverage === "platform" && card.expected === "platform coverage darwin-arm64"), false, "darwin-arm64 should not be missing");
+    assertEqual(gate.cards.some((card) => card.coverage === "platform" && card.expected === "platform coverage linux-x64" && card.severity === "warning"), true, "linux warning platform should remain visible");
+    return {
+      id: "gate-platform-coverage",
+      status: "PASS",
+      command: "evaluate synthetic release gate platform coverage",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "gate-platform-coverage",
+      status: "FAIL",
+      command: "evaluate synthetic release gate platform coverage",
       durationMs: 0,
       message: error.message
     };
@@ -2750,6 +2815,31 @@ function stateRegistryValidationCheck() {
       rejectedMetric = /unknown metric 'madeUpMetric'/.test(error.message);
     }
     assertEqual(rejectedMetric, true, "unknown scenario metric rejected");
+
+    let rejectedPlatform = false;
+    try {
+      validateRegistryReferences({
+        scenarios: [],
+        states: [],
+        profiles: [{
+          id: "profile",
+          entries: [],
+          gate: {
+            coverage: {
+              platforms: {
+                blocking: ["macos-arm"]
+              }
+            }
+          }
+        }],
+        surfaces: [],
+        processRoles: [],
+        metrics: []
+      });
+    } catch (error) {
+      rejectedPlatform = /unknown platform coverage key 'macos-arm'/.test(error.message);
+    }
+    assertEqual(rejectedPlatform, true, "unknown platform coverage key rejected");
 
     return {
       id: "state-registry-validation",

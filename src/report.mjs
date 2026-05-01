@@ -933,7 +933,7 @@ function formatGateSection(gate) {
     `- Verdict: ${gate.verdict}`,
     `- Complete: ${gate.complete ? "yes" : "no"}`,
     `- Partial: ${gate.partial ? "yes" : "no"}`,
-    `- Missing required scenarios: ${gate.missingRequiredCount ?? 0}`,
+    `- Missing required coverage/items: ${gate.missingRequiredCount ?? 0}`,
     `- Blocking: ${gate.blockingCount}`,
     `- Warnings: ${gate.warningCount}`,
     `- Info: ${gate.infoCount ?? 0}`,

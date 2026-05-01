@@ -1,4 +1,6 @@
-export function buildCoverage({ surfaces, scenarios, states, profiles }) {
+import { platformCoverageKeys } from "../platform.mjs";
+
+export function buildCoverage({ surfaces, scenarios, states, profiles, platform }) {
   const scenarioSurfaceMap = scenarios
     .map((scenario) => ({
       scenario: scenario.id,
@@ -25,11 +27,11 @@ export function buildCoverage({ surfaces, scenarios, states, profiles }) {
     surfacesWithoutScenarios: surfaces
       .filter((surface) => !scenariosBySurface.has(surface.id))
       .map((surface) => surface.id),
-    profiles: profiles.map((profile) => profileCoverage(profile, { scenarios, states }))
+    profiles: profiles.map((profile) => profileCoverage(profile, { scenarios, states, platform }))
   };
 }
 
-function profileCoverage(profile, { scenarios, states }) {
+function profileCoverage(profile, { scenarios, states, platform }) {
   const scenarioById = new Map(scenarios.map((scenario) => [scenario.id, scenario]));
   const entryScenarios = new Set();
   const entryStates = new Set();
@@ -51,7 +53,9 @@ function profileCoverage(profile, { scenarios, states }) {
   const requiredStates = coverageIds(profile, "states");
   const requiredTraits = coverageIds(profile, "traits");
   const requiredStateSurfaces = coverageIds(profile, "stateSurfaces");
+  const requiredPlatforms = coverageIds(profile, "platforms");
   const coveredTraits = coveredStateTraits(profile, states);
+  const currentPlatformKeys = platformCoverageKeys(platform);
 
   return {
     id: profile.id,
@@ -65,6 +69,7 @@ function profileCoverage(profile, { scenarios, states }) {
       scenarios: requiredScenarios,
       states: requiredStates,
       traits: requiredTraits,
+      platforms: requiredPlatforms,
       stateSurfaces: requiredStateSurfaces
     },
     gaps: {
@@ -72,8 +77,10 @@ function profileCoverage(profile, { scenarios, states }) {
       scenarios: requiredScenarios.filter((id) => !entryScenarios.has(id)),
       states: requiredStates.filter((id) => !entryStates.has(id)),
       traits: requiredTraits.filter((id) => !coveredTraits.has(id)),
+      platforms: requiredPlatforms.filter((id) => !currentPlatformKeys.has(id)),
       stateSurfaces: requiredStateSurfaces.filter((id) => !entryStateSurfaces.has(id))
     },
+    currentPlatformKeys: [...currentPlatformKeys].sort(),
     stateTraitCoverage: stateTraitCoverage(profile, states),
     stateSurfaceCoverage: stateSurfaceCoverage(profile, { scenarios, states }),
     traitSurfaceCoverage: traitSurfaceCoverage(profile, { scenarios, states })

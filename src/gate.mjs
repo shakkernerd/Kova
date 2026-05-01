@@ -1,3 +1,5 @@
+import { platformCoverageKeys } from "./platform.mjs";
+
 export function preflightGateRun({ entries, flags }) {
   if (flags?.gate !== true || flags?.execute !== true) {
     return;
@@ -271,21 +273,6 @@ function stateFromCoverage(kind, value) {
     return null;
   }
   return String(value).split(":")[1] ?? null;
-}
-
-function platformCoverageKeys(platform) {
-  if (!platform) {
-    return new Set();
-  }
-  const keys = [
-    platform.os,
-    platform.arch,
-    `${platform.os}-${platform.arch}`
-  ];
-  if (platform.os === "linux" && /microsoft|wsl/i.test(String(platform.release ?? ""))) {
-    keys.push("wsl2");
-  }
-  return new Set(keys.filter(Boolean));
 }
 
 function normalizePolicyEntries(entries) {
