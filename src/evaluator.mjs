@@ -1,5 +1,6 @@
 import { buildAgentTurnBreakdown } from "./collectors/agent-turns.mjs";
 import { computeProviderTurnAttribution } from "./collectors/provider.mjs";
+import { summarizeRuntimeDepsLogs } from "./collectors/logs.mjs";
 
 export function evaluateRecord(record, scenario, options = {}) {
   const originalStatus = record.status;
@@ -34,10 +35,16 @@ export function evaluateRecord(record, scenario, options = {}) {
   const diagnosticReportBytes = countDiagnosticReportMetric(record, "artifactBytes");
   const openclawDiagnostics = collectOpenClawDiagnostics(record);
   const timelineSummary = collectTimelineSummary(record);
+  const runtimeDepsLogEvidence = collectRuntimeDepsLogEvidence(record);
   const timelineRequirement = timelineRequirementFor(options);
   const requiredOpenSpans = requiredTimelineSpans(options);
   const openRequiredSpans = timelineSummary.openSpans.filter((span) => requiredOpenSpans.has(span.name));
-  const runtimeDepsStagingMs = maxNullable(openclawDiagnostics.runtimeDepsStagingMs, timelineSummary.runtimeDepsStageMaxMs);
+  const runtimeDepsStagingMs = maxNullable(
+    openclawDiagnostics.runtimeDepsStagingMs,
+    timelineSummary.runtimeDepsStageMaxMs,
+    runtimeDepsLogEvidence.installMaxMs,
+    runtimeDepsLogEvidence.postbuildMaxMs
+  );
   const eventLoopDelayMs = maxNullable(openclawDiagnostics.eventLoopDelayMs, timelineSummary.eventLoopMaxMs);
   const providerModelTimingMs = maxNullable(openclawDiagnostics.providerModelTimingMs, timelineSummary.providerRequestMaxMs);
   const agentTurns = collectAgentTurns(record, record.providerEvidence, scenario, timelineSummary);
@@ -262,6 +269,34 @@ export function evaluateRecord(record, scenario, options = {}) {
     });
   }
 
+  if (
+    typeof thresholds.warmRuntimeDepsRestageCount === "number" &&
+    runtimeDepsLogEvidence.warmRestart.installCount !== null &&
+    runtimeDepsLogEvidence.warmRestart.installCount > thresholds.warmRuntimeDepsRestageCount
+  ) {
+    violations.push({
+      kind: "plugins",
+      metric: "warmRuntimeDepsRestageCount",
+      expected: `<= ${thresholds.warmRuntimeDepsRestageCount}`,
+      actual: runtimeDepsLogEvidence.warmRestart.installCount,
+      message: `warm restart reinstalled bundled runtime deps ${runtimeDepsLogEvidence.warmRestart.installCount} time(s); expected staged deps to be reused`
+    });
+  }
+
+  if (
+    typeof thresholds.warmRuntimeDepsStagingMs === "number" &&
+    runtimeDepsLogEvidence.warmRestart.installMaxMs !== null &&
+    runtimeDepsLogEvidence.warmRestart.installMaxMs > thresholds.warmRuntimeDepsStagingMs
+  ) {
+    violations.push({
+      kind: "plugins",
+      metric: "warmRuntimeDepsStagingMs",
+      expected: `<= ${thresholds.warmRuntimeDepsStagingMs}`,
+      actual: runtimeDepsLogEvidence.warmRestart.installMaxMs,
+      message: `warm restart bundled runtime deps install took ${runtimeDepsLogEvidence.warmRestart.installMaxMs}ms, over threshold ${thresholds.warmRuntimeDepsStagingMs}ms`
+    });
+  }
+
   const allowedTimelineParseErrors = typeof thresholds.openclawTimelineParseErrors === "number" ? thresholds.openclawTimelineParseErrors : 0;
   if (timelineRequirement.required && !timelineSummary.available) {
     violations.push({
@@ -434,6 +469,17 @@ export function evaluateRecord(record, scenario, options = {}) {
     openclawProviderRequestMaxMs: timelineSummary.providerRequestMaxMs,
     openclawChildProcessFailedCount: timelineSummary.childProcessFailedCount,
     runtimeDepsStagingPluginId: timelineSummary.runtimeDepsStagePluginId,
+    runtimeDepsLogEvidence,
+    runtimeDepsInstallCount: runtimeDepsLogEvidence.installCount,
+    runtimeDepsInstallMaxMs: runtimeDepsLogEvidence.installMaxMs,
+    runtimeDepsPostbuildMaxMs: runtimeDepsLogEvidence.postbuildMaxMs,
+    coldRuntimeDepsInstallCount: runtimeDepsLogEvidence.coldStart.installCount,
+    coldRuntimeDepsStagingMs: runtimeDepsLogEvidence.coldStart.installMaxMs,
+    warmRuntimeDepsRestageCount: runtimeDepsLogEvidence.warmRestart.installCount,
+    warmRuntimeDepsStagingMs: runtimeDepsLogEvidence.warmRestart.installMaxMs,
+    runtimeDepsWarmReuseOk: runtimeDepsLogEvidence.warmRestart.installCount === null
+      ? null
+      : runtimeDepsLogEvidence.warmRestart.installCount === 0,
     pluginMetadataScanCount: openclawDiagnostics.pluginMetadataScanCount,
     configNormalizationCount: openclawDiagnostics.configNormalizationCount,
     runtimeDepsStagingMs,
@@ -1766,11 +1812,9 @@ function collectCpuPercentMax(record) {
   return values.length === 0 ? null : Math.max(...values);
 }
 
-function maxNullable(left, right) {
-  if (typeof right !== "number") {
-    return left;
-  }
-  return left === null ? right : Math.max(left, right);
+function maxNullable(...values) {
+  const numbers = values.filter((value) => typeof value === "number");
+  return numbers.length === 0 ? null : Math.max(...numbers);
 }
 
 function delta(left, right) {
@@ -1979,6 +2023,108 @@ function collectOpenClawDiagnostics(record) {
   }
 
   return values;
+}
+
+function collectRuntimeDepsLogEvidence(record) {
+  const phases = (record.phases ?? []).map((phase) => ({
+    id: phase.id,
+    summary: summarizeRuntimeDepsPhase(phase)
+  }));
+  const cold = selectRuntimeDepsPhase(phases, ["cold-start", "provision", "start", "gateway"]);
+  const warm = selectRuntimeDepsPhase(phases, ["warm-restart", "restart"]);
+  const coldStart = compactRuntimeDepsPhase(cold);
+  const warmRestart = compactRuntimeDepsWarmPhase(warm, cold);
+  const allSummaries = [
+    ...phases.map((phase) => phase.summary),
+    ...allMetricObjects(record).map((metrics) => metrics.logs?.runtimeDeps).filter(Boolean)
+  ];
+
+  return {
+    schemaVersion: "kova.runtimeDepsEvidence.v1",
+    available: allSummaries.some((summary) => (summary?.eventCount ?? 0) > 0),
+    installCount: maxNullable(...allSummaries.map((summary) => summary?.installCount)),
+    installMaxMs: maxNullable(...allSummaries.map((summary) => summary?.installMaxMs)),
+    postbuildCount: maxNullable(...allSummaries.map((summary) => summary?.postbuildCount)),
+    postbuildMaxMs: maxNullable(...allSummaries.map((summary) => summary?.postbuildMaxMs)),
+    pluginIds: [...new Set(allSummaries.flatMap((summary) => summary?.pluginIds ?? []))].sort(),
+    coldStart,
+    warmRestart,
+    phases: phases.map((phase) => ({
+      id: phase.id,
+      eventCount: phase.summary.eventCount,
+      stageCount: phase.summary.stageCount,
+      installCount: phase.summary.installCount,
+      installMaxMs: phase.summary.installMaxMs,
+      postbuildCount: phase.summary.postbuildCount,
+      postbuildMaxMs: phase.summary.postbuildMaxMs,
+      pluginIds: phase.summary.pluginIds
+    }))
+  };
+}
+
+function summarizeRuntimeDepsPhase(phase) {
+  const texts = [];
+  for (const result of phase?.results ?? []) {
+    const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+    if (/runtime dep|runtime dependency|runtime-deps|bundled runtime deps/i.test(output)) {
+      texts.push(output);
+    }
+  }
+  const summary = summarizeRuntimeDepsLogs(texts.join("\n"));
+  if (summary.eventCount > 0 || !phase?.metrics?.logs?.runtimeDeps) {
+    return summary;
+  }
+  return phase.metrics.logs.runtimeDeps;
+}
+
+function selectRuntimeDepsPhase(phases, ids) {
+  return phases.find((phase) => ids.includes(phase.id))?.summary ?? null;
+}
+
+function compactRuntimeDepsPhase(summary) {
+  if (!summary) {
+    return {
+      eventCount: null,
+      installCount: null,
+      installMaxMs: null,
+      postbuildCount: null,
+      postbuildMaxMs: null,
+      pluginIds: []
+    };
+  }
+  return {
+    eventCount: summary.eventCount ?? 0,
+    installCount: summary.installCount ?? 0,
+    installMaxMs: summary.installMaxMs ?? null,
+    postbuildCount: summary.postbuildCount ?? 0,
+    postbuildMaxMs: summary.postbuildMaxMs ?? null,
+    pluginIds: summary.pluginIds ?? []
+  };
+}
+
+function compactRuntimeDepsWarmPhase(warm, cold) {
+  if (!warm) {
+    return compactRuntimeDepsPhase(null);
+  }
+  const warmInstallCount = incrementalCount(warm.installCount, cold?.installCount);
+  return {
+    eventCount: incrementalCount(warm.eventCount, cold?.eventCount),
+    installCount: warmInstallCount,
+    installMaxMs: warmInstallCount > 0 ? (warm.installMaxMs ?? null) : null,
+    postbuildCount: incrementalCount(warm.postbuildCount, cold?.postbuildCount),
+    postbuildMaxMs: incrementalCount(warm.postbuildCount, cold?.postbuildCount) > 0 ? (warm.postbuildMaxMs ?? null) : null,
+    pluginIds: warmInstallCount > 0 ? (warm.pluginIds ?? []) : []
+  };
+}
+
+function incrementalCount(current, previous) {
+  if (typeof current !== "number") {
+    return null;
+  }
+  if (typeof previous !== "number") {
+    return current;
+  }
+  return current >= previous ? current - previous : current;
 }
 
 function allMetricObjects(record) {

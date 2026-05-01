@@ -7,6 +7,8 @@
   "thresholds": {
     "coldReadyMs": 45000,
     "warmReadyMs": 20000,
+    "warmRuntimeDepsRestageCount": 0,
+    "warmRuntimeDepsStagingMs": 5000,
     "missingDependencyErrors": 0
   },
   "phases": [

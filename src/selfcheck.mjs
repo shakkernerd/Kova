@@ -18,6 +18,7 @@ import { validateStateShape } from "./registries/states.mjs";
 import { validateRegistryReferences } from "./registries/validate.mjs";
 import { assertSafeScenarioCommand } from "./safety.mjs";
 import { parseTimelineText } from "./collectors/timeline.mjs";
+import { summarizeRuntimeDepsLogs } from "./collectors/logs.mjs";
 import {
   buildAgentTurnBreakdown,
   summarizeAgentTurnBreakdownForMarkdown
@@ -154,6 +155,8 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await diagnosticsTimelineCheck());
     checks.push(await diagnosticsOpenSpanCheck());
     checks.push(diagnosticsTimelineEvaluationCheck());
+    checks.push(runtimeDepsLogParserCheck());
+    checks.push(runtimeDepsWarmReuseEvaluationCheck());
     checks.push(await performanceBaselineCheck(tmp));
     checks.push(readinessClassificationCheck());
     checks.push(await resourceRoleAttributionCheck(tmp));
@@ -2066,6 +2069,143 @@ function diagnosticsTimelineEvaluationCheck() {
       message: error.message
     };
   }
+}
+
+function runtimeDepsLogParserCheck() {
+  try {
+    const summary = summarizeRuntimeDepsLogs([
+      "21:22:15 [plugins] browser staging bundled runtime deps (6 specs): @modelcontextprotocol/sdk@1.29.0, commander@^14.0.3",
+      "21:22:19 [plugins] browser installed bundled runtime deps in 3964ms: @modelcontextprotocol/sdk@1.29.0, commander@^14.0.3",
+      "21:22:19 [plugins] memory-core staging bundled runtime deps (2 specs): chokidar@^5.0.0, typebox@1.1.33",
+      "21:22:20 [plugins] memory-core installed bundled runtime deps in 1529ms: chokidar@^5.0.0, typebox@1.1.33",
+      "runtime-postbuild: bundled plugin runtime deps completed in 45226ms"
+    ].join("\n"));
+
+    assertEqual(summary.stageCount, 2, "runtime deps stage count");
+    assertEqual(summary.installCount, 2, "runtime deps install count");
+    assertEqual(summary.installMaxMs, 3964, "runtime deps install max");
+    assertEqual(summary.postbuildCount, 1, "runtime deps postbuild count");
+    assertEqual(summary.postbuildMaxMs, 45226, "runtime deps postbuild max");
+    assertEqual(summary.pluginIds.includes("browser"), true, "runtime deps browser plugin");
+
+    return {
+      id: "runtime-deps-log-parser",
+      status: "PASS",
+      command: "parse synthetic OpenClaw runtime dependency logs",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "runtime-deps-log-parser",
+      status: "FAIL",
+      command: "parse synthetic OpenClaw runtime dependency logs",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function runtimeDepsWarmReuseEvaluationCheck() {
+  try {
+    const coldLog = [
+      "21:22:15 [plugins] browser staging bundled runtime deps (6 specs): @modelcontextprotocol/sdk@1.29.0",
+      "21:22:19 [plugins] browser installed bundled runtime deps in 3964ms: @modelcontextprotocol/sdk@1.29.0",
+      "21:22:19 [plugins] memory-core staging bundled runtime deps (2 specs): chokidar@^5.0.0",
+      "21:22:20 [plugins] memory-core installed bundled runtime deps in 1529ms: chokidar@^5.0.0"
+    ].join("\n");
+    const scenario = {
+      id: "bundled-runtime-deps",
+      thresholds: {
+        warmRuntimeDepsRestageCount: 0,
+        warmRuntimeDepsStagingMs: 5000
+      }
+    };
+    const surface = {
+      id: "bundled-runtime-deps",
+      thresholds: {}
+    };
+    const cleanRecord = runtimeDepsRecord({
+      coldLog,
+      warmLog: coldLog
+    });
+    evaluateRecord(cleanRecord, scenario, { surface, targetPlan: { kind: "npm" } });
+    assertEqual(cleanRecord.status, "PASS", "warm reuse clean record status");
+    assertEqual(cleanRecord.measurements.coldRuntimeDepsInstallCount, 2, "cold install count");
+    assertEqual(cleanRecord.measurements.warmRuntimeDepsRestageCount, 0, "warm restage count");
+    assertEqual(cleanRecord.measurements.runtimeDepsWarmReuseOk, true, "warm reuse ok");
+
+    const restagedRecord = runtimeDepsRecord({
+      coldLog,
+      warmLog: [
+        coldLog,
+        "21:23:02 [plugins] browser staging bundled runtime deps (6 specs): @modelcontextprotocol/sdk@1.29.0",
+        "21:23:08 [plugins] browser installed bundled runtime deps in 6100ms: @modelcontextprotocol/sdk@1.29.0"
+      ].join("\n")
+    });
+    evaluateRecord(restagedRecord, scenario, { surface, targetPlan: { kind: "npm" } });
+    assertEqual(restagedRecord.status, "FAIL", "warm restage record status");
+    assertEqual(restagedRecord.measurements.warmRuntimeDepsRestageCount, 1, "warm restage failure count");
+    assertEqual(restagedRecord.measurements.warmRuntimeDepsStagingMs, 6100, "warm restage failure duration");
+    assertEqual(
+      restagedRecord.violations.some((violation) => violation.metric === "warmRuntimeDepsRestageCount"),
+      true,
+      "warm restage count violation"
+    );
+    assertEqual(
+      renderPasteSummary({
+        runId: "self-check-runtime-deps",
+        target: "runtime:stable",
+        mode: "self-check",
+        records: [restagedRecord]
+      }).includes("warmRuntimeDepsRestageCount: 1"),
+      true,
+      "brief evidence includes warm runtime deps restage"
+    );
+
+    return {
+      id: "runtime-deps-warm-reuse-evaluation",
+      status: "PASS",
+      command: "evaluate synthetic warm runtime dependency reuse",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "runtime-deps-warm-reuse-evaluation",
+      status: "FAIL",
+      command: "evaluate synthetic warm runtime dependency reuse",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function runtimeDepsRecord({ coldLog, warmLog }) {
+  return {
+    scenario: "bundled-runtime-deps",
+    status: "PASS",
+    phases: [
+      {
+        id: "cold-start",
+        results: [{ command: "ocm logs kova-runtime-deps --tail 300 --raw", status: 0, stdout: coldLog, stderr: "", durationMs: 100 }],
+        metrics: {
+          service: { gatewayState: "running" },
+          logs: zeroLogMetrics()
+        }
+      },
+      {
+        id: "warm-restart",
+        results: [{ command: "ocm logs kova-runtime-deps --tail 300 --raw", status: 0, stdout: warmLog, stderr: "", durationMs: 100 }],
+        metrics: {
+          service: { gatewayState: "running" },
+          logs: zeroLogMetrics()
+        }
+      }
+    ],
+    finalMetrics: {
+      service: { gatewayState: "running" },
+      logs: zeroLogMetrics()
+    }
+  };
 }
 
 function readinessClassificationCheck() {

@@ -36,11 +36,75 @@ export async function collectLogMetrics(envName, timeoutMs, artifactDir) {
     eventLoopDelayMentions: countPattern(text, /event loop|event-loop|blocked loop|loop delay/i),
     v8DiagnosticMentions: countPattern(text, /v8|diagnostic report|heapsnapshot|heap snapshot/i),
     errorMentions: countPattern(text, /\berror\b|exception|unhandled/i),
+    runtimeDeps: summarizeRuntimeDepsLogs(text),
     structuredEvents: extractStructuredDiagnosticEvents(text),
     artifacts,
     stdoutSnippet: result.stdout.slice(-4000),
     stderrSnippet: result.stderr.slice(-4000)
   };
+}
+
+export function summarizeRuntimeDepsLogs(text) {
+  const events = parseRuntimeDepsLogEvents(text);
+  const installEvents = events.filter((event) => event.kind === "install");
+  const stageEvents = events.filter((event) => event.kind === "stage");
+  const postbuildEvents = events.filter((event) => event.kind === "postbuild");
+
+  return {
+    schemaVersion: "kova.runtimeDepsLogSummary.v1",
+    eventCount: events.length,
+    stageCount: stageEvents.length,
+    installCount: installEvents.length,
+    installMaxMs: maxDuration(installEvents),
+    postbuildCount: postbuildEvents.length,
+    postbuildMaxMs: maxDuration(postbuildEvents),
+    pluginIds: [...new Set(events.map((event) => event.pluginId).filter(Boolean))].sort(),
+    events: events.slice(0, 50)
+  };
+}
+
+export function parseRuntimeDepsLogEvents(text) {
+  const events = [];
+  for (const [index, line] of String(text ?? "").split(/\r?\n/).entries()) {
+    const stage = line.match(/\[plugins\]\s+([a-z0-9._-]+)\s+staging bundled runtime deps\s+\((\d+)\s+specs?\)/i);
+    if (stage) {
+      events.push({
+        kind: "stage",
+        line: index + 1,
+        pluginId: stage[1],
+        dependencyCount: Number(stage[2]),
+        durationMs: null,
+        text: compactLine(line)
+      });
+      continue;
+    }
+
+    const install = line.match(/\[plugins\]\s+([a-z0-9._-]+)\s+installed bundled runtime deps in\s+(\d+(?:\.\d+)?)ms/i);
+    if (install) {
+      events.push({
+        kind: "install",
+        line: index + 1,
+        pluginId: install[1],
+        dependencyCount: null,
+        durationMs: Number(install[2]),
+        text: compactLine(line)
+      });
+      continue;
+    }
+
+    const postbuild = line.match(/runtime-postbuild:\s+bundled plugin runtime deps completed in\s+(\d+(?:\.\d+)?)ms/i);
+    if (postbuild) {
+      events.push({
+        kind: "postbuild",
+        line: index + 1,
+        pluginId: "postbuild",
+        dependencyCount: null,
+        durationMs: Number(postbuild[1]),
+        text: compactLine(line)
+      });
+    }
+  }
+  return events;
 }
 
 export function collectTimestamps(text) {
@@ -103,4 +167,16 @@ function countPattern(text, pattern) {
     }
   }
   return count;
+}
+
+function maxDuration(events) {
+  const values = events.map((event) => event.durationMs).filter((value) => typeof value === "number");
+  if (values.length === 0) {
+    return null;
+  }
+  return Math.max(...values);
+}
+
+function compactLine(line) {
+  return String(line ?? "").trim().slice(0, 300);
 }
