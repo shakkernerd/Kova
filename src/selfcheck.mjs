@@ -63,8 +63,11 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await interactiveSetupChoiceCheck(tmp));
     checks.push(await externalCliSetupCheck(tmp));
     checks.push(await externalCliOpenClawConfigCheck(tmp));
+    checks.push(await anthropicApiKeyOpenClawConfigCheck(tmp));
+    checks.push(await claudeCliOpenClawConfigCheck(tmp));
     checks.push(await liveApiKeyExecutionCheck(tmp));
     checks.push(await liveExternalCliDryRunCheck(tmp));
+    checks.push(await liveExternalCliFallbackCheck(tmp));
     checks.push(await failingCommandCheck(
       "setup-custom-provider-rejects-external-cli",
       `KOVA_HOME=${quoteShell(join(tmp, "custom-external-cli-home"))} node bin/kova.mjs setup --non-interactive --provider custom-openai --auth external-cli --json`,
@@ -840,6 +843,8 @@ async function providerEvidenceParserCheck() {
     assertEqual(attribution.preProviderMs, 5000, "pre-provider latency");
     assertEqual(attribution.providerFinalMs, 800, "provider final latency");
     assertEqual(attribution.postProviderMs, 200, "post-provider latency");
+    assertEqual(evidence.usage?.available, true, "provider usage availability");
+    assertEqual(evidence.usage?.totalTokens, 12, "provider usage total tokens");
     return {
       id: "provider-evidence-parser",
       status: "PASS",
@@ -1003,6 +1008,71 @@ async function liveExternalCliDryRunCheck(tmp) {
   } catch (error) {
     return {
       id: "live-external-cli-dry-run",
+      status: "FAIL",
+      command,
+      durationMs: result.durationMs,
+      message: error.message
+    };
+  }
+}
+
+async function liveExternalCliFallbackCheck(tmp) {
+  const home = join(tmp, "live-external-cli-fallback-home");
+  const kovaHome = join(tmp, "live-external-cli-fallback-kova-home");
+  const fakeBin = join(tmp, "live-external-cli-fallback-bin");
+  const reportDir = join(tmp, "live-external-cli-fallback-report");
+  await mkdir(join(home, ".codex"), { recursive: true });
+  await mkdir(join(kovaHome, "credentials"), { recursive: true });
+  await mkdir(fakeBin, { recursive: true });
+  await writeFile(join(home, ".codex", "auth.json"), "{\"tokens\":{\"access_token\":\"redacted\"}}\n", "utf8");
+  await writeFile(join(fakeBin, "codex"), "#!/bin/sh\necho codex-selfcheck\n", "utf8");
+  await chmod(join(fakeBin, "codex"), 0o755);
+  await writeFile(join(kovaHome, "credentials", "providers.json"), `${JSON.stringify({
+    schemaVersion: "kova.credentials.providers.v1",
+    defaultProvider: "openai",
+    providers: {
+      openai: {
+        id: "openai",
+        method: "env-only",
+        envVars: ["OPENAI_API_KEY"],
+        externalCli: null,
+        fallbackPolicy: "external-cli",
+        configuredAt: new Date().toISOString()
+      }
+    }
+  }, null, 2)}\n`, "utf8");
+  await writeFile(join(kovaHome, "credentials", "live.env"), "", { encoding: "utf8", mode: 0o600 });
+
+  const command = [
+    `HOME=${quoteShell(home)}`,
+    `PATH=${quoteShell(`${fakeBin}:${process.env.PATH}`)}`,
+    `KOVA_HOME=${quoteShell(kovaHome)}`,
+    `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --auth live --report-dir ${quoteShell(reportDir)} --json`
+  ].join(" ");
+  const result = await runCommand(command, { timeoutMs: 30000, maxOutputChars: 1000000 });
+
+  try {
+    if (result.status !== 0) {
+      throw new Error(result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`);
+    }
+    const receipt = JSON.parse(result.stdout);
+    const report = JSON.parse(await readFile(receipt.jsonPath, "utf8"));
+    const record = report.records?.[0];
+    assertEqual(report.auth?.live?.method, "external-cli", "fallback live method");
+    assertEqual(report.auth?.live?.fallbackFrom, "env-only", "fallback source method");
+    assertEqual(report.auth?.live?.fallbackPolicy, "external-cli", "fallback policy");
+    assertEqual(record?.auth?.source, "external-cli", "record fallback source");
+    assertEqual(record?.auth?.fallbackFrom, "env-only", "record fallback from");
+    assertEqual(record?.auth?.externalCli, "codex", "record fallback CLI");
+    return {
+      id: "live-external-cli-fallback",
+      status: "PASS",
+      command,
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "live-external-cli-fallback",
       status: "FAIL",
       command,
       durationMs: result.durationMs,
@@ -2302,6 +2372,72 @@ async function externalCliOpenClawConfigCheck(tmp) {
   } catch (error) {
     return {
       id: "external-cli-openclaw-config",
+      status: "FAIL",
+      command,
+      durationMs: result.durationMs,
+      message: error.message
+    };
+  }
+}
+
+async function anthropicApiKeyOpenClawConfigCheck(tmp) {
+  const home = join(tmp, "anthropic-api-key-config-home");
+  const command = [
+    `OPENCLAW_HOME=${quoteShell(home)}`,
+    "node support/configure-openclaw-live-auth.mjs --provider anthropic --env-var ANTHROPIC_API_KEY"
+  ].join(" ");
+  const result = await runCommand(command, { timeoutMs: 30000, maxOutputChars: 1000000 });
+  try {
+    if (result.status !== 0) {
+      throw new Error(result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`);
+    }
+    const config = JSON.parse(await readFile(join(home, ".openclaw", "openclaw.json"), "utf8"));
+    assertEqual(config.models?.providers?.anthropic?.apiKey?.id, "ANTHROPIC_API_KEY", "anthropic env ref");
+    assertEqual(config.agents?.defaults?.model?.primary, "anthropic/claude-sonnet-4-5", "anthropic default model");
+    return {
+      id: "anthropic-api-key-openclaw-config",
+      status: "PASS",
+      command,
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "anthropic-api-key-openclaw-config",
+      status: "FAIL",
+      command,
+      durationMs: result.durationMs,
+      message: error.message
+    };
+  }
+}
+
+async function claudeCliOpenClawConfigCheck(tmp) {
+  const home = join(tmp, "claude-cli-config-home");
+  const command = [
+    `OPENCLAW_HOME=${quoteShell(home)}`,
+    "node support/configure-openclaw-live-auth.mjs --provider anthropic --auth-method external-cli --external-cli claude"
+  ].join(" ");
+  const result = await runCommand(command, { timeoutMs: 30000, maxOutputChars: 1000000 });
+  try {
+    if (result.status !== 0) {
+      throw new Error(result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`);
+    }
+    const config = JSON.parse(await readFile(join(home, ".openclaw", "openclaw.json"), "utf8"));
+    assertEqual(config.agents?.defaults?.model?.primary, "anthropic/claude-sonnet-4-5", "claude cli model ref");
+    assertEqual(config.agents?.defaults?.agentRuntime?.id, "claude-cli", "claude cli runtime id");
+    assertEqual(config.agents?.defaults?.agentRuntime?.fallback, "none", "claude cli runtime fallback");
+    if (config.models?.providers?.anthropic?.apiKey !== undefined) {
+      throw new Error("Claude CLI config must not write env apiKey config");
+    }
+    return {
+      id: "claude-cli-openclaw-config",
+      status: "PASS",
+      command,
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "claude-cli-openclaw-config",
       status: "FAIL",
       command,
       durationMs: result.durationMs,

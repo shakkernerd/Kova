@@ -66,7 +66,11 @@ Interactive `kova setup` asks provider first and then auth method. Both prompts
 accept either the displayed number or the name.
 For `external-cli`, Kova must verify the selected CLI and auth evidence before
 setup passes. `openai + external-cli` uses Codex CLI; `anthropic + external-cli`
-uses Claude CLI. Use API-key or env-only auth for `custom-openai`.
+uses Claude CLI. External CLI fallback is only valid when setup explicitly
+selected `--fallback-policy external-cli`. Use API-key or env-only auth for
+`custom-openai`.
+Live auth setup patches disposable env config as fixture setup for runtime
+validation; do not cite it as proof that OpenClaw onboarding/auth UX passed.
 
 4. Execute one scenario explicitly:
 

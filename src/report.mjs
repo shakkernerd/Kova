@@ -74,6 +74,9 @@ export function renderMarkdownReport(report) {
     }
     if (record.auth) {
       lines.push(`- Auth: ${record.auth.mode} (${record.auth.source}; provider ${record.auth.providerId ?? "none"})`);
+      if (record.auth.fallbackFrom) {
+        lines.push(`- Auth fallback: ${record.auth.fallbackFrom} -> ${record.auth.source}`);
+      }
       if (record.auth.environmentDependent) {
         lines.push("- Live provider lane: environment-dependent; compare separately from deterministic mock baselines.");
       }
@@ -145,7 +148,10 @@ export function renderMarkdownReport(report) {
       if (record.measurements.agentProviderAttribution) {
         lines.push(`- Provider evidence: ${record.measurements.agentProviderRequestCount ?? 0} request(s); provider work ${record.measurements.agentProviderFinalMs ?? "unknown"} ms; pre-provider ${record.measurements.agentPreProviderMs ?? "unknown"} ms; post-provider ${record.measurements.agentPostProviderMs ?? "unknown"} ms`);
       } else if (record.providerEvidence?.available) {
-        lines.push(`- Provider evidence: ${record.providerEvidence.requestCount ?? 0} request(s); provider duration ${record.providerEvidence.providerDurationMs ?? "unknown"} ms`);
+        const usage = record.providerEvidence.usage?.available
+          ? `; tokens ${record.providerEvidence.usage.totalTokens ?? "unknown"}`
+          : "";
+        lines.push(`- Provider evidence: ${record.providerEvidence.requestCount ?? 0} request(s); provider duration ${record.providerEvidence.providerDurationMs ?? "unknown"} ms${usage}`);
       } else if (record.auth?.mode === "live") {
         lines.push(`- Provider evidence: unavailable for live lane (${record.providerEvidence?.error ?? "no provider events captured"})`);
       }

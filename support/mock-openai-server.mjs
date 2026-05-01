@@ -84,6 +84,7 @@ async function writeStreamingStall(res, stream, call) {
 }
 
 function responseEvents(text) {
+  const usage = mockUsage();
   return [
     {
       type: "response.output_item.added",
@@ -103,15 +104,23 @@ function responseEvents(text) {
       type: "response.completed",
       response: {
         status: "completed",
-        usage: {
-          input_tokens: 9,
-          output_tokens: 3,
-          total_tokens: 12,
-          input_tokens_details: { cached_tokens: 0 }
-        }
+        usage
       }
     }
   ];
+}
+
+function mockUsage() {
+  return {
+    input_tokens: 9,
+    output_tokens: 3,
+    total_tokens: 12,
+    input_tokens_details: { cached_tokens: 0 }
+  };
+}
+
+function chatUsage() {
+  return { prompt_tokens: 9, completion_tokens: 3, total_tokens: 12 };
 }
 
 function writeChatCompletion(res, stream) {
@@ -135,7 +144,7 @@ function writeChatCompletion(res, stream) {
     id: "chatcmpl_kova",
     object: "chat.completion",
     choices: [{ index: 0, message: { role: "assistant", content: marker }, finish_reason: "stop" }],
-    usage: { prompt_tokens: 9, completion_tokens: 3, total_tokens: 12 }
+    usage: chatUsage()
   });
 }
 
@@ -169,6 +178,7 @@ const server = http.createServer(async (req, res) => {
   let loggable = false;
   let stream = false;
   let model = null;
+  let usage = null;
   let behavior = {
     mode: providerMode,
     outcome: null,
@@ -212,6 +222,7 @@ const server = http.createServer(async (req, res) => {
       model,
       stream,
       status,
+      usage,
       statusClass: typeof status === "number" ? `${Math.floor(status / 100)}xx` : null,
       bodyBytes: Buffer.byteLength(bodyText),
       parseError
@@ -259,6 +270,7 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     if (body.stream === false) {
+      usage = mockUsage();
       writeJson(res, 200, {
         id: "resp_kova",
         object: "response",
@@ -272,10 +284,11 @@ const server = http.createServer(async (req, res) => {
             content: [{ type: "output_text", text: marker, annotations: [] }]
           }
         ],
-        usage: { input_tokens: 9, output_tokens: 3, total_tokens: 12 }
+        usage
       });
       return;
     }
+    usage = mockUsage();
     writeSse(res, responseEvents(marker));
     return;
   }
@@ -285,6 +298,9 @@ const server = http.createServer(async (req, res) => {
     await applyDelayForBehavior(behavior);
     if (await maybeWriteFailureBehavior(res, behavior, body.stream !== false)) {
       return;
+    }
+    if (body.stream === false) {
+      usage = chatUsage();
     }
     writeChatCompletion(res, body.stream !== false);
     return;

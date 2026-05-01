@@ -3,11 +3,16 @@ import { constants } from "node:fs";
 import { join } from "node:path";
 import { credentialsDir, liveEnvPath, providersPath, repoRoot } from "./paths.mjs";
 import { quoteShell } from "./commands.mjs";
-import { externalCliVerificationSummary, verifyExternalCliAuth } from "./external-cli-auth.mjs";
+import {
+  externalCliVerificationSummary,
+  resolveExternalCliName,
+  verifyExternalCliAuth
+} from "./external-cli-auth.mjs";
 
 export const authModes = ["mock", "live", "skip"];
 export const credentialMethods = ["mock", "api-key", "env-only", "external-cli", "oauth", "skip"];
 export const authOverrideModes = ["default", "mock", "live", "skip", "missing", "broken", "none"];
+export const fallbackPolicies = ["mock", "external-cli", "none"];
 
 const defaultProviderId = "openai";
 const mockApiKey = "kova-mock-key";
@@ -35,6 +40,7 @@ export async function configureCredentialProvider(options = {}) {
 
   const metadata = await readProvidersMetadata();
   const envVar = options.envVar ?? defaultEnvVarForProvider(providerId);
+  const fallbackPolicy = normalizeFallbackPolicy(options.fallbackPolicy ?? "mock");
   metadata.defaultProvider = providerId;
   metadata.providers = {
     ...(metadata.providers ?? {}),
@@ -43,7 +49,7 @@ export async function configureCredentialProvider(options = {}) {
       method,
       envVars: method === "api-key" || method === "env-only" ? [envVar] : [],
       externalCli: method === "external-cli" ? (options.externalCli ?? providerId) : null,
-      fallbackPolicy: options.fallbackPolicy ?? "mock",
+      fallbackPolicy,
       configuredAt: new Date().toISOString()
     }
   };
@@ -120,7 +126,10 @@ export function scenarioAuthPolicy(context, scenario, state) {
       providerId,
       source: live.method,
       externalCli: live.externalCli ?? null,
+      fallbackFrom: live.fallbackFrom ?? null,
+      fallbackPolicy: live.fallbackPolicy ?? null,
       setup: true,
+      setupKind: "fixture-config-patch",
       commandEnv: env,
       redactionValues: [...(context.auth?.redactionValues ?? []), ...secretValues(env)],
       summary: authDisplay({
@@ -128,7 +137,10 @@ export function scenarioAuthPolicy(context, scenario, state) {
         providerId,
         source: live.method,
         externalCli: live.externalCli ?? null,
+        fallbackFrom: live.fallbackFrom ?? null,
+        fallbackPolicy: live.fallbackPolicy ?? null,
         setup: true,
+        setupKind: "fixture-config-patch",
         envVars: live.envVars
       })
     };
@@ -187,9 +199,9 @@ export function buildAuthSetupPhase(authPolicy, envName, artifactDir) {
   return {
     id: "auth-setup",
     title: "Auth Setup",
-    intent: "Configure the disposable OpenClaw env with the selected live provider auth.",
+    intent: "Patch the disposable OpenClaw env with fixture live auth config; this proves runtime behavior, not OpenClaw onboarding/auth UX.",
     commands: [configureLiveAuthCommand(authPolicy, envName)],
-    evidence: ["OpenClaw config references live auth env vars", "live auth env vars available to OpenClaw runtime"]
+    evidence: ["fixture auth config applied", "OpenClaw config references live auth env vars or selected external CLI", "live auth is environment-dependent"]
   };
 }
 
@@ -214,7 +226,10 @@ export function authDisplay(policy) {
     providerId: policy.providerId ?? null,
     source: policy.source,
     externalCli: policy.externalCli ?? null,
+    fallbackFrom: policy.fallbackFrom ?? null,
+    fallbackPolicy: policy.fallbackPolicy ?? null,
     setup: policy.setup === true,
+    setupKind: policy.setupKind ?? null,
     deterministic: policy.mode === "mock",
     environmentDependent: policy.mode === "live",
     envVars: policy.envVars ?? [],
@@ -233,6 +248,8 @@ export function authReportSummary(authContext) {
       providerId: authContext.live.providerId,
       method: authContext.live.method,
       externalCli: authContext.live.externalCli ?? null,
+      fallbackFrom: authContext.live.fallbackFrom ?? null,
+      fallbackPolicy: authContext.live.fallbackPolicy ?? null,
       verification: authContext.live.verification ?? null,
       envVars: authContext.live.envVars,
       reason: authContext.live.reason,
@@ -300,6 +317,9 @@ function validateProvidersMetadata(metadata) {
     }
     if (!credentialMethods.includes(provider.method)) {
       throw new Error(`providers.${id}.method must be one of ${credentialMethods.join(", ")}`);
+    }
+    if (provider.fallbackPolicy !== undefined && !fallbackPolicies.includes(provider.fallbackPolicy)) {
+      throw new Error(`providers.${id}.fallbackPolicy must be one of ${fallbackPolicies.join(", ")}`);
     }
     if (provider.envVars !== undefined && !Array.isArray(provider.envVars)) {
       throw new Error(`providers.${id}.envVars must be an array`);
@@ -379,6 +399,7 @@ function liveCredentialStatus(store) {
           available: false,
           providerId: provider.id,
           method: provider.method,
+          fallbackPolicy: provider.fallbackPolicy ?? "mock",
           envVars,
           reason: `missing env var(s): ${missing.join(", ")}`
         };
@@ -389,6 +410,7 @@ function liveCredentialStatus(store) {
       providerId: provider.id,
       method: provider.method,
       externalCli: provider.externalCli ?? null,
+      fallbackPolicy: provider.fallbackPolicy ?? "mock",
       envVars,
       reason: "configured"
     };
@@ -398,12 +420,35 @@ function liveCredentialStatus(store) {
     providerId: defaultId,
     method: providers[defaultId]?.method ?? "mock",
     externalCli: providers[defaultId]?.externalCli ?? null,
+    fallbackPolicy: providers[defaultId]?.fallbackPolicy ?? "mock",
     envVars: providers[defaultId]?.envVars ?? [],
     reason: "no live provider configured"
   };
 }
 
 async function verifyLiveCredentialStatus(status) {
+  if (status.available === false && status.fallbackPolicy === "external-cli") {
+    try {
+      const externalCli = resolveExternalCliName(status.providerId);
+      const verification = await verifyExternalCliAuth(externalCli);
+      return {
+        ...status,
+        available: verification.verified,
+        method: "external-cli",
+        externalCli,
+        fallbackFrom: status.method,
+        envVars: [],
+        reason: verification.verified ? "configured via external-cli fallback" : `external-cli ${externalCli} is not usable: ${verification.reason}`,
+        verification: externalCliVerificationSummary(verification)
+      };
+    } catch (error) {
+      return {
+        ...status,
+        available: false,
+        reason: `${status.reason}; external-cli fallback unavailable: ${error.message}`
+      };
+    }
+  }
   if (status.method !== "external-cli") {
     return status;
   }
@@ -452,6 +497,24 @@ function normalizeAuthOverride(value) {
     throw new Error(`auth.mode must be one of ${authOverrideModes.join(", ")}`);
   }
   return mode;
+}
+
+function normalizeFallbackPolicy(value) {
+  const normalized = String(value ?? "mock").trim().toLowerCase().replaceAll("_", "-");
+  const aliases = {
+    mock: "mock",
+    default: "mock",
+    "external-cli": "external-cli",
+    external: "external-cli",
+    cli: "external-cli",
+    none: "none",
+    skip: "none",
+    disabled: "none"
+  };
+  if (aliases[normalized]) {
+    return aliases[normalized];
+  }
+  throw new Error(`fallbackPolicy must be one of ${fallbackPolicies.join(", ")}`);
 }
 
 function mockDir(artifactDir) {

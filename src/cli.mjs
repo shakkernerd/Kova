@@ -35,8 +35,8 @@ export function printHelp() {
 Usage:
   kova version [--json]
   kova --version
-  kova setup [--ci|--non-interactive] [--auth <mock|api-key|env-only|external-cli|oauth|skip>] [--provider <id>] [--env-var <name>] [--value <secret>] [--json]
-  kova setup auth [--provider <id>] [--method <mock|api-key|env-only|external-cli|oauth|skip>] [--env-var <name>] [--value <secret>] [--json]
+  kova setup [--ci|--non-interactive] [--auth <mock|api-key|env-only|external-cli|oauth|skip>] [--provider <id>] [--env-var <name>] [--value <secret>] [--fallback-policy <mock|external-cli|none>] [--json]
+  kova setup auth [--provider <id>] [--method <mock|api-key|env-only|external-cli|oauth|skip>] [--env-var <name>] [--value <secret>] [--fallback-policy <mock|external-cli|none>] [--json]
   kova self-check [--json]
   kova plan [--scenario <id>] [--json]
   kova run --target <selector> [--from <selector>] [--scenario <id>] [--state <id>] [--auth <mock|live|skip>] [--repeat <n>] [--baseline [path]] [--save-baseline [path]] [--regression-thresholds <json>] [--report-dir <path>] [--health-samples <n>] [--readiness-interval-ms <n>] [--resource-sample-interval-ms <n>] [--deep-profile] [--node-profile] [--heap-snapshot] [--profile-on-failure] [--execute] [--keep-env] [--retain-on-failure] [--json]
@@ -65,6 +65,7 @@ Notes:
   --auth defaults to mock so every disposable env has deliberate model auth unless a scenario opts out.
   setup provider/auth choices accept either numbers from the prompt or names such as openai, anthropic, env-only, api-key.
   external-cli setup derives Codex for OpenAI and Claude CLI for Anthropic, then verifies the CLI and auth evidence.
+  external CLI fallback is only used when explicitly configured with --fallback-policy external-cli.
   --baseline compares executed aggregates against a Kova baseline store; without a path it uses the default store.
   --save-baseline writes executed aggregates into the selected baseline store.
   --deep-profile enables Node CPU/heap/trace profiling, OpenClaw timeline envs,

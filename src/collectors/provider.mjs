@@ -33,6 +33,7 @@ export async function collectProviderEvidence(artifactDir, options = {}) {
     routes: [],
     models: [],
     statuses: [],
+    usage: null,
     errors: [],
     requests: [],
     artifacts: [],
@@ -146,6 +147,7 @@ export function parseProviderRequestLog(text) {
     outcomes: summarizeBy(requests, "outcome"),
     errorClasses: summarizeBy(requests, "errorClass"),
     statuses: summarizeBy(requests, "status"),
+    usage: summarizeUsage(requests),
     errors: [...parseErrors, ...requestErrors(requests)],
     requests
   };
@@ -226,6 +228,7 @@ export function computeProviderTurnAttribution(result, providerEvidence) {
       modes: [],
       outcomes: [],
       errorClasses: [],
+      usage: null,
       errors: [],
       providerDominates: null,
       preProviderDominates: null,
@@ -263,6 +266,7 @@ export function computeProviderTurnAttribution(result, providerEvidence) {
     modes: summarizeBy(requests, "mode"),
     outcomes: summarizeBy(requests, "outcome"),
     errorClasses: summarizeBy(requests, "errorClass"),
+    usage: summarizeUsage(requests),
     errors: requestErrors(requests),
     providerDominates: dominanceRatio(Math.max(0, lastProviderResponseAt - firstProviderRequestAt), Math.max(0, commandFinishedAt - commandStartedAt)),
     preProviderDominates: dominanceRatio(Math.max(0, firstProviderRequestAt - commandStartedAt), Math.max(0, commandFinishedAt - commandStartedAt)),
@@ -322,6 +326,7 @@ function normalizeTimelineProviderRequest(event, line) {
     stream: typeof event.stream === "boolean" ? event.stream : null,
     status: numberOrNull(event.status),
     statusClass: typeof event.status === "number" ? `${Math.floor(event.status / 100)}xx` : null,
+    usage: normalizeUsage(event.usage ?? event.attributes?.usage),
     bodyBytes: null,
     parseError: null
   };
@@ -358,6 +363,7 @@ function summarizeProviderRequests(requests) {
     outcomes: summarizeBy(requests, "outcome"),
     errorClasses: summarizeBy(requests, "errorClass"),
     statuses: summarizeBy(requests, "status"),
+    usage: summarizeUsage(requests),
     errors: requestErrors(requests)
   };
 }
@@ -394,6 +400,7 @@ function normalizeProviderRequest(raw, line) {
     model: raw.model ?? modelFromBody(raw.body),
     stream: typeof raw.stream === "boolean" ? raw.stream : streamFromBody(raw.body),
     status: numberOrNull(raw.status),
+    usage: normalizeUsage(raw.usage),
     statusClass: raw.statusClass ?? (typeof raw.status === "number" ? `${Math.floor(raw.status / 100)}xx` : null),
     bodyBytes: numberOrNull(raw.bodyBytes) ?? (typeof raw.body === "string" ? Buffer.byteLength(raw.body) : null),
     parseError: raw.parseError ?? null
@@ -456,6 +463,56 @@ function requestErrors(requests) {
     }
   }
   return errors;
+}
+
+function summarizeUsage(requests) {
+  const usages = requests
+    .map((request) => request.usage)
+    .filter((usage) => usage && typeof usage === "object");
+  if (usages.length === 0) {
+    return {
+      schemaVersion: "kova.providerUsageSummary.v1",
+      available: false,
+      requestCount: requests.length,
+      requestsWithUsage: 0,
+      inputTokens: null,
+      outputTokens: null,
+      totalTokens: null
+    };
+  }
+  return {
+    schemaVersion: "kova.providerUsageSummary.v1",
+    available: true,
+    requestCount: requests.length,
+    requestsWithUsage: usages.length,
+    inputTokens: sumNullable(usages.map((usage) => usage.inputTokens)),
+    outputTokens: sumNullable(usages.map((usage) => usage.outputTokens)),
+    totalTokens: sumNullable(usages.map((usage) => usage.totalTokens))
+  };
+}
+
+function normalizeUsage(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const inputTokens = numberOrNull(value.input_tokens ?? value.inputTokens ?? value.prompt_tokens ?? value.promptTokens);
+  const outputTokens = numberOrNull(value.output_tokens ?? value.outputTokens ?? value.completion_tokens ?? value.completionTokens);
+  const totalTokens = numberOrNull(value.total_tokens ?? value.totalTokens) ??
+    (typeof inputTokens === "number" && typeof outputTokens === "number" ? inputTokens + outputTokens : null);
+  if (![inputTokens, outputTokens, totalTokens].some((item) => typeof item === "number")) {
+    return null;
+  }
+  return {
+    schemaVersion: "kova.providerUsage.v1",
+    inputTokens,
+    outputTokens,
+    totalTokens
+  };
+}
+
+function sumNullable(values) {
+  const numbers = values.filter((value) => typeof value === "number");
+  return numbers.length > 0 ? numbers.reduce((sum, value) => sum + value, 0) : null;
 }
 
 function modelFromBody(body) {

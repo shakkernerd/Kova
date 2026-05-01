@@ -44,6 +44,7 @@ codex skills install https://github.com/shakkernerd/ocm/tree/main/skills/ocm-ope
 node bin/kova.mjs version
 node bin/kova.mjs setup
 node bin/kova.mjs setup --non-interactive --auth env-only --provider openai --env-var OPENAI_API_KEY
+node bin/kova.mjs setup --non-interactive --auth env-only --provider openai --env-var OPENAI_API_KEY --fallback-policy external-cli
 node bin/kova.mjs setup --ci --json
 node bin/kova.mjs self-check
 node bin/kova.mjs plan
@@ -77,7 +78,9 @@ answers accept either the displayed number or the name, for example `2` or
 External CLI auth is strict: Kova verifies the selected CLI binary and local
 auth evidence before setup can pass. `openai + external-cli` uses Codex CLI;
 `anthropic + external-cli` uses Claude CLI. `custom-openai` should use API-key
-or env-only auth.
+or env-only auth. External CLI fallback is not automatic; set
+`--fallback-policy external-cli` when a live API-key/env-only run may use the
+selected local CLI if the live env var is missing.
 
 `run` is dry-run by default. It writes Markdown and JSON reports showing the
 planned OpenClaw scenario.
@@ -87,7 +90,8 @@ the scenario/state explicitly tests missing or broken auth. `--auth mock` is the
 default and uses Kova's deterministic local OpenAI-compatible provider.
 `--auth live` requires credentials configured through `kova setup`; live results
 are marked environment-dependent and should be compared separately from mock
-baselines.
+baselines. Kova's live auth setup patches disposable env config as fixture setup
+for runtime validation; it is not proof that OpenClaw onboarding/auth UX passed.
 
 `plan --json` is coverage-aware: scenarios map to declared OpenClaw surfaces,
 surfaces declare process roles and required metrics, and profile coverage gaps

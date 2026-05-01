@@ -47,6 +47,8 @@ kova.report.v1
       "available": false,
       "providerId": "openai",
       "method": "mock",
+      "fallbackFrom": null,
+      "fallbackPolicy": "mock",
       "envVars": ["OPENAI_API_KEY"],
       "reason": "no live provider configured",
       "environmentDependent": false
@@ -109,6 +111,9 @@ Important fields:
 - `collectorArtifactDirs`: stable per-record artifact directories used by
   collectors
 - `measurements`: evaluated measurements
+- `providerEvidence`: provider request timing, route/model/status summaries,
+  optional token-like usage totals, and whether evidence came from mock-provider
+  logs or OpenClaw timeline events
 - `violations`: threshold or behavior violations
 - `phases`: commands, results, and metrics by phase
 - `finalMetrics`: service/process snapshot before cleanup
