@@ -213,6 +213,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(runtimeDepsWarmReuseEvaluationCheck());
     checks.push(await performanceBaselineCheck(tmp));
     checks.push(markdownFailureCardsCheck());
+    checks.push(reportRecommendedNextScenarioCheck());
     checks.push(readinessClassificationCheck());
     checks.push(await resourceRoleAttributionCheck(tmp));
     checks.push(await processSnapshotCheck(tmp));
@@ -3160,6 +3161,69 @@ function markdownFailureCardsCheck() {
       id: "markdown-failure-cards",
       status: "FAIL",
       command: "render synthetic failure Markdown",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function reportRecommendedNextScenarioCheck() {
+  try {
+    const report = {
+      generatedAt: "2026-05-01T00:00:00.000Z",
+      runId: "self-check-recommended-next",
+      mode: "execution",
+      target: "local-build:/tmp/OpenClaw Test",
+      platform: { os: "test", release: "test", arch: "test", node: "test" },
+      summary: { total: 1, statuses: { FAIL: 1 } },
+      records: [{
+        scenario: "agent-cold-warm-message",
+        title: "Agent Cold Warm Message",
+        status: "FAIL",
+        target: "local-build:/tmp/OpenClaw Test",
+        envName: "kova-self-check",
+        state: { id: "mock-openai-provider", title: "Mock OpenAI Provider" },
+        likelyOwner: "agent-runtime",
+        objective: "Synthetic recommended next scenario check",
+        phases: [{
+          id: "agent-turn",
+          title: "Agent Turn",
+          intent: "Send a cold message",
+          commands: ["ocm @kova-self-check -- agent --local --message hi --json"],
+          evidence: [],
+          results: []
+        }],
+        measurements: {
+          coldAgentTurnMs: 62000,
+          agentPreProviderMs: 61300
+        },
+        violations: [{ message: "cold pre-provider latency was 61300ms" }]
+      }]
+    };
+    const structured = renderReportSummary(report, { structured: true });
+    const recommended = structured.recommendedNextScenario;
+    assertEqual(recommended?.scenario, "agent-cold-warm-message", "recommended scenario id");
+    assertEqual(recommended?.state, "mock-openai-provider", "recommended state id");
+    assertEqual(
+      recommended?.command,
+      "node bin/kova.mjs run --target 'local-build:/tmp/OpenClaw Test' --scenario agent-cold-warm-message --state mock-openai-provider --execute --profile-on-failure --retain-on-failure --json",
+      "recommended command"
+    );
+    assertEqual(renderReportSummary(report).includes("Recommended next scenario:"), true, "plain summary recommended section");
+    const paste = renderPasteSummary(report);
+    assertEqual(paste.includes("Recommended next scenario"), true, "paste summary recommended section");
+    assertEqual(paste.includes("cold pre-provider latency was 61300ms"), true, "paste summary recommended reason");
+    return {
+      id: "report-recommended-next-scenario",
+      status: "PASS",
+      command: "render synthetic recommended next scenario",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "report-recommended-next-scenario",
+      status: "FAIL",
+      command: "render synthetic recommended next scenario",
       durationMs: 0,
       message: error.message
     };

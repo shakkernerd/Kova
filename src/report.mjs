@@ -569,6 +569,7 @@ export function renderReportSummary(report, options = {}) {
     gate: report.gate ?? null,
     performance: summarizePerformance(report.performance, report.baseline),
     failureBrief: buildFailureBrief(report),
+    recommendedNextScenario: buildRecommendedNextScenario(report),
     statuses: report.summary?.statuses ?? summarizeRecords(records).statuses,
     scenarios: records.map((record) => {
       const failed = firstFailedCommand(record);
@@ -615,6 +616,12 @@ export function renderReportSummary(report, options = {}) {
     for (const violation of scenario.violations) {
       lines.push(`  violation: ${violation.message}`);
     }
+  }
+  if (summary.recommendedNextScenario) {
+    lines.push("");
+    lines.push("Recommended next scenario:");
+    lines.push(`- ${summary.recommendedNextScenario.reason}`);
+    lines.push(`- ${summary.recommendedNextScenario.command}`);
   }
 
   return lines.join("\n");
@@ -816,6 +823,14 @@ export function renderPasteSummary(report) {
     lines.push(brief.fixerPrompt);
     lines.push("");
   }
+  const recommended = buildRecommendedNextScenario(report);
+  if (recommended) {
+    lines.push("Recommended next scenario");
+    lines.push("");
+    lines.push(`Reason: ${recommended.reason}`);
+    lines.push(`Command: ${recommended.command}`);
+    lines.push("");
+  }
 
   for (const record of records) {
     const failed = firstFailedCommand(record);
@@ -893,6 +908,52 @@ function buildFailureBrief(report) {
     likelyOwner,
     fixerPrompt: buildFixerPrompt({ report, primaryBlocker, why, measurements, evidence, likelyOwner })
   };
+}
+
+function buildRecommendedNextScenario(report) {
+  const records = report.records ?? [];
+  const card = (report.gate?.cards ?? [])
+    .find((item) => item.severity === "blocking" && item.scenario) ??
+    (report.gate?.cards ?? []).find((item) => item.severity === "warning" && item.scenario) ??
+    null;
+  const record = card
+    ? records.find((item) => item.scenario === card.scenario && (item.state?.id ?? null) === (card.state ?? null))
+    : records.find((item) => item.status === "FAIL" || item.status === "BLOCKED");
+  const scenario = card?.scenario ?? record?.scenario;
+  if (!scenario) {
+    return null;
+  }
+  const state = card?.state ?? record?.state?.id ?? null;
+  const target = report.target ?? record?.target;
+  const command = [
+    "node bin/kova.mjs run",
+    target ? `--target ${quoteCliValue(target)}` : "--target <selector>",
+    `--scenario ${quoteCliValue(scenario)}`,
+    state ? `--state ${quoteCliValue(state)}` : null,
+    "--execute",
+    "--profile-on-failure",
+    "--retain-on-failure",
+    "--json"
+  ].filter(Boolean).join(" ");
+  const reason = card?.summary ??
+    record?.violations?.[0]?.message ??
+    summarizeFailureReason(firstFailedCommand(record ?? {})) ??
+    "rerun the primary failing scenario with retained artifacts";
+  return {
+    scenario,
+    state,
+    target: target ?? null,
+    reason,
+    command
+  };
+}
+
+function quoteCliValue(value) {
+  const string = String(value);
+  if (/^[A-Za-z0-9._/:=-]+$/.test(string)) {
+    return string;
+  }
+  return `'${string.replaceAll("'", "'\\''")}'`;
 }
 
 function briefEvidence(measurements, violations) {
