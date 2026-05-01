@@ -864,15 +864,11 @@ export function renderPasteSummary(report) {
     if (record.status === "PASS" || record.status === "DRY-RUN") {
       lines.push(`Evidence: ${record.phases?.length ?? 0} phases recorded.`);
       if (record.measurements) {
-        const runtimeDepsPlugin = record.measurements.runtimeDepsStagingPluginId ? ` (${record.measurements.runtimeDepsStagingPluginId})` : "";
-        const roleText = compactRolePeaks(record.measurements).slice(0, 4)
-          .map((role) => `${role.role} ${role.peakRssMb ?? "?"}MB/${role.maxCpuPercent ?? "?"}%`)
-          .join(", ") || "unknown";
-        lines.push(`Measurements: cold ready ${record.measurements.coldReadyMs ?? "unknown"}ms; warm ready ${record.measurements.warmReadyMs ?? "unknown"}ms; listening ${record.measurements.timeToListeningMs ?? "unknown"}ms; health ready ${record.measurements.timeToHealthReadyMs ?? "unknown"}ms; readiness ${record.measurements.readinessClassification ?? "unknown"}; peak RSS ${record.measurements.peakRssMb ?? "unknown"} MB; max CPU ${record.measurements.cpuPercentMax ?? "unknown"}%; role peaks ${roleText}; samples ${record.measurements.resourceSampleCount ?? "unknown"}; final gateway ${record.measurements.finalGatewayState ?? "unknown"}; health failures ${record.measurements.healthFailures ?? "unknown"}; health p95 ${record.measurements.healthP95Ms ?? "unknown"}ms; missing deps ${record.measurements.missingDependencyErrors ?? "unknown"}; plugin load failures ${record.measurements.pluginLoadFailures ?? "unknown"}; restarts ${record.measurements.gatewayRestartCount ?? "unknown"}; agent turn ${record.measurements.agentTurnMs ?? "not-run"}ms; cold/warm ${record.measurements.coldAgentTurnMs ?? "unknown"}/${record.measurements.warmAgentTurnMs ?? "unknown"}ms; cold-warm delta ${record.measurements.agentColdWarmDeltaMs ?? "unknown"}ms; pre-provider ${record.measurements.agentPreProviderMs ?? "unknown"}ms; provider work ${record.measurements.agentProviderFinalMs ?? "unknown"}ms; cleanup max ${record.measurements.agentCleanupMaxMs ?? "unknown"}ms; diagnosis ${record.measurements.agentLatencyDiagnosis?.kind ?? "unknown"}; cleanup diagnosis ${record.measurements.agentCleanupDiagnosis?.kind ?? "none"}; provider simulation ${record.measurements.agentProviderMode ?? "normal"}/${record.measurements.agentProviderIssue ?? "none"} containment ${record.measurements.agentProviderContainmentOk ?? "n/a"} recovery ${record.measurements.agentProviderRecoveryOk ?? "n/a"}; agent process leaks ${record.measurements.agentProcessLeakCount ?? "unknown"}; MCP init/tools/shutdown ${record.measurements.mcpInitializeMs ?? "unknown"}/${record.measurements.mcpToolsListMs ?? "unknown"}/${record.measurements.mcpShutdownMs ?? "unknown"}ms; MCP tools ${record.measurements.mcpToolCount ?? "unknown"}; browser start/open/snapshot ${record.measurements.browserStartMs ?? "unknown"}/${record.measurements.browserOpenMs ?? "unknown"}/${record.measurements.browserSnapshotMs ?? "unknown"}ms; browser tabs ${record.measurements.browserTabCount ?? "unknown"}; browser stopped ${record.measurements.browserStopped ?? "unknown"}; media describe ${record.measurements.mediaDescribeMs ?? "unknown"}ms; media timeout ${record.measurements.mediaTimeoutObserved ?? "unknown"}; media status ${record.measurements.mediaStatusAfterTimeoutMs ?? "unknown"}ms; provider/model timeouts ${record.measurements.providerTimeoutMentions ?? "unknown"}; event-loop signals ${record.measurements.eventLoopDelayMentions ?? "unknown"}; timeline ${record.measurements.openclawTimelineAvailable ? "available" : "unavailable"}; slowest span ${record.measurements.openclawSlowestSpanName ?? "unknown"} ${record.measurements.openclawSlowestSpanMs ?? "unknown"}ms; open spans ${record.measurements.openclawOpenSpanCount ?? "unknown"} (${record.measurements.openclawOpenRequiredSpanCount ?? "unknown"} required); node profiles ${record.measurements.nodeCpuProfileCount ?? "unknown"}/${record.measurements.nodeHeapProfileCount ?? "unknown"}/${record.measurements.nodeTraceEventCount ?? "unknown"}; top CPU ${record.measurements.nodeProfileTopFunction ?? "unknown"} ${record.measurements.nodeProfileTopFunctionMs ?? "unknown"}ms; top heap ${record.measurements.nodeHeapTopFunction ?? "unknown"} ${record.measurements.nodeHeapTopFunctionMb ?? "unknown"}MB; runtime deps staging ${record.measurements.runtimeDepsStagingMs ?? "unknown"}ms${runtimeDepsPlugin}; warm runtime deps restages ${record.measurements.warmRuntimeDepsRestageCount ?? "unknown"}; warm reuse ${record.measurements.runtimeDepsWarmReuseOk ?? "unknown"}.`);
+        pushMeasurementBrief(lines, record.measurements, { compact: false });
       }
     } else if (record.violations?.length > 0) {
       if (record.measurements) {
-        lines.push(`Measurements: agent turn ${record.measurements.agentTurnMs ?? "not-run"}ms; cold/warm ${record.measurements.coldAgentTurnMs ?? "unknown"}/${record.measurements.warmAgentTurnMs ?? "unknown"}ms; cold-warm delta ${record.measurements.agentColdWarmDeltaMs ?? "unknown"}ms; pre-provider ${record.measurements.agentPreProviderMs ?? "unknown"}ms; provider work ${record.measurements.agentProviderFinalMs ?? "unknown"}ms; cleanup max ${record.measurements.agentCleanupMaxMs ?? "unknown"}ms; diagnosis ${record.measurements.agentLatencyDiagnosis?.kind ?? "unknown"}; cleanup diagnosis ${record.measurements.agentCleanupDiagnosis?.kind ?? "none"}; provider simulation ${record.measurements.agentProviderMode ?? "normal"}/${record.measurements.agentProviderIssue ?? "none"} containment ${record.measurements.agentProviderContainmentOk ?? "n/a"} recovery ${record.measurements.agentProviderRecoveryOk ?? "n/a"}; agent process leaks ${record.measurements.agentProcessLeakCount ?? "unknown"}.`);
+        pushMeasurementBrief(lines, record.measurements, { compact: true });
         if (record.measurements.mediaUnderstandingEvidence?.available) {
           lines.push(`Media: describe ${record.measurements.mediaDescribeMs ?? "unknown"}ms; timeout ${record.measurements.mediaTimeoutObserved ?? "unknown"}; status ${record.measurements.mediaStatusAfterTimeoutMs ?? "unknown"}ms.`);
         }
@@ -1104,6 +1100,70 @@ function compactRolePeaks(measurements) {
     const rightScore = Math.max(right.peakRssMb ?? 0, right.maxCpuPercent ?? 0);
     return rightScore - leftScore;
   });
+}
+
+function pushMeasurementBrief(lines, measurements, { compact }) {
+  lines.push("Measurements:");
+  lines.push(`- startup: listening ${valueMs(measurements.timeToListeningMs)}; health ${valueMs(measurements.timeToHealthReadyMs)}; readiness ${measurements.readinessClassification ?? "unknown"}; gateway ${measurements.finalGatewayState ?? "unknown"}; restarts ${measurements.gatewayRestartCount ?? "unknown"}`);
+  lines.push(`- resources: peak RSS ${valueMb(measurements.peakRssMb)}; max CPU ${valuePercent(measurements.cpuPercentMax)}; samples ${measurements.resourceSampleCount ?? "unknown"}; roles ${rolePeakText(measurements)}`);
+  lines.push(`- agent: turn ${valueMs(measurements.agentTurnMs, "not-run")}; cold/warm ${valueMs(measurements.coldAgentTurnMs)}/${valueMs(measurements.warmAgentTurnMs)}; cold-warm delta ${valueMs(measurements.agentColdWarmDeltaMs)}; pre-provider ${valueMs(measurements.agentPreProviderMs)}; provider ${valueMs(measurements.agentProviderFinalMs)}; cleanup ${valueMs(measurements.agentCleanupMaxMs)}; diagnosis ${measurements.agentLatencyDiagnosis?.kind ?? "unknown"}; leaks ${measurements.agentProcessLeakCount ?? "unknown"}`);
+  lines.push(`- plugins/runtime: missing deps ${measurements.missingDependencyErrors ?? "unknown"}; plugin failures ${measurements.pluginLoadFailures ?? "unknown"}; runtime deps ${valueMs(measurements.runtimeDepsStagingMs)}${runtimeDepsPluginText(measurements)}; warm restages ${measurements.warmRuntimeDepsRestageCount ?? "unknown"}; warm reuse ${measurements.runtimeDepsWarmReuseOk ?? "unknown"}`);
+
+  if (!compact || hasDiagnosticSignal(measurements)) {
+    lines.push(`- diagnostics: timeline ${measurements.openclawTimelineAvailable ? "available" : "unavailable"}; slowest span ${measurements.openclawSlowestSpanName ?? "unknown"} ${valueMs(measurements.openclawSlowestSpanMs)}; open spans ${measurements.openclawOpenSpanCount ?? "unknown"} (${measurements.openclawOpenRequiredSpanCount ?? "unknown"} required); node CPU/heap/trace ${measurements.nodeCpuProfileCount ?? "unknown"}/${measurements.nodeHeapProfileCount ?? "unknown"}/${measurements.nodeTraceEventCount ?? "unknown"}`);
+  }
+  if (!compact && hasMcpSignal(measurements)) {
+    lines.push(`- mcp: init ${valueMs(measurements.mcpInitializeMs)}; tools/list ${valueMs(measurements.mcpToolsListMs)}; shutdown ${valueMs(measurements.mcpShutdownMs)}; tools ${measurements.mcpToolCount ?? "unknown"}`);
+  }
+  if (!compact && hasBrowserSignal(measurements)) {
+    lines.push(`- browser: start ${valueMs(measurements.browserStartMs)}; open ${valueMs(measurements.browserOpenMs)}; snapshot ${valueMs(measurements.browserSnapshotMs)}; tabs ${measurements.browserTabCount ?? "unknown"}; stopped ${measurements.browserStopped ?? "unknown"}`);
+  }
+}
+
+function rolePeakText(measurements) {
+  const text = compactRolePeaks(measurements).slice(0, 4)
+    .map((role) => `${role.role} ${role.peakRssMb ?? "?"}MB/${role.maxCpuPercent ?? "?"}%`)
+    .join(", ");
+  return text || "unknown";
+}
+
+function runtimeDepsPluginText(measurements) {
+  return measurements.runtimeDepsStagingPluginId ? ` (${measurements.runtimeDepsStagingPluginId})` : "";
+}
+
+function hasDiagnosticSignal(measurements) {
+  return measurements.openclawTimelineAvailable ||
+    measurements.openclawSlowestSpanName ||
+    measurements.openclawOpenSpanCount !== undefined ||
+    measurements.nodeCpuProfileCount !== undefined ||
+    measurements.nodeHeapProfileCount !== undefined ||
+    measurements.nodeTraceEventCount !== undefined;
+}
+
+function hasMcpSignal(measurements) {
+  return measurements.mcpBridgeEvidence?.available ||
+    measurements.mcpInitializeMs !== undefined ||
+    measurements.mcpToolsListMs !== undefined ||
+    measurements.mcpShutdownMs !== undefined;
+}
+
+function hasBrowserSignal(measurements) {
+  return measurements.browserAutomationEvidence?.available ||
+    measurements.browserStartMs !== undefined ||
+    measurements.browserOpenMs !== undefined ||
+    measurements.browserSnapshotMs !== undefined;
+}
+
+function valueMs(value, fallback = "unknown") {
+  return value === null || value === undefined ? fallback : `${value}ms`;
+}
+
+function valueMb(value) {
+  return value === null || value === undefined ? "unknown" : `${value} MB`;
+}
+
+function valuePercent(value) {
+  return value === null || value === undefined ? "unknown" : `${value}%`;
 }
 
 function buildFixerPrompt({ report, primaryBlocker, why, measurements, evidence, likelyOwner }) {
