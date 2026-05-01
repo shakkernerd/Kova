@@ -1,3 +1,4 @@
+import { buildAgentTurnBreakdown } from "./collectors/agent-turns.mjs";
 import { computeProviderTurnAttribution } from "./collectors/provider.mjs";
 
 export function evaluateRecord(record, scenario, options = {}) {
@@ -39,7 +40,7 @@ export function evaluateRecord(record, scenario, options = {}) {
   const runtimeDepsStagingMs = maxNullable(openclawDiagnostics.runtimeDepsStagingMs, timelineSummary.runtimeDepsStageMaxMs);
   const eventLoopDelayMs = maxNullable(openclawDiagnostics.eventLoopDelayMs, timelineSummary.eventLoopMaxMs);
   const providerModelTimingMs = maxNullable(openclawDiagnostics.providerModelTimingMs, timelineSummary.providerRequestMaxMs);
-  const agentTurns = collectAgentTurns(record, record.providerEvidence, scenario);
+  const agentTurns = collectAgentTurns(record, record.providerEvidence, scenario, timelineSummary);
   const coldAgentTurn = selectAgentTurn(agentTurns, "cold") ?? agentTurns[0] ?? null;
   const warmAgentTurn = selectAgentTurn(agentTurns, "warm") ?? agentTurns[1] ?? null;
   const providerTurn = collectSlowestProviderTurn(agentTurns);
@@ -443,7 +444,7 @@ export function evaluateRecord(record, scenario, options = {}) {
   return record;
 }
 
-function collectAgentTurns(record, providerEvidence, scenario) {
+function collectAgentTurns(record, providerEvidence, scenario, timelineSummary) {
   const turns = [];
   let index = 0;
   const expectedText = scenario.agent?.expectedText ?? null;
@@ -461,6 +462,7 @@ function collectAgentTurns(record, providerEvidence, scenario) {
         : null;
       const expectedFailureObserved = expectedFailure === true && result.status === 0 && result.timedOut !== true;
       const normalResponseOk = result.status === 0 && result.timedOut !== true && response.usable === true && (expectedTextPresent !== false);
+      const phaseBreakdown = buildAgentTurnBreakdown({ result, attribution, timelineSummary });
       turns.push({
         schemaVersion: "kova.agentTurnEvidence.v1",
         index,
@@ -496,6 +498,7 @@ function collectAgentTurns(record, providerEvidence, scenario) {
         providerOutcomes: attribution?.outcomes ?? [],
         providerErrorClasses: attribution?.errorClasses ?? [],
         providerErrors: attribution?.errors ?? [],
+        phaseBreakdown,
         processLeaks: result.processSnapshots?.leaks ?? null,
         processLeakCount: result.processSnapshots?.leaks?.leakCount ?? null,
         leakedProcesses: result.processSnapshots?.leaks?.leakedProcesses ?? [],
@@ -1443,6 +1446,7 @@ function collectTimelineSummary(record) {
   let openSpanCount = 0;
   let openSpans = [];
   const keySpans = {};
+  const spanTotals = {};
 
   for (const timeline of timelines) {
     eventCount = Math.max(eventCount, timeline.eventCount ?? 0);
@@ -1452,6 +1456,7 @@ function collectTimelineSummary(record) {
     openSpanCount = Math.max(openSpanCount, timeline.openSpanCount ?? timeline.openSpans?.length ?? 0);
     openSpans = mergeOpenSpans(openSpans, timeline.openSpans ?? []);
     mergeKeySpans(keySpans, timeline.keySpans ?? {});
+    mergeSpanTotals(spanTotals, timeline.spanTotals ?? {});
     eventLoopMaxMs = maxNullable(eventLoopMaxMs, timeline.eventLoop?.maxMs);
     providerRequestMaxMs = maxNullable(providerRequestMaxMs, timeline.providers?.maxDurationMs);
     runtimeDepsStageMaxMs = maxNullable(
@@ -1484,12 +1489,37 @@ function collectTimelineSummary(record) {
     openSpanCount,
     openSpans,
     keySpans,
+    spanTotals,
     eventLoopMaxMs,
     providerRequestMaxMs,
     childProcessFailedCount,
     runtimeDepsStageMaxMs,
     runtimeDepsStagePluginId: slowestRuntimeDepsPlugin?.pluginId ?? null
   };
+}
+
+function mergeSpanTotals(target, source) {
+  for (const [name, summary] of Object.entries(source)) {
+    const existing = target[name] ?? {
+      name,
+      count: 0,
+      errorCount: 0,
+      openCount: 0,
+      totalDurationMs: 0,
+      maxDurationMs: null,
+      slowest: null
+    };
+    existing.count += summary.count ?? 0;
+    existing.errorCount += summary.errorCount ?? 0;
+    existing.openCount += summary.openCount ?? 0;
+    existing.totalDurationMs = roundNumber(existing.totalDurationMs + (summary.totalDurationMs ?? 0));
+    existing.maxDurationMs = maxNullable(existing.maxDurationMs, summary.maxDurationMs);
+    if (summary.slowest?.durationMs !== undefined &&
+      (!existing.slowest || summary.slowest.durationMs > existing.slowest.durationMs)) {
+      existing.slowest = summary.slowest;
+    }
+    target[name] = existing;
+  }
 }
 
 function mergeOpenSpans(current, candidate) {

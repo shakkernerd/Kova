@@ -11,6 +11,13 @@ export const KEY_OPENCLAW_SPANS = [
   "runtimeDeps.stage",
   "providers.load",
   "models.catalog",
+  "models.catalog.gateway",
+  "models.catalog.load",
+  "models.discovery",
+  "channel.capabilities",
+  "channel.plugin.get",
+  "channel.plugin.load",
+  "agent.prepare",
   "agent.turn",
   "agent.cleanup"
 ];

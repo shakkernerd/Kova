@@ -1,3 +1,5 @@
+import { summarizeAgentTurnBreakdownForMarkdown } from "./collectors/agent-turns.mjs";
+
 export function summarizeRecords(records) {
   const statuses = {};
   for (const record of records) {
@@ -167,6 +169,10 @@ export function renderMarkdownReport(report) {
           const issue = turn.providerErrorClasses?.[0]?.value ?? turn.providerOutcomes?.[0]?.value ?? "none";
           const expectedFailure = turn.expectedFailure ? "; expected failure observed " + turn.expectedFailureObserved : "";
           lines.push(`  - ${turn.label}: total ${turn.totalTurnMs ?? "unknown"} ms; pre-provider ${turn.preProviderMs ?? "unknown"} ms; provider ${turn.providerFinalMs ?? "unknown"} ms; post-provider ${turn.postProviderMs ?? "unknown"} ms; route ${route}; status ${status}; issue ${issue}; response ${turn.responseOk}; leaks ${turn.processLeakCount ?? "unknown"}${expectedFailure}`);
+          const breakdown = summarizeAgentTurnBreakdownForMarkdown(turn.phaseBreakdown);
+          if (breakdown) {
+            lines.push(`    - breakdown: ${breakdown}`);
+          }
         }
       }
       lines.push(`- V8 reports / heap snapshots: ${record.measurements.v8ReportCount ?? "unknown"} / ${record.measurements.heapSnapshotCount ?? "unknown"}`);
