@@ -84,7 +84,7 @@ export function evaluateGate(report, profile) {
   const warningCards = cards.filter((card) => card.severity === "warning");
   const infoCards = cards.filter((card) => card.severity === "info");
   const blockedByHarness = blockingCards.some((card) =>
-    ["not-executed", "missing-required-scenario", "blocked", "skipped", "dry-run"].includes(card.kind)
+    ["not-executed", "blocked", "skipped", "dry-run"].includes(card.kind)
   );
   const openClawBlockingFailures = blockingCards.filter((card) => card.kind === "openclaw-failure");
   const incomplete = missingRequired.length > 0;
@@ -95,8 +95,10 @@ export function evaluateGate(report, profile) {
       : blockingCards.length > 0
         ? "DO_NOT_SHIP"
         : incomplete
-          ? "BLOCKED"
+          ? "PARTIAL"
           : "SHIP";
+  const subsystems = summarizeSubsystems(cards);
+  const fixerSummaries = buildFixerSummaries(subsystems);
 
   return {
     schemaVersion: "kova.gate.v1",
@@ -114,6 +116,8 @@ export function evaluateGate(report, profile) {
     required: policy.blocking,
     warning: policy.warning,
     coverage: policy.coverage,
+    subsystems,
+    fixerSummaries,
     cards
   };
 }
@@ -390,6 +394,118 @@ function summarizeGateMeasurements(measurements) {
     gatewayRestartCount: measurements.gatewayRestartCount ?? null,
     runtimeDepsStagingMs: measurements.runtimeDepsStagingMs ?? null
   };
+}
+
+function summarizeSubsystems(cards) {
+  const byOwner = new Map();
+  for (const card of cards) {
+    if (card.severity === "info") {
+      continue;
+    }
+    const owner = normalizeOwner(card.likelyOwner);
+    const existing = byOwner.get(owner) ?? {
+      owner,
+      totalCount: 0,
+      blockingCount: 0,
+      warningCount: 0,
+      primary: null,
+      scenarios: new Set(),
+      states: new Set(),
+      kinds: new Set(),
+      summaries: []
+    };
+    existing.totalCount += 1;
+    if (card.severity === "blocking") {
+      existing.blockingCount += 1;
+    }
+    if (card.severity === "warning") {
+      existing.warningCount += 1;
+    }
+    if (card.scenario) {
+      existing.scenarios.add(card.scenario);
+    }
+    if (card.state) {
+      existing.states.add(card.state);
+    }
+    if (card.kind) {
+      existing.kinds.add(card.kind);
+    }
+    if (!existing.primary || cardRank(card) > cardRank(existing.primary)) {
+      existing.primary = card;
+    }
+    if (card.summary) {
+      existing.summaries.push(card.summary);
+    }
+    byOwner.set(owner, existing);
+  }
+
+  return [...byOwner.values()]
+    .map((entry) => ({
+      owner: entry.owner,
+      totalCount: entry.totalCount,
+      blockingCount: entry.blockingCount,
+      warningCount: entry.warningCount,
+      scenarios: [...entry.scenarios].sort(),
+      states: [...entry.states].sort(),
+      kinds: [...entry.kinds].sort(),
+      primary: entry.primary ? compactSubsystemCard(entry.primary) : null,
+      summaries: entry.summaries.slice(0, 5)
+    }))
+    .toSorted((left, right) =>
+      (right.blockingCount - left.blockingCount) ||
+      (right.warningCount - left.warningCount) ||
+      left.owner.localeCompare(right.owner)
+    );
+}
+
+function buildFixerSummaries(subsystems) {
+  return subsystems.map((subsystem) => ({
+    owner: subsystem.owner,
+    blockingCount: subsystem.blockingCount,
+    warningCount: subsystem.warningCount,
+    summary: subsystem.primary?.summary ?? `${subsystem.totalCount} release gate issue(s)`,
+    scenarios: subsystem.scenarios,
+    fixerPrompt: buildSubsystemFixerPrompt(subsystem)
+  }));
+}
+
+function buildSubsystemFixerPrompt(subsystem) {
+  const primary = subsystem.primary;
+  const scenarioText = subsystem.scenarios.length > 0 ? subsystem.scenarios.join(", ") : "gate coverage";
+  const evidence = primary?.summary ?? subsystem.summaries[0] ?? "release gate failure";
+  const impact = primary?.impact ?? "OpenClaw release confidence is incomplete.";
+  return [
+    `Investigate OpenClaw release gate subsystem ${subsystem.owner}.`,
+    `Affected scenario(s): ${scenarioText}.`,
+    `Primary evidence: ${evidence}.`,
+    `Impact: ${impact}`,
+    "Use the JSON report card measurements and command evidence before changing code."
+  ].join(" ");
+}
+
+function compactSubsystemCard(card) {
+  return {
+    severity: card.severity,
+    kind: card.kind,
+    scenario: card.scenario,
+    state: card.state,
+    status: card.status,
+    summary: card.summary,
+    impact: card.impact,
+    failedCommand: card.failedCommand ?? null,
+    measurements: card.measurements ?? null
+  };
+}
+
+function normalizeOwner(owner) {
+  const value = String(owner ?? "OpenClaw").trim();
+  return value.length > 0 ? value : "OpenClaw";
+}
+
+function cardRank(card) {
+  const severity = card.severity === "blocking" ? 100 : card.severity === "warning" ? 50 : 0;
+  const kind = card.kind === "openclaw-failure" ? 10 : card.kind === "performance-regression" ? 8 : 0;
+  return severity + kind;
 }
 
 function firstFailedCommand(record) {

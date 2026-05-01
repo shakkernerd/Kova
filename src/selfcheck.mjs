@@ -222,6 +222,8 @@ export async function runSelfCheck(flags = {}) {
     ));
     checks.push(await gateDryRunCheck(tmp));
     checks.push(gatePartialFailureCheck());
+    checks.push(gatePartialPassCheck());
+    checks.push(gateSubsystemSummaryCheck());
     checks.push(safetyGuardCheck());
     checks.push(await failingCommandCheck(
       "gate-preflight-source-env",
@@ -323,6 +325,116 @@ function gatePartialFailureCheck() {
       id: "gate-partial-failure-do-not-ship",
       status: "FAIL",
       command: "evaluate synthetic partial release gate failure",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function gatePartialPassCheck() {
+  try {
+    const gate = evaluateGate({
+      mode: "execution",
+      controls: {
+        include: ["scenario:release-runtime-startup"],
+        exclude: []
+      },
+      records: [
+        {
+          scenario: "release-runtime-startup",
+          state: { id: "fresh" },
+          status: "PASS",
+          title: "Release Runtime Startup",
+          likelyOwner: "OpenClaw",
+          phases: []
+        }
+      ]
+    }, {
+      id: "release",
+      gate: {
+        id: "test-release-gate",
+        blocking: [
+          { scenario: "release-runtime-startup", state: "fresh" },
+          { scenario: "fresh-install", state: "fresh" }
+        ]
+      }
+    });
+
+    assertEqual(gate.verdict, "PARTIAL", "partial gate pass verdict");
+    assertEqual(gate.ok, false, "partial gate not ok");
+    assertEqual(gate.complete, false, "partial gate completeness");
+    assertEqual(gate.partial, true, "partial gate marker");
+    return {
+      id: "gate-partial-pass",
+      status: "PASS",
+      command: "evaluate synthetic partial release gate pass",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "gate-partial-pass",
+      status: "FAIL",
+      command: "evaluate synthetic partial release gate pass",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function gateSubsystemSummaryCheck() {
+  try {
+    const gate = evaluateGate({
+      mode: "execution",
+      controls: {
+        include: [],
+        exclude: []
+      },
+      records: [
+        {
+          scenario: "gateway-performance",
+          state: { id: "many-bundled-plugins" },
+          status: "FAIL",
+          title: "Gateway Performance",
+          likelyOwner: "gateway-runtime",
+          violations: [{ message: "gateway RSS 1200 MB exceeded threshold 900 MB" }],
+          phases: []
+        },
+        {
+          scenario: "agent-provider-timeout",
+          state: { id: "mock-openai-provider" },
+          status: "FAIL",
+          title: "Agent Provider Timeout",
+          likelyOwner: "agent-runtime/provider",
+          violations: [{ message: "provider timeout was not contained" }],
+          phases: []
+        }
+      ]
+    }, {
+      id: "release",
+      gate: {
+        id: "test-release-gate",
+        blocking: [
+          { scenario: "gateway-performance", state: "many-bundled-plugins" },
+          { scenario: "agent-provider-timeout", state: "mock-openai-provider" }
+        ]
+      }
+    });
+
+    assertEqual(gate.verdict, "DO_NOT_SHIP", "subsystem gate verdict");
+    assertEqual(gate.subsystems?.length, 2, "subsystem count");
+    assertEqual(gate.fixerSummaries?.length, 2, "fixer summary count");
+    assertEqual(gate.fixerSummaries[0]?.fixerPrompt.includes("Use the JSON report card measurements"), true, "fixer prompt evidence guidance");
+    return {
+      id: "gate-subsystem-summary",
+      status: "PASS",
+      command: "evaluate synthetic gate subsystem summaries",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "gate-subsystem-summary",
+      status: "FAIL",
+      command: "evaluate synthetic gate subsystem summaries",
       durationMs: 0,
       message: error.message
     };

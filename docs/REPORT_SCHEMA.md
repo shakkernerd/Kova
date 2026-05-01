@@ -437,13 +437,15 @@ Verdicts:
 
 - `SHIP`: every blocking gate entry passed; warnings may still exist.
 - `DO_NOT_SHIP`: a blocking OpenClaw scenario failed.
+- `PARTIAL`: selected scenarios did not fail, but required release coverage is
+  incomplete, usually because this was a filtered gate slice or a platform/state
+  requirement was missing.
 - `BLOCKED`: Kova cannot make a ship/no-ship decision, usually because the run
-  was not executed, a required gate scenario was filtered out, skipped, or
-  blocked by harness/provisioning behavior.
+  was not executed, skipped, or blocked by harness/provisioning behavior.
 
 Filtered gate slices are partial. They can produce `DO_NOT_SHIP` when a selected
 blocking scenario fails, but they cannot produce `SHIP` because required gate
-coverage is missing. A passing filtered slice remains `BLOCKED`.
+coverage is missing. A passing filtered slice remains `PARTIAL`.
 
 Release profiles may define explicit platform/surface/scenario/state/trait and
 state-surface coverage. Missing blocking coverage prevents `SHIP`; missing
@@ -452,8 +454,10 @@ warning coverage creates warning cards. Platform coverage keys include
 
 Gate cards are concise fixer records. They include severity, scenario/state,
 status, summary, expected/actual, impact, likely owner, failed command when
-available, violation text, and compact measurements. The matrix receipt includes
-only the gate verdict/count summary; the full cards live in the JSON report.
+available, violation text, and compact measurements. Gate reports also group
+cards by likely OpenClaw subsystem and generate compact subsystem fixer briefs.
+The matrix receipt includes only the gate verdict/count summary; the full cards
+and subsystem briefs live in the JSON report.
 
 For non-ship gate runs, Kova retains a durable copy under
 `artifacts/release-gates/<runId>/`:

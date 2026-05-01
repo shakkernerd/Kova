@@ -883,6 +883,25 @@ function formatGateSection(gate) {
     ""
   ];
   const visibleCards = (gate.cards ?? []).filter((card) => card.severity !== "info");
+  if (gate.subsystems?.length > 0) {
+    lines.push("### Subsystems");
+    lines.push("");
+    for (const subsystem of gate.subsystems.slice(0, 6)) {
+      lines.push(`- ${subsystem.owner}: ${subsystem.blockingCount} blocking, ${subsystem.warningCount} warning`);
+      if (subsystem.primary?.summary) {
+        lines.push(`  - primary: ${subsystem.primary.summary}`);
+      }
+    }
+    lines.push("");
+  }
+  if (gate.fixerSummaries?.length > 0) {
+    lines.push("### Fixer Briefs");
+    lines.push("");
+    for (const fixer of gate.fixerSummaries.slice(0, 4)) {
+      lines.push(`- ${fixer.owner}: ${fixer.summary}`);
+    }
+    lines.push("");
+  }
   if (visibleCards.length > 0) {
     lines.push("### Failure Cards");
     lines.push("");
@@ -940,6 +959,9 @@ function formatReleaseDecisionSection(gate, outputPaths, retainedGateArtifacts) 
   if (!gate.complete && gate.partial) {
     lines.push("");
     lines.push("This is a filtered gate slice. It can reject a release from selected-scenario failures, but it cannot approve the full release gate.");
+  } else if (gate.verdict === "PARTIAL") {
+    lines.push("");
+    lines.push("This gate has incomplete required coverage and cannot approve the release.");
   }
 
   lines.push("");

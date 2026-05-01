@@ -90,7 +90,7 @@ node bin/kova.mjs matrix run --profile release --target local-build:/path/to/ope
 
 Matrix runs automatically produce a bundle path in the JSON receipt.
 Filtered gate slices are reject-only: a selected blocking scenario failure means
-`DO_NOT_SHIP`, while a passing partial slice remains `BLOCKED` because it cannot
+`DO_NOT_SHIP`, while a passing partial slice remains `PARTIAL` because it cannot
 approve the full release gate.
 Non-ship gates retain a durable artifact directory under
 `artifacts/release-gates/<runId>/`.

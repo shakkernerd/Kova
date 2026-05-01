@@ -648,7 +648,9 @@ function summarizeGateReceipt(gate) {
     missingRequiredCount: gate.missingRequiredCount,
     blockingCount: gate.blockingCount,
     warningCount: gate.warningCount,
-    infoCount: gate.infoCount
+    infoCount: gate.infoCount,
+    subsystemCount: gate.subsystems?.length ?? 0,
+    fixerSummaryCount: gate.fixerSummaries?.length ?? 0
   };
 }
 
