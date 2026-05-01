@@ -2,6 +2,6 @@
   "id": "dashboard-cli",
   "title": "Dashboard CLI",
   "description": "OpenClaw dashboard command paths that produce or validate dashboard URLs and websocket configuration.",
-  "commandPatterns": ["dashboard", "dashboard --no-open"],
-  "processPatterns": ["openclaw.*dashboard"]
+  "commandPatterns": ["dashboard", "dashboard --no-open", "run-dashboard-session-send-turn.mjs", "sessions.send"],
+  "processPatterns": ["openclaw.*dashboard", "node\\s+.*run-dashboard-session-send-turn\\.mjs"]
 }

@@ -1625,6 +1625,18 @@ function agentTurnLabel(phaseId, index) {
   if (phaseId?.includes("warm")) {
     return "warm";
   }
+  if (phaseId?.includes("gateway")) {
+    return "gateway-rpc";
+  }
+  if (phaseId?.includes("dashboard")) {
+    return "dashboard-session";
+  }
+  if (phaseId?.includes("tui")) {
+    return "tui";
+  }
+  if (phaseId?.includes("openai")) {
+    return "openai-compatible";
+  }
   return `turn-${index}`;
 }
 
@@ -2779,7 +2791,10 @@ function countDiagnosticMetric(record, key) {
 
 function isAgentMessageCommand(command) {
   return (command.includes(" -- agent ") && command.includes("--message")) ||
-    command.includes("run-concurrent-agent-turns.mjs");
+    command.includes("run-concurrent-agent-turns.mjs") ||
+    command.includes("run-dashboard-session-send-turn.mjs") ||
+    command.includes("run-tui-message-turn.mjs") ||
+    command.includes("run-openai-compatible-turn.mjs");
 }
 
 function extractAgentResponse(result) {

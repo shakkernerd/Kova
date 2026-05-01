@@ -1,0 +1,7 @@
+{
+  "id": "openai-compatible-client",
+  "title": "OpenAI-Compatible Client",
+  "description": "Kova client process that drives OpenClaw's OpenAI-compatible HTTP API.",
+  "commandPatterns": ["run-openai-compatible-turn.mjs", "/v1/chat/completions"],
+  "processPatterns": ["node\\s+.*run-openai-compatible-turn\\.mjs"]
+}

@@ -2,6 +2,6 @@
   "id": "tui-cli",
   "title": "TUI CLI",
   "description": "OpenClaw terminal UI attachment, rendering, input, and shutdown paths.",
-  "commandPatterns": ["tui", "support/tui-smoke.mjs"],
-  "processPatterns": ["openclaw.*tui"]
+  "commandPatterns": ["tui", "support/tui-smoke.mjs", "run-tui-message-turn.mjs"],
+  "processPatterns": ["openclaw.*tui", "node\\s+.*run-tui-message-turn\\.mjs"]
 }

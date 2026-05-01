@@ -39,6 +39,16 @@
       "timeoutMs": 180000
     },
     {
+      "scenario": "agent-gateway-rpc-turn",
+      "state": "mock-openai-provider",
+      "timeoutMs": 180000
+    },
+    {
+      "scenario": "dashboard-session-send-turn",
+      "state": "mock-openai-provider",
+      "timeoutMs": 180000
+    },
+    {
       "scenario": "agent-long-session",
       "state": "mock-openai-provider",
       "timeoutMs": 360000

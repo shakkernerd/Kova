@@ -1,0 +1,47 @@
+{
+  "id": "agent-gateway-rpc-turn",
+  "surface": "agent-gateway-rpc-turn",
+  "title": "Agent Gateway RPC Turn",
+  "objective": "Send a simple user message through `openclaw agent` without `--local`, forcing the CLI to cross the Gateway agent RPC boundary and prove final response, provider timing, gateway health, and process containment.",
+  "tags": ["agent", "message", "gateway", "rpc", "providers"],
+  "timeoutMs": 180000,
+  "agent": {
+    "expectedText": "KOVA_AGENT_OK"
+  },
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "agentTurnMs": 45000,
+    "preProviderMs": 10000,
+    "providerFinalMs": 3000,
+    "preProviderDominanceRatio": 0.8,
+    "statusMs": 10000,
+    "peakRssMb": 900,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision Gateway Env",
+      "intent": "Start a disposable OpenClaw gateway before sending the Gateway RPC agent turn.",
+      "commands": ["ocm start {env} {startSelector} --json"],
+      "evidence": ["gateway port", "runtime binding", "startup readiness"]
+    },
+    {
+      "id": "gateway-agent-turn",
+      "title": "Gateway Agent Turn",
+      "intent": "Send a user message through the Gateway-backed OpenClaw agent CLI path.",
+      "commands": [
+        "ocm @{env} -- agent --agent main --session-id kova-agent-gateway-rpc --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 120 --json"
+      ],
+      "evidence": ["command duration", "final assistant text", "mock provider request timing", "gateway health after turn", "role resource samples"]
+    },
+    {
+      "id": "post-agent-health",
+      "title": "Post-Agent Gateway Health",
+      "intent": "Verify the gateway remains responsive after the Gateway RPC agent turn.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["gateway status", "provider logs", "plugin errors", "memory after agent turn"]
+    }
+  ]
+}

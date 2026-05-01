@@ -1,0 +1,47 @@
+{
+  "id": "openai-compatible-turn",
+  "surface": "openai-compatible-turn",
+  "title": "OpenAI-Compatible Turn",
+  "objective": "Send a chat-completions request to OpenClaw's OpenAI-compatible HTTP endpoint and verify the final assistant response, provider timing, auth handling, and gateway health.",
+  "tags": ["agent", "message", "openai-compatible", "http", "providers"],
+  "timeoutMs": 180000,
+  "agent": {
+    "expectedText": "KOVA_AGENT_OK"
+  },
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "agentTurnMs": 45000,
+    "preProviderMs": 10000,
+    "providerFinalMs": 3000,
+    "preProviderDominanceRatio": 0.8,
+    "statusMs": 10000,
+    "peakRssMb": 900,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision HTTP Env",
+      "intent": "Start a disposable OpenClaw gateway before sending an OpenAI-compatible HTTP request.",
+      "commands": ["ocm start {env} {startSelector} --json"],
+      "evidence": ["gateway port", "runtime binding", "startup readiness"]
+    },
+    {
+      "id": "openai-compatible-turn",
+      "title": "OpenAI-Compatible Message",
+      "intent": "Exercise the `/v1/chat/completions` user API and verify final assistant output.",
+      "commands": [
+        "ocm @{env} -- node {kovaRoot}/support/run-openai-compatible-turn.mjs --model openai/gpt-5.5 --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --expected-text KOVA_AGENT_OK --timeout 120000"
+      ],
+      "evidence": ["HTTP status", "final assistant text", "mock provider request timing", "gateway health after turn", "role resource samples"]
+    },
+    {
+      "id": "post-http-health",
+      "title": "Post-HTTP Gateway Health",
+      "intent": "Verify the gateway remains responsive after the OpenAI-compatible request.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["gateway status", "provider logs", "plugin errors", "memory after HTTP turn"]
+    }
+  ]
+}

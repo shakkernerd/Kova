@@ -1,0 +1,47 @@
+{
+  "id": "tui-message-turn",
+  "surface": "tui-message-turn",
+  "title": "TUI Message Turn",
+  "objective": "Launch the TUI, send a real user message through stdin, and require the expected assistant response to appear in the TUI output.",
+  "tags": ["agent", "message", "tui", "input", "providers"],
+  "timeoutMs": 180000,
+  "agent": {
+    "expectedText": "KOVA_AGENT_OK"
+  },
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "agentTurnMs": 45000,
+    "preProviderMs": 10000,
+    "providerFinalMs": 3000,
+    "preProviderDominanceRatio": 0.8,
+    "statusMs": 10000,
+    "peakRssMb": 900,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision TUI Env",
+      "intent": "Start a disposable OpenClaw gateway before attaching the TUI.",
+      "commands": ["ocm start {env} {startSelector} --json"],
+      "evidence": ["gateway port", "runtime binding", "startup readiness"]
+    },
+    {
+      "id": "tui-message-turn",
+      "title": "TUI Message",
+      "intent": "Exercise the user-visible terminal input path and verify final assistant output.",
+      "commands": [
+        "node {kovaRoot}/support/run-tui-message-turn.mjs --env {env} --session kova-tui-message --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --expected-text KOVA_AGENT_OK --timeout 120000"
+      ],
+      "evidence": ["TUI input accepted", "final assistant text rendered", "mock provider request timing", "gateway health after turn", "role resource samples"]
+    },
+    {
+      "id": "post-tui-health",
+      "title": "Post-TUI Gateway Health",
+      "intent": "Verify the gateway remains responsive after the TUI message turn.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["gateway status", "provider logs", "plugin errors", "memory after TUI turn"]
+    }
+  ]
+}

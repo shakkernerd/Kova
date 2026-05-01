@@ -37,11 +37,47 @@
           "openclawSlowestSpanMs": 45000
         }
       },
-      "agent-message": {
+      "agent-cli-local-turn": {
         "thresholds": {
           "coldAgentTurnMs": 60000,
           "warmAgentTurnMs": 15000,
           "coldPreProviderMs": 15000,
+          "providerFinalMs": 3000,
+          "agentCleanupMs": 5000,
+          "openclawSlowestSpanMs": 45000
+        }
+      },
+      "agent-gateway-rpc-turn": {
+        "thresholds": {
+          "agentTurnMs": 60000,
+          "preProviderMs": 15000,
+          "providerFinalMs": 3000,
+          "agentCleanupMs": 5000,
+          "openclawSlowestSpanMs": 45000
+        }
+      },
+      "dashboard-session-send-turn": {
+        "thresholds": {
+          "agentTurnMs": 60000,
+          "preProviderMs": 15000,
+          "providerFinalMs": 3000,
+          "agentCleanupMs": 5000,
+          "openclawSlowestSpanMs": 45000
+        }
+      },
+      "tui-message-turn": {
+        "thresholds": {
+          "agentTurnMs": 60000,
+          "preProviderMs": 15000,
+          "providerFinalMs": 3000,
+          "agentCleanupMs": 5000,
+          "openclawSlowestSpanMs": 45000
+        }
+      },
+      "openai-compatible-turn": {
+        "thresholds": {
+          "agentTurnMs": 60000,
+          "preProviderMs": 15000,
           "providerFinalMs": 3000,
           "agentCleanupMs": 5000,
           "openclawSlowestSpanMs": 45000
@@ -68,7 +104,7 @@
     "id": "openclaw-diagnostic",
     "coverage": {
       "surfaces": {
-        "blocking": ["release-runtime-startup", "gateway-performance", "bundled-runtime-deps", "agent-message"]
+        "blocking": ["release-runtime-startup", "gateway-performance", "bundled-runtime-deps", "agent-cli-local-turn", "agent-gateway-rpc-turn", "dashboard-session-send-turn", "tui-message-turn", "openai-compatible-turn"]
       },
       "states": {
         "blocking": ["fresh", "missing-plugin-index", "many-bundled-plugins", "mock-openai-provider"]
@@ -78,18 +114,26 @@
           "release-runtime-startup:fresh",
           "gateway-performance:many-bundled-plugins",
           "bundled-runtime-deps:missing-plugin-index",
-          "agent-message:mock-openai-provider"
+          "agent-cli-local-turn:mock-openai-provider",
+          "agent-gateway-rpc-turn:mock-openai-provider",
+          "dashboard-session-send-turn:mock-openai-provider",
+          "tui-message-turn:mock-openai-provider",
+          "openai-compatible-turn:mock-openai-provider"
         ]
       },
       "scenarios": {
-        "blocking": ["release-runtime-startup", "gateway-performance", "bundled-runtime-deps", "agent-cold-warm-message"]
+        "blocking": ["release-runtime-startup", "gateway-performance", "bundled-runtime-deps", "agent-cold-warm-message", "agent-gateway-rpc-turn", "dashboard-session-send-turn", "tui-message-turn", "openai-compatible-turn"]
       }
     },
     "blocking": [
       { "scenario": "release-runtime-startup", "state": "fresh" },
       { "scenario": "gateway-performance", "state": "many-bundled-plugins" },
       { "scenario": "bundled-runtime-deps", "state": "missing-plugin-index" },
-      { "scenario": "agent-cold-warm-message", "state": "mock-openai-provider" }
+      { "scenario": "agent-cold-warm-message", "state": "mock-openai-provider" },
+      { "scenario": "agent-gateway-rpc-turn", "state": "mock-openai-provider" },
+      { "scenario": "dashboard-session-send-turn", "state": "mock-openai-provider" },
+      { "scenario": "tui-message-turn", "state": "mock-openai-provider" },
+      { "scenario": "openai-compatible-turn", "state": "mock-openai-provider" }
     ]
   },
   "entries": [
@@ -112,6 +156,26 @@
       "scenario": "agent-cold-warm-message",
       "state": "mock-openai-provider",
       "timeoutMs": 240000
+    },
+    {
+      "scenario": "agent-gateway-rpc-turn",
+      "state": "mock-openai-provider",
+      "timeoutMs": 180000
+    },
+    {
+      "scenario": "dashboard-session-send-turn",
+      "state": "mock-openai-provider",
+      "timeoutMs": 180000
+    },
+    {
+      "scenario": "tui-message-turn",
+      "state": "mock-openai-provider",
+      "timeoutMs": 180000
+    },
+    {
+      "scenario": "openai-compatible-turn",
+      "state": "mock-openai-provider",
+      "timeoutMs": 180000
     }
   ]
 }

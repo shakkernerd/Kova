@@ -1,6 +1,6 @@
 {
   "id": "agent-auth-missing",
-  "surface": "agent-message",
+  "surface": "agent-cli-local-turn",
   "title": "Agent Auth Missing",
   "objective": "Prove OpenClaw fails a local agent turn clearly when model auth is missing, keeps the gateway responsive, and leaves no leaked child processes.",
   "tags": ["agent", "message", "auth", "failure", "containment"],

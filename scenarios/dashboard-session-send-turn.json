@@ -1,0 +1,47 @@
+{
+  "id": "dashboard-session-send-turn",
+  "surface": "dashboard-session-send-turn",
+  "title": "Dashboard Session Send Turn",
+  "objective": "Create a dashboard session, send a user message through Gateway `sessions.send`, and wait for final assistant text in chat history.",
+  "tags": ["agent", "message", "dashboard", "sessions", "gateway", "providers"],
+  "timeoutMs": 180000,
+  "agent": {
+    "expectedText": "KOVA_AGENT_OK"
+  },
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "agentTurnMs": 45000,
+    "preProviderMs": 10000,
+    "providerFinalMs": 3000,
+    "preProviderDominanceRatio": 0.8,
+    "statusMs": 10000,
+    "peakRssMb": 900,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision Dashboard Env",
+      "intent": "Start a disposable OpenClaw gateway before sending a dashboard session message.",
+      "commands": ["ocm start {env} {startSelector} --json"],
+      "evidence": ["gateway port", "runtime binding", "startup readiness"]
+    },
+    {
+      "id": "dashboard-session-turn",
+      "title": "Dashboard Session Message",
+      "intent": "Exercise Gateway `sessions.send` and verify the final assistant response is present in chat history.",
+      "commands": [
+        "ocm @{env} -- node {kovaRoot}/support/run-dashboard-session-send-turn.mjs --session-key kova-dashboard-session-send --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --expected-text KOVA_AGENT_OK --timeout 120000"
+      ],
+      "evidence": ["sessions.send command duration", "chat history final assistant text", "mock provider request timing", "gateway health after turn", "role resource samples"]
+    },
+    {
+      "id": "post-dashboard-health",
+      "title": "Post-Dashboard Gateway Health",
+      "intent": "Verify the gateway remains responsive after the dashboard-style message turn.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["gateway status", "provider logs", "plugin errors", "memory after dashboard turn"]
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 {
   "id": "agent-provider-recovery",
-  "surface": "agent-message",
+  "surface": "agent-cli-local-turn",
   "title": "Agent Provider Recovery",
   "objective": "Prove a transient provider failure is contained and provider recovery produces a normal assistant response in the same OpenClaw env/session lifecycle.",
   "tags": ["agent", "message", "provider-failure", "recovery", "containment"],

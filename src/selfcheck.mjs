@@ -182,6 +182,22 @@ export async function runSelfCheck(flags = {}) {
         throw new Error(`missing auth override should not inject auth phases: ${phaseIds.join(", ")}`);
       }
     }));
+    for (const item of [
+      ["agent-gateway-rpc-turn", "agent-gateway-rpc-turn", "ocm @"],
+      ["dashboard-session-send-turn", "dashboard-session-send-turn", "run-dashboard-session-send-turn.mjs"],
+      ["tui-message-turn", "tui-message-turn", "run-tui-message-turn.mjs"],
+      ["openai-compatible-turn", "openai-compatible-turn", "run-openai-compatible-turn.mjs"]
+    ]) {
+      const [scenarioId, surfaceId, expectedCommand] = item;
+      checks.push(await jsonCommandCheck(`message-ingress-${scenarioId}-dry-run-json`, `node bin/kova.mjs run --target runtime:stable --scenario ${scenarioId} --state mock-openai-provider --report-dir ${quoteShell(tmp)} --json`, async (data) => {
+        const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
+        const record = report.records?.[0];
+        assertEqual(record?.surface, surfaceId, `${scenarioId} surface`);
+        assertEqual(record?.auth?.mode, "mock", `${scenarioId} mock auth mode`);
+        const commands = record?.phases?.flatMap((phase) => phase.commands ?? []) ?? [];
+        assertEqual(commands.some((command) => command.includes(expectedCommand)), true, `${scenarioId} ingress command`);
+      }));
+    }
     checks.push(await jsonCommandCheck("run-profiling-dry-run-json", `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --node-profile --report-dir ${quoteShell(tmp)} --json`, async (data) => {
       const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
       assertEqual(report.records?.[0]?.profiling?.enabled, true, "profiling marker");
@@ -2985,7 +3001,7 @@ function syntheticCompareReport({ runId, target, timelineAvailable, preProviderM
     summary: { statuses: { PASS: 1 } },
     records: [{
       scenario: "agent-cold-warm-message",
-      surface: "agent-message",
+      surface: "agent-cli-local-turn",
       state: { id: "mock-openai-provider" },
       status: "PASS",
       measurements: {

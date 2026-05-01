@@ -2,6 +2,6 @@
   "id": "agent-cli",
   "title": "Agent CLI",
   "description": "User-facing OpenClaw agent command invocations that send messages or manage local sessions.",
-  "commandPatterns": ["agent --local", "agent --session-id"],
+  "commandPatterns": ["agent --local", "agent --session-id", " -- agent ", "run-concurrent-agent-turns.mjs"],
   "processPatterns": ["(^|\\s|/)openclaw\\s+.*\\bagent\\b", "(^|\\s|/)openclaw-agent(\\s|$)"]
 }

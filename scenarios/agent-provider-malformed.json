@@ -1,6 +1,6 @@
 {
   "id": "agent-provider-malformed",
-  "surface": "agent-message",
+  "surface": "agent-cli-local-turn",
   "title": "Agent Provider Malformed",
   "objective": "Prove OpenClaw handles malformed provider responses as contained agent failures without taking down the gateway.",
   "tags": ["agent", "message", "provider-failure", "malformed", "containment"],

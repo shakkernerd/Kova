@@ -1,6 +1,6 @@
 {
   "id": "agent-provider-concurrent",
-  "surface": "agent-message",
+  "surface": "agent-cli-local-turn",
   "title": "Agent Provider Concurrent Pressure",
   "objective": "Prove OpenClaw can process multiple overlapping local agent turns through the provider path, keep the gateway healthy, return correct responses, and leave no leaked child processes.",
   "tags": ["agent", "message", "provider-failure", "concurrency", "containment"],

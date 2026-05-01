@@ -1,6 +1,6 @@
 {
   "id": "agent-provider-timeout",
-  "surface": "agent-message",
+  "surface": "agent-cli-local-turn",
   "title": "Agent Provider Timeout",
   "objective": "Prove OpenClaw surfaces provider timeout failure clearly, keeps the gateway healthy, and leaves no retained child process state after a failed agent turn.",
   "tags": ["agent", "message", "provider-failure", "timeout", "containment"],

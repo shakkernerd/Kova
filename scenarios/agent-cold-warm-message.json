@@ -1,8 +1,8 @@
 {
   "id": "agent-cold-warm-message",
-  "surface": "agent-message",
-  "title": "Agent Cold/Warm Message",
-  "objective": "Send cold and warm simple messages through OpenClaw's real local agent path, verify mock-provider responses, and attribute latency before, during, and after provider work.",
+  "surface": "agent-cli-local-turn",
+  "title": "Agent CLI Local Cold/Warm Message",
+  "objective": "Send cold and warm simple messages through `openclaw agent --local`, verify mock-provider responses, and attribute latency before, during, and after provider work.",
   "tags": ["agent", "message", "latency", "providers", "gateway", "cold-warm"],
   "timeoutMs": 240000,
   "agent": {

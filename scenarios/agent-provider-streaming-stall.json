@@ -1,6 +1,6 @@
 {
   "id": "agent-provider-streaming-stall",
-  "surface": "agent-message",
+  "surface": "agent-cli-local-turn",
   "title": "Agent Provider Streaming Stall",
   "objective": "Prove OpenClaw contains a provider stream that starts but stalls, keeps the gateway responsive, and leaves no leaked agent/plugin child processes.",
   "tags": ["agent", "message", "provider-failure", "streaming-stall", "containment"],

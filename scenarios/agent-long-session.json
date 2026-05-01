@@ -1,6 +1,6 @@
 {
   "id": "agent-long-session",
-  "surface": "agent-message",
+  "surface": "agent-cli-local-turn",
   "title": "Agent Long Session",
   "objective": "Send repeated simple messages through one OpenClaw session to catch latency drift, provider routing drift, resource growth, health degradation, and child-process leaks during normal assistant use.",
   "tags": ["agent", "message", "latency", "providers", "soak", "long-session"],

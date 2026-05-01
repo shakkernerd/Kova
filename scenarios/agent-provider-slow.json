@@ -1,6 +1,6 @@
 {
   "id": "agent-provider-slow",
-  "surface": "agent-message",
+  "surface": "agent-cli-local-turn",
   "title": "Agent Provider Slow",
   "objective": "Prove Kova can attribute a slow assistant turn to provider latency while confirming OpenClaw still returns a valid response and keeps the gateway healthy.",
   "tags": ["agent", "message", "provider-failure", "latency", "containment"],

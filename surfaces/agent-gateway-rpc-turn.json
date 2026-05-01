@@ -1,0 +1,20 @@
+{
+  "id": "agent-gateway-rpc-turn",
+  "title": "Agent Gateway RPC Turn",
+  "ownerArea": "gateway-agent-runtime",
+  "description": "Send messages through `openclaw agent` without `--local`, forcing the CLI to cross the Gateway agent RPC boundary before the agent turn runs.",
+  "requiredStates": ["mock-openai-provider"],
+  "targetKinds": ["npm", "channel", "runtime", "local-build"],
+  "requiredMetrics": ["agentTurnMs", "agentTurnP95Ms", "agentTurnMaxMs", "coldPreProviderMs", "healthP95Ms", "peakRssMb", "pluginLoadFailures"],
+  "processRoles": ["gateway", "command-tree", "agent-cli", "agent-process", "mock-provider"],
+  "thresholds": { "agentTurnMs": 45000, "preProviderMs": 10000, "providerFinalMs": 3000, "healthP95Ms": 1000, "peakRssMb": 900 },
+  "roleThresholds": {
+    "gateway": { "peakRssMb": 700, "maxCpuPercent": 250 },
+    "agent-cli": { "peakRssMb": 900, "maxCpuPercent": 300 },
+    "mock-provider": { "peakRssMb": 250, "maxCpuPercent": 150 }
+  },
+  "diagnostics": {
+    "timelineRequiredForSourceBuild": true,
+    "expectedSpans": ["agent.turn", "agent.prepare", "models.catalog", "provider.request", "agent.cleanup"]
+  }
+}
