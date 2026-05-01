@@ -22,11 +22,13 @@ try {
   const timeoutMs = readTimeoutMs(args.timeout, 120000);
   const sessionKey = args["session-key"] ?? `kova-dashboard-${randomUUID()}`;
 
+  const sessionCreateStartedAtEpochMs = Date.now();
   const created = gatewayCall(runtimeContext.envName, "sessions.create", {
       agentId: "main",
       key: sessionKey,
       label: "Kova Dashboard Session Send"
-    }, Math.min(timeoutMs, 30000));
+    }, Math.min(timeoutMs, 60000));
+  const sessionCreateFinishedAtEpochMs = Date.now();
   const canonicalKey = created?.key ?? sessionKey;
   const sendStartedAtEpochMs = Date.now();
   const sent = gatewayCall(runtimeContext.envName, "sessions.send", {
@@ -35,7 +37,8 @@ try {
       thinking: "off",
       timeoutMs,
       idempotencyKey: `kova-dashboard-${randomUUID()}`
-    }, Math.min(timeoutMs, 30000));
+    }, Math.min(timeoutMs, 60000));
+  const sendFinishedAtEpochMs = Date.now();
   const runId = typeof sent?.runId === "string" ? sent.runId : null;
 
   const history = await waitForAssistantText({
@@ -55,8 +58,20 @@ try {
     sessionKey: canonicalKey,
     runId,
     startedAtEpochMs,
+    sessionCreateStartedAtEpochMs,
+    sessionCreateFinishedAtEpochMs,
+    sessionCreateDurationMs: sessionCreateFinishedAtEpochMs - sessionCreateStartedAtEpochMs,
     sendStartedAtEpochMs,
+    sendFinishedAtEpochMs,
+    sendDurationMs: sendFinishedAtEpochMs - sendStartedAtEpochMs,
     finishedAtEpochMs: Date.now(),
+    assistantFirstSeenAtEpochMs: history.assistantFirstSeenAtEpochMs,
+    assistantMatchedAtEpochMs: history.assistantMatchedAtEpochMs,
+    timeToFirstAssistantMs: history.assistantFirstSeenAtEpochMs === null ? null : history.assistantFirstSeenAtEpochMs - sendStartedAtEpochMs,
+    timeToMatchedAssistantMs: history.assistantMatchedAtEpochMs === null ? null : history.assistantMatchedAtEpochMs - sendStartedAtEpochMs,
+    historyPollCount: history.pollCount,
+    historyErrorCount: history.errorCount,
+    lastHistoryError: history.lastHistoryErrorMessage,
     finalAssistantVisibleText: history.matchedAssistantText,
     finalAssistantRawText: history.lastAssistantText,
     assistantMessageCount: history.assistantTexts.length,
@@ -71,20 +86,37 @@ async function waitForAssistantText({ envName, sessionKey, expectedText, timeout
   let lastAssistantText = "";
   let lastHistoryError = null;
   let assistantTexts = [];
+  let assistantFirstSeenAtEpochMs = null;
+  let pollCount = 0;
+  let errorCount = 0;
   while (Date.now() < deadline) {
     try {
+      pollCount += 1;
       const history = gatewayCall(envName, "chat.history", { sessionKey, limit: 16 }, Math.min(15000, Math.max(1000, deadline - Date.now())));
       lastHistoryError = null;
       assistantTexts = extractAssistantTexts(history?.messages ?? []);
       lastAssistantText = assistantTexts.at(-1) ?? "";
+      if (assistantFirstSeenAtEpochMs === null && assistantTexts.length > 0) {
+        assistantFirstSeenAtEpochMs = Date.now();
+      }
       const matchedAssistantText = assistantTexts
         .slice(Math.max(0, minAssistantCount - 1))
         .find((text) => text.includes(expectedText));
       if (matchedAssistantText) {
-        return { assistantTexts, lastAssistantText, matchedAssistantText };
+        return {
+          assistantTexts,
+          lastAssistantText,
+          matchedAssistantText,
+          assistantFirstSeenAtEpochMs,
+          assistantMatchedAtEpochMs: Date.now(),
+          pollCount,
+          errorCount,
+          lastHistoryErrorMessage: null
+        };
       }
     } catch (error) {
       lastHistoryError = error;
+      errorCount += 1;
     }
     await sleep(500);
   }

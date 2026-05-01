@@ -33,23 +33,72 @@ const SOURCE_SPAN_GROUPS = [
   }
 ];
 
-export function buildAgentTurnBreakdown({ result, attribution, timelineSummary = null }) {
+const KNOWN_LOG_STAGE_GROUPS = [
+  {
+    id: "runtimePlugins",
+    label: "runtime-plugins",
+    bucket: "preProviderOpenClawMs",
+    matches: (name) => name === "runtime-plugins"
+  },
+  {
+    id: "modelResolution",
+    label: "model-resolution",
+    bucket: "preProviderOpenClawMs",
+    matches: (name) => name === "model-resolution"
+  },
+  {
+    id: "auth",
+    label: "auth",
+    bucket: "preProviderOpenClawMs",
+    matches: (name) => name === "auth"
+  },
+  {
+    id: "corePluginTools",
+    label: "core-plugin-tools",
+    bucket: "preProviderOpenClawMs",
+    matches: (name) => name === "core-plugin-tools"
+  },
+  {
+    id: "systemPrompt",
+    label: "system-prompt",
+    bucket: "preProviderOpenClawMs",
+    matches: (name) => name === "system-prompt"
+  },
+  {
+    id: "streamSetup",
+    label: "stream-setup",
+    bucket: "preProviderOpenClawMs",
+    matches: (name) => name === "stream-setup"
+  },
+  {
+    id: "sessionResourceLoader",
+    label: "session-resource-loader",
+    bucket: "preProviderOpenClawMs",
+    matches: (name) => name === "session-resource-loader"
+  }
+];
+
+export function buildAgentTurnBreakdown({ result, attribution, timelineSummary = null, logSummary = null }) {
   const commandStartedAtEpochMs = numberOrNull(result?.startedAtEpochMs ?? attribution?.commandStartedAtEpochMs);
   const commandFinishedAtEpochMs = numberOrNull(result?.finishedAtEpochMs ?? attribution?.commandFinishedAtEpochMs);
   const totalMs = numberOrNull(result?.durationMs ?? attribution?.totalTurnMs ?? durationBetween(commandStartedAtEpochMs, commandFinishedAtEpochMs));
   const sourceSpanSummary = summarizeSourceSpans(timelineSummary);
+  const logStageSummary = summarizeLogStages(logSummary);
   const preProviderOpenClawMs = numberOrNull(attribution?.preProviderMs);
   const providerMs = numberOrNull(attribution?.providerFinalMs);
   const postProviderMs = numberOrNull(attribution?.postProviderMs);
   const cleanupMs = sourceSpanSummary.categories.agentCleanup.totalDurationMs > 0
     ? sourceSpanSummary.categories.agentCleanup.totalDurationMs
     : null;
-  const knownPreProviderMs = sourceSpanSummary.knownPreProviderMs;
+  const knownPreProviderMs = Math.max(sourceSpanSummary.knownPreProviderMs, logStageSummary.knownPreProviderMs);
   const unknownMs = computeUnknownMs({ totalMs, preProviderOpenClawMs, providerMs, postProviderMs, knownPreProviderMs });
+  const sourceAvailable = sourceSpanSummary.available || logStageSummary.available;
 
   return {
     schemaVersion: AGENT_TURN_BREAKDOWN_SCHEMA,
-    evidenceQuality: sourceSpanSummary.available ? "source-spans" : "outside-in-only",
+    evidenceQuality: sourceAvailable
+      ? [sourceSpanSummary.available ? "source-spans" : null, logStageSummary.available ? "embedded-run-logs" : null].filter(Boolean).join("+")
+      : "outside-in-only",
     command: {
       startedAt: result?.startedAt ?? attribution?.commandStartedAt ?? null,
       startedAtEpochMs: commandStartedAtEpochMs,
@@ -81,6 +130,7 @@ export function buildAgentTurnBreakdown({ result, attribution, timelineSummary =
       unknownMs
     },
     sourceSpans: sourceSpanSummary,
+    sourceLogs: logStageSummary,
     timeline: normalizedTimeline({ result, attribution, sourceSpanSummary })
   };
 }
@@ -117,6 +167,42 @@ export function summarizeSourceSpans(timelineSummary = null) {
   };
 }
 
+export function summarizeLogStages(logSummary = null) {
+  const stageTotals = logSummary?.embeddedRuns?.stageTotals ?? logSummary?.stageTotals ?? {};
+  const categories = Object.fromEntries(KNOWN_LOG_STAGE_GROUPS.map((group) => [group.id, emptyLogCategory(group)]));
+  const allStages = Object.entries(stageTotals)
+    .map(([name, summary]) => normalizeLogStage(name, summary))
+    .toSorted((left, right) => (right.totalDurationMs - left.totalDurationMs) || left.name.localeCompare(right.name));
+
+  for (const [name, summary] of Object.entries(stageTotals)) {
+    for (const group of KNOWN_LOG_STAGE_GROUPS) {
+      if (!group.matches(name)) {
+        continue;
+      }
+      categories[group.id] = mergeLogStage(categories[group.id], name, summary);
+    }
+  }
+
+  const knownPreProviderMs = round(Object.values(categories)
+    .filter((category) => category.bucket === "preProviderOpenClawMs")
+    .reduce((sum, category) => sum + category.totalDurationMs, 0));
+  const available = Object.values(categories).some((category) => category.count > 0) || logSummary?.embeddedRuns?.available === true;
+
+  return {
+    available,
+    knownPreProviderMs,
+    eventCount: logSummary?.embeddedRuns?.eventCount ?? 0,
+    totalMaxMs: numberOrNull(logSummary?.embeddedRuns?.totalMaxMs),
+    categories,
+    allStages,
+    mappedStageCount: Object.values(categories).reduce((sum, category) => sum + category.count, 0),
+    unmappedStages: allStages
+      .filter((stage) => !KNOWN_LOG_STAGE_GROUPS.some((group) => group.matches(stage.name)))
+      .slice(0, 8),
+    topStages: allStages.slice(0, 8)
+  };
+}
+
 export function summarizeAgentTurnBreakdownForMarkdown(breakdown) {
   if (!breakdown) {
     return null;
@@ -133,7 +219,8 @@ export function summarizeAgentTurnBreakdownForMarkdown(breakdown) {
   }
   parts.push(`unknown ${formatMs(buckets.unknownMs)}`);
 
-  const source = sourceSpanHighlights(spans).join("; ");
+  const logSource = sourceLogHighlights(breakdown.sourceLogs).join("; ");
+  const source = [sourceSpanHighlights(spans).join("; "), logSource].filter(Boolean).join("; ");
   return source
     ? `${parts.join("; ")}; source ${source}`
     : `${parts.join("; ")}; source ${breakdown.evidenceQuality === "outside-in-only" ? "missing" : "none"}`;
@@ -241,6 +328,18 @@ function emptySourceCategory(group) {
   };
 }
 
+function emptyLogCategory(group) {
+  return {
+    id: group.id,
+    label: group.label,
+    bucket: group.bucket,
+    count: 0,
+    totalDurationMs: 0,
+    maxDurationMs: null,
+    stages: []
+  };
+}
+
 function mergeSourceSpan(category, name, summary) {
   const normalized = normalizeSpanSummary(name, summary);
   return {
@@ -254,6 +353,17 @@ function mergeSourceSpan(category, name, summary) {
   };
 }
 
+function mergeLogStage(category, name, summary) {
+  const normalized = normalizeLogStage(name, summary);
+  return {
+    ...category,
+    count: category.count + normalized.count,
+    totalDurationMs: round(category.totalDurationMs + normalized.totalDurationMs),
+    maxDurationMs: maxNumber(category.maxDurationMs, normalized.maxDurationMs),
+    stages: [...category.stages, normalized].toSorted((left, right) => (right.totalDurationMs - left.totalDurationMs) || left.name.localeCompare(right.name)).slice(0, 10)
+  };
+}
+
 function normalizeSpanSummary(name, summary) {
   return {
     name,
@@ -263,6 +373,16 @@ function normalizeSpanSummary(name, summary) {
     totalDurationMs: numberOrNull(summary?.totalDurationMs) ?? numberOrNull(summary?.durationMs) ?? 0,
     maxDurationMs: numberOrNull(summary?.maxDurationMs),
     slowest: summary?.slowest ?? null
+  };
+}
+
+function normalizeLogStage(name, summary) {
+  return {
+    name,
+    count: numberOrNull(summary?.count) ?? 0,
+    totalDurationMs: numberOrNull(summary?.totalDurationMs) ?? numberOrNull(summary?.durationMs) ?? 0,
+    maxDurationMs: numberOrNull(summary?.maxDurationMs),
+    traceKinds: Array.isArray(summary?.traceKinds) ? summary.traceKinds : []
   };
 }
 
@@ -281,6 +401,19 @@ function sourceSpanHighlights(spans) {
     .toSorted((left, right) => (right.totalDurationMs - left.totalDurationMs) || left.id.localeCompare(right.id))
     .slice(0, 4)
     .map((category) => `${category.label} ${formatMs(category.totalDurationMs)}`);
+}
+
+function sourceLogHighlights(logs) {
+  const categories = logs?.categories ?? {};
+  const mapped = Object.values(categories)
+    .filter((category) => category.count > 0)
+    .toSorted((left, right) => (right.totalDurationMs - left.totalDurationMs) || left.id.localeCompare(right.id))
+    .slice(0, 4)
+    .map((category) => `${category.label} ${formatMs(category.totalDurationMs)}`);
+  const raw = (logs?.unmappedStages ?? logs?.topStages ?? [])
+    .slice(0, Math.max(1, 5 - mapped.length))
+    .map((stage) => `embedded:${stage.name} ${formatMs(stage.totalDurationMs)}`);
+  return [...mapped, ...raw];
 }
 
 function durationBetween(start, end) {

@@ -48,6 +48,7 @@ export function evaluateRecord(record, scenario, options = {}) {
   const diagnosticReportBytes = countDiagnosticReportMetric(record, "artifactBytes");
   const openclawDiagnostics = collectOpenClawDiagnostics(record);
   const timelineSummary = collectTimelineSummary(record);
+  const logSummary = collectLogSummary(record);
   const runtimeDepsLogEvidence = collectRuntimeDepsLogEvidence(record);
   const timelineRequirement = timelineRequirementFor(options);
   const requiredOpenSpans = requiredTimelineSpans(options);
@@ -58,9 +59,13 @@ export function evaluateRecord(record, scenario, options = {}) {
     runtimeDepsLogEvidence.installMaxMs,
     runtimeDepsLogEvidence.postbuildMaxMs
   );
-  const eventLoopDelayMs = maxNullable(openclawDiagnostics.eventLoopDelayMs, timelineSummary.eventLoopMaxMs);
+  const eventLoopDelayMs = maxNullable(
+    openclawDiagnostics.eventLoopDelayMs,
+    timelineSummary.eventLoopMaxMs,
+    logSummary.livenessWarnings.maxEventLoopDelayMaxMs
+  );
   const providerModelTimingMs = maxNullable(openclawDiagnostics.providerModelTimingMs, timelineSummary.providerRequestMaxMs);
-  const agentTurns = collectAgentTurns(record, record.providerEvidence, scenario, timelineSummary);
+  const agentTurns = collectAgentTurns(record, record.providerEvidence, scenario, timelineSummary, logSummary);
   const coldAgentTurn = selectAgentTurn(agentTurns, "cold") ?? agentTurns[0] ?? null;
   const warmAgentTurn = selectAgentTurn(agentTurns, "warm") ?? agentTurns[1] ?? null;
   const providerTurn = collectSlowestProviderTurn(agentTurns);
@@ -823,6 +828,13 @@ export function evaluateRecord(record, scenario, options = {}) {
     openclawOpenSpans: timelineSummary.openSpans,
     openclawKeySpans: timelineSummary.keySpans,
     openclawEventLoopMaxMs: timelineSummary.eventLoopMaxMs,
+    openclawLogEventLoopMaxMs: logSummary.livenessWarnings.maxEventLoopDelayMaxMs,
+    openclawLivenessWarningCount: logSummary.livenessWarnings.count,
+    embeddedRunTraceCount: logSummary.embeddedRuns.eventCount,
+    embeddedRunStartupTraceCount: logSummary.embeddedRuns.startupCount,
+    embeddedRunPrepTraceCount: logSummary.embeddedRuns.prepCount,
+    embeddedRunTraceMaxMs: logSummary.embeddedRuns.totalMaxMs,
+    embeddedRunTopStages: logSummary.embeddedRuns.topStages,
     openclawProviderRequestMaxMs: timelineSummary.providerRequestMaxMs,
     openclawChildProcessFailedCount: timelineSummary.childProcessFailedCount,
     runtimeDepsStagingPluginId: timelineSummary.runtimeDepsStagePluginId,
@@ -845,6 +857,7 @@ export function evaluateRecord(record, scenario, options = {}) {
     diagnosticCorrelation: buildDiagnosticCorrelation({
       resourceSummary,
       timelineSummary,
+      logSummary,
       nodeProfileTopFunction,
       nodeHeapTopFunction,
       eventLoopDelayMs,
@@ -866,7 +879,7 @@ export function evaluateRecord(record, scenario, options = {}) {
   return record;
 }
 
-function collectAgentTurns(record, providerEvidence, scenario, timelineSummary) {
+function collectAgentTurns(record, providerEvidence, scenario, timelineSummary, logSummary) {
   const turns = [];
   let index = 0;
   const expectedText = scenario.agent?.expectedText ?? null;
@@ -884,7 +897,7 @@ function collectAgentTurns(record, providerEvidence, scenario, timelineSummary) 
         : null;
       const expectedFailureObserved = expectedFailure === true && result.status === 0 && result.timedOut !== true;
       const normalResponseOk = result.status === 0 && result.timedOut !== true && response.usable === true && (expectedTextPresent !== false);
-      const phaseBreakdown = buildAgentTurnBreakdown({ result, attribution, timelineSummary });
+      const phaseBreakdown = buildAgentTurnBreakdown({ result, attribution, timelineSummary, logSummary });
       turns.push({
         schemaVersion: "kova.agentTurnEvidence.v1",
         index,
@@ -2561,6 +2574,7 @@ function countDiagnosticReportMetric(record, key) {
 function buildDiagnosticCorrelation({
   resourceSummary,
   timelineSummary,
+  logSummary,
   nodeProfileTopFunction,
   nodeHeapTopFunction,
   eventLoopDelayMs,
@@ -2619,6 +2633,24 @@ function buildDiagnosticCorrelation({
       ageMs: span.ageMs
     });
   }
+  if (logSummary?.embeddedRuns?.topStages?.length > 0) {
+    const stage = logSummary.embeddedRuns.topStages[0];
+    findings.push({
+      kind: "embedded-run-stage",
+      summary: `Slowest embedded agent stage from logs: ${stage.name} ${stage.totalDurationMs}ms`,
+      stage: stage.name,
+      durationMs: stage.totalDurationMs,
+      maxDurationMs: stage.maxDurationMs
+    });
+  }
+  if ((logSummary?.livenessWarnings?.count ?? 0) > 0) {
+    findings.push({
+      kind: "liveness-warning",
+      summary: `OpenClaw liveness warnings: ${logSummary.livenessWarnings.count}, max event-loop delay ${logSummary.livenessWarnings.maxEventLoopDelayMaxMs ?? "unknown"}ms`,
+      count: logSummary.livenessWarnings.count,
+      eventLoopDelayMaxMs: logSummary.livenessWarnings.maxEventLoopDelayMaxMs
+    });
+  }
   if (eventLoopDelayMs !== null) {
     findings.push({
       kind: "event-loop",
@@ -2645,6 +2677,86 @@ function buildDiagnosticCorrelation({
     findingCount: findings.length,
     findings
   };
+}
+
+function collectLogSummary(record) {
+  const embeddedRuns = {
+    schemaVersion: "kova.embeddedRunTraceSummary.v1",
+    available: false,
+    eventCount: 0,
+    startupCount: 0,
+    prepCount: 0,
+    totalMaxMs: null,
+    stageTotals: {},
+    topStages: [],
+    events: []
+  };
+  const livenessWarnings = {
+    schemaVersion: "kova.livenessWarningSummary.v1",
+    available: false,
+    count: 0,
+    maxEventLoopDelayP99Ms: null,
+    maxEventLoopDelayMaxMs: null,
+    maxEventLoopUtilization: null,
+    maxCpuCoreRatio: null,
+    events: []
+  };
+
+  for (const metrics of allMetricObjects(record)) {
+    mergeEmbeddedRuns(embeddedRuns, metrics?.logs?.embeddedRuns);
+    mergeLivenessWarnings(livenessWarnings, metrics?.logs?.livenessWarnings);
+  }
+
+  embeddedRuns.available = embeddedRuns.eventCount > 0;
+  embeddedRuns.topStages = Object.values(embeddedRuns.stageTotals)
+    .toSorted((left, right) => (right.totalDurationMs - left.totalDurationMs) || left.name.localeCompare(right.name))
+    .slice(0, 12);
+  livenessWarnings.available = livenessWarnings.count > 0;
+
+  return {
+    schemaVersion: "kova.logSummary.v1",
+    embeddedRuns,
+    livenessWarnings
+  };
+}
+
+function mergeEmbeddedRuns(target, source) {
+  if (!source) {
+    return;
+  }
+  target.eventCount += source.eventCount ?? 0;
+  target.startupCount += source.startupCount ?? 0;
+  target.prepCount += source.prepCount ?? 0;
+  target.totalMaxMs = maxNullable(target.totalMaxMs, source.totalMaxMs);
+  target.events = [...target.events, ...(source.events ?? [])].slice(-40);
+  for (const [name, summary] of Object.entries(source.stageTotals ?? {})) {
+    const current = target.stageTotals[name] ?? {
+      name,
+      count: 0,
+      totalDurationMs: 0,
+      maxDurationMs: null,
+      maxOffsetMs: null,
+      traceKinds: []
+    };
+    current.count += summary.count ?? 0;
+    current.totalDurationMs = roundNumber(current.totalDurationMs + (summary.totalDurationMs ?? 0));
+    current.maxDurationMs = maxNullable(current.maxDurationMs, summary.maxDurationMs);
+    current.maxOffsetMs = maxNullable(current.maxOffsetMs, summary.maxOffsetMs);
+    current.traceKinds = [...new Set([...current.traceKinds, ...(summary.traceKinds ?? [])])].sort();
+    target.stageTotals[name] = current;
+  }
+}
+
+function mergeLivenessWarnings(target, source) {
+  if (!source) {
+    return;
+  }
+  target.count += source.count ?? 0;
+  target.maxEventLoopDelayP99Ms = maxNullable(target.maxEventLoopDelayP99Ms, source.maxEventLoopDelayP99Ms);
+  target.maxEventLoopDelayMaxMs = maxNullable(target.maxEventLoopDelayMaxMs, source.maxEventLoopDelayMaxMs);
+  target.maxEventLoopUtilization = maxNullable(target.maxEventLoopUtilization, source.maxEventLoopUtilization);
+  target.maxCpuCoreRatio = maxNullable(target.maxCpuCoreRatio, source.maxCpuCoreRatio);
+  target.events = [...target.events, ...(source.events ?? [])].slice(-40);
 }
 
 function collectOpenClawDiagnostics(record) {

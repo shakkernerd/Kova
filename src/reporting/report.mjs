@@ -142,6 +142,13 @@ export function renderMarkdownReport(report) {
         }
       }
       lines.push(`- OpenClaw event-loop max: ${record.measurements.openclawEventLoopMaxMs ?? "unknown"} ms`);
+      if (record.measurements.openclawLivenessWarningCount > 0) {
+        lines.push(`- OpenClaw liveness warnings: ${record.measurements.openclawLivenessWarningCount}; log event-loop max ${record.measurements.openclawLogEventLoopMaxMs ?? "unknown"} ms`);
+      }
+      if (record.measurements.embeddedRunTraceCount > 0) {
+        const topStages = formatEmbeddedRunTopStages(record.measurements.embeddedRunTopStages);
+        lines.push(`- Embedded agent traces: ${record.measurements.embeddedRunTraceCount}; startup ${record.measurements.embeddedRunStartupTraceCount}; prep ${record.measurements.embeddedRunPrepTraceCount}; max ${record.measurements.embeddedRunTraceMaxMs ?? "unknown"} ms${topStages ? `; top ${topStages}` : ""}`);
+      }
       lines.push(`- OpenClaw provider request max: ${record.measurements.openclawProviderRequestMaxMs ?? "unknown"} ms`);
       lines.push(`- Structured event-loop delay: ${record.measurements.eventLoopDelayMs ?? "unknown"} ms`);
       lines.push(`- Runtime deps staging: ${record.measurements.runtimeDepsStagingMs ?? "unknown"} ms`);
@@ -1111,7 +1118,7 @@ function pushMeasurementBrief(lines, measurements, { compact }) {
   lines.push(`- plugins/runtime: missing deps ${measurements.missingDependencyErrors ?? "unknown"}; plugin failures ${measurements.pluginLoadFailures ?? "unknown"}; runtime deps ${valueMs(measurements.runtimeDepsStagingMs)}${runtimeDepsPluginText(measurements)}; warm restages ${measurements.warmRuntimeDepsRestageCount ?? "unknown"}; warm reuse ${measurements.runtimeDepsWarmReuseOk ?? "unknown"}`);
 
   if (!compact || hasDiagnosticSignal(measurements)) {
-    lines.push(`- diagnostics: timeline ${measurements.openclawTimelineAvailable ? "available" : "unavailable"}; slowest span ${measurements.openclawSlowestSpanName ?? "unknown"} ${valueMs(measurements.openclawSlowestSpanMs)}; open spans ${measurements.openclawOpenSpanCount ?? "unknown"} (${measurements.openclawOpenRequiredSpanCount ?? "unknown"} required); node CPU/heap/trace ${measurements.nodeCpuProfileCount ?? "unknown"}/${measurements.nodeHeapProfileCount ?? "unknown"}/${measurements.nodeTraceEventCount ?? "unknown"}`);
+    lines.push(`- diagnostics: timeline ${measurements.openclawTimelineAvailable ? "available" : "unavailable"}; slowest span ${measurements.openclawSlowestSpanName ?? "unknown"} ${valueMs(measurements.openclawSlowestSpanMs)}; embedded traces ${measurements.embeddedRunTraceCount ?? 0}; liveness warnings ${measurements.openclawLivenessWarningCount ?? 0}; open spans ${measurements.openclawOpenSpanCount ?? "unknown"} (${measurements.openclawOpenRequiredSpanCount ?? "unknown"} required); node CPU/heap/trace ${measurements.nodeCpuProfileCount ?? "unknown"}/${measurements.nodeHeapProfileCount ?? "unknown"}/${measurements.nodeTraceEventCount ?? "unknown"}`);
   }
   if (!compact && hasMcpSignal(measurements)) {
     lines.push(`- mcp: init ${valueMs(measurements.mcpInitializeMs)}; tools/list ${valueMs(measurements.mcpToolsListMs)}; shutdown ${valueMs(measurements.mcpShutdownMs)}; tools ${measurements.mcpToolCount ?? "unknown"}`);
@@ -1132,10 +1139,22 @@ function runtimeDepsPluginText(measurements) {
   return measurements.runtimeDepsStagingPluginId ? ` (${measurements.runtimeDepsStagingPluginId})` : "";
 }
 
+function formatEmbeddedRunTopStages(stages) {
+  if (!Array.isArray(stages) || stages.length === 0) {
+    return "";
+  }
+  return stages
+    .slice(0, 4)
+    .map((stage) => `${stage.name} ${stage.totalDurationMs ?? stage.maxDurationMs ?? "unknown"}ms`)
+    .join(", ");
+}
+
 function hasDiagnosticSignal(measurements) {
   return measurements.openclawTimelineAvailable ||
     measurements.openclawSlowestSpanName ||
     measurements.openclawOpenSpanCount !== undefined ||
+    measurements.embeddedRunTraceCount > 0 ||
+    measurements.openclawLivenessWarningCount > 0 ||
     measurements.nodeCpuProfileCount !== undefined ||
     measurements.nodeHeapProfileCount !== undefined ||
     measurements.nodeTraceEventCount !== undefined;
