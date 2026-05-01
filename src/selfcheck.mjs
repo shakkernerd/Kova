@@ -103,6 +103,7 @@ export async function runSelfCheck(flags = {}) {
       "external-cli codex is not usable"
     ));
     checks.push(await externalCliRunAuthVerificationCheck(tmp));
+    checks.push(await commandTimeoutContractCheck());
     checks.push(ocmCommandBuildersCheck());
     checks.push(evaluationViolationHelpersCheck());
     checks.push(await jsonCommandCheck("plan-json", "node bin/kova.mjs plan --json", (data) => {
@@ -4614,6 +4615,37 @@ async function externalCliRunAuthVerificationCheck(tmp) {
       ? ""
       : `expected stale external CLI failure, got status ${result.status}: ${output.trim()}`
   };
+}
+
+async function commandTimeoutContractCheck() {
+  const command = "node -e 'setTimeout(() => console.log(\"default-timeout-ok\"), 20)'";
+  try {
+    const result = await runCommand(command, { maxOutputChars: 100000 });
+    assertEqual(result.status, 0, "default timeout command status");
+    assertEqual(result.timedOut, false, "default timeout should not expire immediately");
+    assertEqual(result.stdout.trim(), "default-timeout-ok", "default timeout command output");
+    let invalidRejected = false;
+    try {
+      await runCommand("node -e 'process.exit(0)'", { timeoutMs: 0 });
+    } catch (error) {
+      invalidRejected = /timeoutMs must be a positive integer/.test(error.message);
+    }
+    assertEqual(invalidRejected, true, "invalid timeout rejected");
+    return {
+      id: "command-timeout-contract",
+      status: "PASS",
+      command: "evaluate runCommand timeout defaults",
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "command-timeout-contract",
+      status: "FAIL",
+      command,
+      durationMs: 0,
+      message: error.message
+    };
+  }
 }
 
 async function failingCommandCheck(id, command, expectedMessage) {

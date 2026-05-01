@@ -2,6 +2,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { startResourceSampler } from "./collectors/resources.mjs";
 import { repoRoot } from "./paths.mjs";
 
+const defaultCommandTimeoutMs = 120000;
+
 export function checkCommand(command, args) {
   const result = spawnSync(command, args, {
     encoding: "utf8",
@@ -17,6 +19,7 @@ export function checkCommand(command, args) {
 }
 
 export function runCommand(command, options = {}) {
+  const timeoutMs = normalizeTimeoutMs(options.timeoutMs);
   const startedAtEpochMs = Date.now();
   const startedAt = new Date(startedAtEpochMs).toISOString();
   return new Promise((resolve) => {
@@ -41,7 +44,7 @@ export function runCommand(command, options = {}) {
       timedOut = true;
       child.kill("SIGTERM");
       setTimeout(() => child.kill("SIGKILL"), 3000).unref();
-    }, options.timeoutMs);
+    }, timeoutMs);
 
     child.stdout.on("data", (chunk) => {
       stdout += chunk.toString();
@@ -99,6 +102,14 @@ export function runCommand(command, options = {}) {
 
 export function quoteShell(value) {
   return `'${String(value).replaceAll("'", "'\\''")}'`;
+}
+
+function normalizeTimeoutMs(value) {
+  const timeoutMs = value === undefined ? defaultCommandTimeoutMs : Number(value);
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1) {
+    throw new Error(`runCommand timeoutMs must be a positive integer, got ${JSON.stringify(value)}`);
+  }
+  return timeoutMs;
 }
 
 function truncate(value, limit = 20000) {
