@@ -144,6 +144,7 @@ export function renderMarkdownReport(report) {
         lines.push(`- Agent cold/warm: cold ${record.measurements.coldAgentTurnMs ?? "unknown"} ms; warm ${record.measurements.warmAgentTurnMs ?? "unknown"} ms; delta ${record.measurements.agentColdWarmDeltaMs ?? "unknown"} ms`);
         lines.push(`- Agent pre-provider: cold ${record.measurements.coldPreProviderMs ?? "unknown"} ms; warm ${record.measurements.warmPreProviderMs ?? "unknown"} ms; delta ${record.measurements.agentColdWarmPreProviderDeltaMs ?? "unknown"} ms`);
         lines.push(`- Agent provider final: cold ${record.measurements.coldProviderFinalMs ?? "unknown"} ms; warm ${record.measurements.warmProviderFinalMs ?? "unknown"} ms`);
+        lines.push(`- Agent turn stats: count ${record.measurements.agentTurnCount}; p95 ${record.measurements.agentTurnP95Ms ?? "unknown"} ms; max ${record.measurements.agentTurnMaxMs ?? "unknown"} ms; pre-provider p95 ${record.measurements.agentPreProviderP95Ms ?? "unknown"} ms`);
       }
       if (record.measurements.agentProviderAttribution) {
         lines.push(`- Provider evidence: ${record.measurements.agentProviderRequestCount ?? 0} request(s); provider work ${record.measurements.agentProviderFinalMs ?? "unknown"} ms; pre-provider ${record.measurements.agentPreProviderMs ?? "unknown"} ms; post-provider ${record.measurements.agentPostProviderMs ?? "unknown"} ms`);
@@ -549,6 +550,13 @@ function summarizeMeasurements(measurements) {
     providerFirstByteLatencyMs: measurements.providerFirstByteLatencyMs ?? null,
     agentTurnCount: measurements.agentTurnCount ?? null,
     agentTurns: measurements.agentTurns ?? null,
+    agentTurnStats: measurements.agentTurnStats ?? null,
+    agentTurnP95Ms: measurements.agentTurnP95Ms ?? null,
+    agentTurnMaxMs: measurements.agentTurnMaxMs ?? null,
+    agentPreProviderP95Ms: measurements.agentPreProviderP95Ms ?? null,
+    agentPreProviderMaxMs: measurements.agentPreProviderMaxMs ?? null,
+    agentProviderFinalP95Ms: measurements.agentProviderFinalP95Ms ?? null,
+    agentProviderFinalMaxMs: measurements.agentProviderFinalMaxMs ?? null,
     coldAgentTurnMs: measurements.coldAgentTurnMs ?? null,
     warmAgentTurnMs: measurements.warmAgentTurnMs ?? null,
     agentColdWarmDeltaMs: measurements.agentColdWarmDeltaMs ?? null,

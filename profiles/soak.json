@@ -32,6 +32,11 @@
       "scenario": "agent-cold-warm-message",
       "state": "mock-openai-provider",
       "timeoutMs": 180000
+    },
+    {
+      "scenario": "agent-long-session",
+      "state": "mock-openai-provider",
+      "timeoutMs": 360000
     }
   ]
 }

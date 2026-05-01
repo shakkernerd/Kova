@@ -2,10 +2,10 @@
   "id": "agent-message",
   "title": "Agent Message",
   "ownerArea": "agent-runtime",
-  "description": "Send cold and warm local OpenClaw agent messages and verify response latency, provider routing, gateway health, memory, and logs.",
+  "description": "Send cold, warm, and repeated local OpenClaw agent messages and verify response latency, provider routing, gateway health, memory, and logs.",
   "requiredStates": ["mock-openai-provider"],
   "targetKinds": ["npm", "channel", "runtime", "local-build"],
-  "requiredMetrics": ["agentTurnMs", "coldAgentTurnMs", "warmAgentTurnMs", "agentColdWarmDeltaMs", "coldPreProviderMs", "warmPreProviderMs", "healthP95Ms", "peakRssMb", "providerTimeoutMentions", "pluginLoadFailures"],
+  "requiredMetrics": ["agentTurnMs", "agentTurnP95Ms", "agentTurnMaxMs", "coldAgentTurnMs", "warmAgentTurnMs", "agentColdWarmDeltaMs", "coldPreProviderMs", "warmPreProviderMs", "agentPreProviderP95Ms", "healthP95Ms", "peakRssMb", "providerTimeoutMentions", "pluginLoadFailures"],
   "processRoles": ["gateway", "command-tree", "agent-cli", "agent-process", "mock-provider"],
   "thresholds": { "agentTurnMs": 45000, "coldAgentTurnMs": 45000, "warmAgentTurnMs": 15000, "coldWarmDeltaMs": 30000, "preProviderMs": 10000, "providerFinalMs": 3000, "healthP95Ms": 1000, "peakRssMb": 900 },
   "roleThresholds": {

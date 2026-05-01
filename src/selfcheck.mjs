@@ -1226,6 +1226,9 @@ function agentTurnBreakdownCheck() {
       agent: { expectedText: "KOVA_AGENT_OK" },
       thresholds: {}
     }, { surface: { thresholds: {} }, targetPlan: { kind: "local-build" } });
+    assertEqual(record.measurements.agentTurnStats?.count, 1, "agent turn stats count");
+    assertEqual(record.measurements.agentTurnP95Ms, 1000, "agent turn p95");
+    assertEqual(record.measurements.agentPreProviderP95Ms, 200, "agent pre-provider p95");
     const rendered = renderMarkdownReport({
       generatedAt: "2026-05-01T00:00:00.000Z",
       runId: "self-check-agent-turn-breakdown",
@@ -1237,6 +1240,7 @@ function agentTurnBreakdownCheck() {
     });
     assertEqual(rendered.includes("breakdown:"), true, "markdown includes agent turn breakdown");
     assertEqual(rendered.includes("models.catalog.* 70ms"), true, "markdown includes source span evidence");
+    assertEqual(rendered.includes("Agent turn stats:"), true, "markdown includes agent turn stats");
     assertEqual(
       summarizeAgentTurnBreakdownForMarkdown(normal.breakdown).includes("unknown 15ms"),
       true,

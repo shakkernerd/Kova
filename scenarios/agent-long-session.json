@@ -1,0 +1,100 @@
+{
+  "id": "agent-long-session",
+  "surface": "agent-message",
+  "title": "Agent Long Session",
+  "objective": "Send repeated simple messages through one OpenClaw session to catch latency drift, provider routing drift, resource growth, health degradation, and child-process leaks during normal assistant use.",
+  "tags": ["agent", "message", "latency", "providers", "soak", "long-session"],
+  "timeoutMs": 360000,
+  "agent": {
+    "expectedText": "KOVA_AGENT_OK"
+  },
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "agentTurnMs": 45000,
+    "agentTurnP95Ms": 30000,
+    "agentTurnMaxMs": 45000,
+    "preProviderMs": 10000,
+    "agentPreProviderP95Ms": 8000,
+    "agentPreProviderMaxMs": 12000,
+    "providerFinalMs": 3000,
+    "agentProviderFinalP95Ms": 3000,
+    "preProviderDominanceRatio": 0.8,
+    "agentContainmentHealthFailures": 0,
+    "agentProcessLeaks": 0,
+    "statusMs": 10000,
+    "peakRssMb": 900,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0,
+    "providerTimeoutMentions": 0
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision Long Session Env",
+      "intent": "Start a disposable OpenClaw gateway before wiring the model provider and sending repeated messages.",
+      "commands": ["ocm start {env} {startSelector} --json"],
+      "evidence": ["gateway port", "runtime binding", "startup readiness"]
+    },
+    {
+      "id": "cold-session-turn",
+      "title": "Cold Session Turn",
+      "intent": "Send the first simple message through OpenClaw's real local embedded agent CLI command in a fresh session.",
+      "commands": [
+        "ocm @{env} -- agent --local --agent main --session-id kova-agent-long-session --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 120 --json"
+      ],
+      "evidence": ["cold command duration", "assistant text", "provider request timing", "role resource samples"]
+    },
+    {
+      "id": "warm-session-turn",
+      "title": "Warm Session Turn",
+      "intent": "Send a warm follow-up in the same session to establish cache behavior after cold discovery work.",
+      "commands": [
+        "ocm @{env} -- agent --local --agent main --session-id kova-agent-long-session --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 120 --json"
+      ],
+      "evidence": ["warm command duration", "assistant text", "provider request timing", "cold/warm delta"]
+    },
+    {
+      "id": "session-turn-3",
+      "title": "Session Turn 3",
+      "intent": "Continue the same OpenClaw session to catch repeated-turn latency or resource drift.",
+      "commands": [
+        "ocm @{env} -- agent --local --agent main --session-id kova-agent-long-session --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 120 --json"
+      ],
+      "evidence": ["turn duration", "assistant text", "provider request timing", "role resource samples"]
+    },
+    {
+      "id": "session-turn-4",
+      "title": "Session Turn 4",
+      "intent": "Continue the same OpenClaw session and verify the assistant path remains stable.",
+      "commands": [
+        "ocm @{env} -- agent --local --agent main --session-id kova-agent-long-session --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 120 --json"
+      ],
+      "evidence": ["turn duration", "assistant text", "provider request timing", "role resource samples"]
+    },
+    {
+      "id": "session-turn-5",
+      "title": "Session Turn 5",
+      "intent": "Continue repeated assistant use and catch process or memory growth between turns.",
+      "commands": [
+        "ocm @{env} -- agent --local --agent main --session-id kova-agent-long-session --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 120 --json"
+      ],
+      "evidence": ["turn duration", "assistant text", "provider request timing", "role resource samples"]
+    },
+    {
+      "id": "session-turn-6",
+      "title": "Session Turn 6",
+      "intent": "Send a final repeated assistant message before checking gateway health and process cleanup.",
+      "commands": [
+        "ocm @{env} -- agent --local --agent main --session-id kova-agent-long-session --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 120 --json"
+      ],
+      "evidence": ["turn duration", "assistant text", "provider request timing", "role resource samples"]
+    },
+    {
+      "id": "post-session-health",
+      "title": "Post-Session Gateway Health",
+      "intent": "Verify the gateway remains responsive after repeated agent turns and capture provider/plugin diagnostics.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 500 --raw"],
+      "evidence": ["gateway status", "provider logs", "plugin errors", "memory after repeated turns", "process leak summary"]
+    }
+  ]
+}

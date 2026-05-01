@@ -98,6 +98,7 @@
       { "scenario": "agent-provider-malformed", "state": "mock-openai-provider" },
       { "scenario": "agent-provider-streaming-stall", "state": "mock-openai-provider" },
       { "scenario": "agent-provider-recovery", "state": "mock-openai-provider" },
+      { "scenario": "agent-long-session", "state": "mock-openai-provider" },
       { "scenario": "failure-injection", "state": "broken-plugin-deps" },
       { "scenario": "soak", "state": "large-workspace" },
       { "scenario": "cross-platform-smoke", "state": "slow-filesystem" }
@@ -190,6 +191,11 @@
       "scenario": "agent-provider-recovery",
       "state": "mock-openai-provider",
       "timeoutMs": 240000
+    },
+    {
+      "scenario": "agent-long-session",
+      "state": "mock-openai-provider",
+      "timeoutMs": 360000
     },
     {
       "scenario": "dashboard-readiness",

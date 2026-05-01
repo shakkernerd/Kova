@@ -44,6 +44,7 @@ export function evaluateRecord(record, scenario, options = {}) {
   const coldAgentTurn = selectAgentTurn(agentTurns, "cold") ?? agentTurns[0] ?? null;
   const warmAgentTurn = selectAgentTurn(agentTurns, "warm") ?? agentTurns[1] ?? null;
   const providerTurn = collectSlowestProviderTurn(agentTurns);
+  const agentTurnStats = summarizeAgentTurnStats(agentTurns);
   const agentTurnMs = maxNullable(maxDurationWhere(allResults, isAgentMessageCommand), maxTurnDuration(agentTurns));
   const agentResponseOk = agentTurns.length === 0 ? null : agentTurns.every((turn) => turn.responseOk === true);
   const agentProviderSimulation = evaluateProviderSimulation({ turns: agentTurns, scenario, record, thresholds });
@@ -302,6 +303,7 @@ export function evaluateRecord(record, scenario, options = {}) {
   }
   checkAgentTurnCorrectness(violations, agentTurns, scenario.agent?.expectedText ?? null);
   checkAgentTurnThresholds(violations, agentTurns, { coldAgentTurn, warmAgentTurn, providerTurn, agentLatencyDiagnosis }, thresholds, record);
+  checkAgentTurnAggregateThresholds(violations, agentTurnStats, thresholds);
   checkProviderSimulation(violations, agentProviderSimulation);
   checkAgentFailureContainment(violations, agentFailureContainment);
 
@@ -318,6 +320,16 @@ export function evaluateRecord(record, scenario, options = {}) {
     agentResponseOk,
     agentTurnCount: agentTurns.length,
     agentTurns,
+    agentTurnStats,
+    agentTurnMedianMs: agentTurnStats.totalTurnMs.median,
+    agentTurnP95Ms: agentTurnStats.totalTurnMs.p95,
+    agentTurnMaxMs: agentTurnStats.totalTurnMs.max,
+    agentPreProviderMedianMs: agentTurnStats.preProviderMs.median,
+    agentPreProviderP95Ms: agentTurnStats.preProviderMs.p95,
+    agentPreProviderMaxMs: agentTurnStats.preProviderMs.max,
+    agentProviderFinalMedianMs: agentTurnStats.providerFinalMs.median,
+    agentProviderFinalP95Ms: agentTurnStats.providerFinalMs.p95,
+    agentProviderFinalMaxMs: agentTurnStats.providerFinalMs.max,
     coldAgentTurnMs: coldAgentTurn?.totalTurnMs ?? null,
     warmAgentTurnMs: warmAgentTurn?.totalTurnMs ?? null,
     agentColdWarmDeltaMs: delta(coldAgentTurn?.totalTurnMs, warmAgentTurn?.totalTurnMs),
@@ -606,6 +618,61 @@ function maxTurnDuration(turns) {
   return durations.length === 0 ? null : Math.max(...durations);
 }
 
+function summarizeAgentTurnStats(turns) {
+  return {
+    schemaVersion: "kova.agentTurnStats.v1",
+    count: turns.length,
+    totalTurnMs: summarizeNumericField(turns, "totalTurnMs"),
+    preProviderMs: summarizeNumericField(turns, "preProviderMs"),
+    providerFinalMs: summarizeNumericField(turns, "providerFinalMs"),
+    postProviderMs: summarizeNumericField(turns, "postProviderMs"),
+    firstByteLatencyMs: summarizeNumericField(turns, "firstByteLatencyMs"),
+    processLeakCount: turns.reduce((sum, turn) => sum + (turn.processLeakCount ?? 0), 0),
+    missingProviderRequestCount: turns.filter((turn) => turn.missingProviderRequest === true).length,
+    responseOkCount: turns.filter((turn) => turn.responseOk === true).length
+  };
+}
+
+function summarizeNumericField(items, field) {
+  const values = items
+    .map((item) => item?.[field])
+    .filter((value) => typeof value === "number" && Number.isFinite(value))
+    .toSorted((left, right) => left - right);
+  if (values.length === 0) {
+    return {
+      count: 0,
+      min: null,
+      median: null,
+      p95: null,
+      max: null
+    };
+  }
+  return {
+    count: values.length,
+    min: values[0],
+    median: percentile(values, 50),
+    p95: percentile(values, 95),
+    max: values.at(-1)
+  };
+}
+
+function percentile(sortedValues, percentileValue) {
+  if (sortedValues.length === 0) {
+    return null;
+  }
+  if (sortedValues.length === 1) {
+    return sortedValues[0];
+  }
+  const position = (percentileValue / 100) * (sortedValues.length - 1);
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  if (lower === upper) {
+    return sortedValues[lower];
+  }
+  const weight = position - lower;
+  return Math.round((sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight) * 1000) / 1000;
+}
+
 function checkAgentTurnCorrectness(violations, turns, expectedText) {
   for (const turn of turns) {
     if (turn.expectedFailure === true) {
@@ -858,6 +925,28 @@ function checkAgentTurnThresholds(violations, turns, selected, thresholds, recor
       message: selected.agentLatencyDiagnosis.summary
     });
   }
+}
+
+function checkAgentTurnAggregateThresholds(violations, stats, thresholds) {
+  checkAggregateThreshold(violations, stats.totalTurnMs.p95, "agentTurnP95Ms", thresholds.agentTurnP95Ms);
+  checkAggregateThreshold(violations, stats.totalTurnMs.max, "agentTurnMaxMs", thresholds.agentTurnMaxMs);
+  checkAggregateThreshold(violations, stats.preProviderMs.p95, "agentPreProviderP95Ms", thresholds.agentPreProviderP95Ms);
+  checkAggregateThreshold(violations, stats.preProviderMs.max, "agentPreProviderMaxMs", thresholds.agentPreProviderMaxMs);
+  checkAggregateThreshold(violations, stats.providerFinalMs.p95, "agentProviderFinalP95Ms", thresholds.agentProviderFinalP95Ms);
+  checkAggregateThreshold(violations, stats.providerFinalMs.max, "agentProviderFinalMaxMs", thresholds.agentProviderFinalMaxMs);
+}
+
+function checkAggregateThreshold(violations, actual, metric, threshold) {
+  if (typeof threshold !== "number" || typeof actual !== "number" || actual <= threshold) {
+    return;
+  }
+  violations.push({
+    kind: "agent-latency",
+    metric,
+    expected: `<= ${threshold}`,
+    actual,
+    message: `${metric} ${actual}ms exceeded threshold ${threshold}ms`
+  });
 }
 
 function checkTurnThreshold(violations, turn, metric, threshold, message) {
