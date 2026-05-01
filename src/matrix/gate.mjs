@@ -1,4 +1,4 @@
-import { platformCoverageKeys } from "./platform.mjs";
+import { platformCoverageKeys } from "../platform.mjs";
 
 export function preflightGateRun({ entries, flags }) {
   if (flags?.gate !== true || flags?.execute !== true) {

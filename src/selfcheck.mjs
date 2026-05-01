@@ -6,7 +6,7 @@ import { runCleanupCommand } from "./cleanup.mjs";
 import { summarizeCpuProfiles } from "./collectors/node-profiles.mjs";
 import { summarizeHeapProfiles } from "./collectors/heap.mjs";
 import { evaluateRecord } from "./evaluator.mjs";
-import { evaluateGate } from "./gate.mjs";
+import { evaluateGate } from "./matrix/gate.mjs";
 import {
   comparePerformanceToBaseline,
   loadBaselineStore,

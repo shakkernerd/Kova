@@ -6,7 +6,7 @@ import { runCleanupCommand } from "./cleanup.mjs";
 import { runCommand } from "./commands.mjs";
 import { compareReports, renderCompareFixerSummary, renderCompareSummary } from "./reporting/compare.mjs";
 import { parseFlags, printHelp, required, resolveFromCwd } from "./cli.mjs";
-import { evaluateGate, preflightGateRun } from "./gate.mjs";
+import { evaluateGate, preflightGateRun } from "./matrix/gate.mjs";
 import { buildCoverage } from "./matrix/coverage.mjs";
 import {
   comparePerformanceToBaseline,
