@@ -46,6 +46,7 @@ export function evaluateRecord(record, scenario, options = {}) {
   const agentTurnMs = maxNullable(maxDurationWhere(allResults, isAgentMessageCommand), maxTurnDuration(agentTurns));
   const agentResponseOk = agentTurns.length === 0 ? null : agentTurns.every((turn) => turn.responseOk === true);
   const agentProviderSimulation = evaluateProviderSimulation({ turns: agentTurns, scenario, record, thresholds });
+  const agentFailureContainment = evaluateAgentFailureContainment({ turns: agentTurns, record, thresholds });
   const agentLatencyDiagnosis = diagnoseAgentLatency({
     coldAgentTurn,
     warmAgentTurn,
@@ -301,6 +302,7 @@ export function evaluateRecord(record, scenario, options = {}) {
   checkAgentTurnCorrectness(violations, agentTurns, scenario.agent?.expectedText ?? null);
   checkAgentTurnThresholds(violations, agentTurns, { coldAgentTurn, warmAgentTurn, providerTurn, agentLatencyDiagnosis }, thresholds, record);
   checkProviderSimulation(violations, agentProviderSimulation);
+  checkAgentFailureContainment(violations, agentFailureContainment);
 
   record.measurements = {
     peakRssMb,
@@ -327,6 +329,10 @@ export function evaluateRecord(record, scenario, options = {}) {
     warmFirstByteLatencyMs: warmAgentTurn?.firstByteLatencyMs ?? null,
     agentLatencyDiagnosis,
     agentProviderSimulation,
+    agentFailureContainment,
+    agentProcessLeakCount: agentFailureContainment.processLeakCount,
+    agentLeakedProcesses: agentFailureContainment.leakedProcesses,
+    agentFailureFixerSummary: buildAgentFailureFixerSummary(agentLatencyDiagnosis, agentProviderSimulation, agentFailureContainment),
     agentProviderMode: agentProviderSimulation.mode,
     agentProviderIssue: agentProviderSimulation.observedIssue,
     agentProviderContainmentOk: agentProviderSimulation.containmentOk,
@@ -490,6 +496,9 @@ function collectAgentTurns(record, providerEvidence, scenario) {
         providerOutcomes: attribution?.outcomes ?? [],
         providerErrorClasses: attribution?.errorClasses ?? [],
         providerErrors: attribution?.errors ?? [],
+        processLeaks: result.processSnapshots?.leaks ?? null,
+        processLeakCount: result.processSnapshots?.leaks?.leakCount ?? null,
+        leakedProcesses: result.processSnapshots?.leaks?.leakedProcesses ?? [],
         healthOk: phase.metrics?.health?.ok ?? null,
         healthP95Ms: phase.metrics?.healthSummary?.p95Ms ?? null,
         resourceSamples: summarizeTurnResources(result.resourceSamples)
@@ -497,6 +506,85 @@ function collectAgentTurns(record, providerEvidence, scenario) {
     }
   }
   return turns;
+}
+
+function evaluateAgentFailureContainment({ turns, record, thresholds }) {
+  if (turns.length === 0) {
+    return {
+      schemaVersion: "kova.agentFailureContainment.v1",
+      processLeakCount: 0,
+      leakLimit: 0,
+      leakedProcesses: [],
+      processLeaksOk: true,
+      finalGatewayState: record.finalMetrics?.service?.gatewayState ?? null,
+      gatewayHealthy: null,
+      healthFailures: countHealthFailures(record),
+      healthLimit: 0,
+      statusWorks: null,
+      dashboardResponsive: null,
+      tuiResponsive: null
+    };
+  }
+  const leakCount = turns.reduce((total, turn) => total + (turn.processLeakCount ?? 0), 0);
+  const leakedProcesses = turns.flatMap((turn) => (turn.leakedProcesses ?? []).map((process) => ({
+    ...process,
+    phaseId: turn.phaseId,
+    turn: turn.label
+  })));
+  const leakLimit = typeof thresholds.agentProcessLeaks === "number" ? thresholds.agentProcessLeaks : 0;
+  const healthLimit = typeof thresholds.agentContainmentHealthFailures === "number"
+    ? thresholds.agentContainmentHealthFailures
+    : (typeof thresholds.providerFailureHealthFailures === "number" ? thresholds.providerFailureHealthFailures : 0);
+  const healthFailures = countHealthFailures(record);
+  const finalGatewayState = record.finalMetrics?.service?.gatewayState ?? null;
+  const statusCommands = collectResults(record).filter((result) => /\s--\sstatus\b|@\S+\s+--\s+status\b/.test(result.command) || result.command.includes(" -- status"));
+  const statusWorks = statusCommands.length === 0 ? null : statusCommands.some((result) => result.status === 0 && result.timedOut !== true);
+
+  return {
+    schemaVersion: "kova.agentFailureContainment.v1",
+    processLeakCount: leakCount,
+    leakLimit,
+    leakedProcesses,
+    processLeaksOk: leakCount <= leakLimit,
+    finalGatewayState,
+    gatewayHealthy: finalGatewayState === "running" && healthFailures <= healthLimit,
+    healthFailures,
+    healthLimit,
+    statusWorks,
+    dashboardResponsive: null,
+    tuiResponsive: null
+  };
+}
+
+function checkAgentFailureContainment(violations, containment) {
+  if (containment.processLeaksOk !== true) {
+    const first = containment.leakedProcesses[0];
+    violations.push({
+      kind: "agent-containment",
+      metric: "agentProcessLeakCount",
+      expected: `<= ${containment.leakLimit}`,
+      actual: containment.processLeakCount,
+      message: `agent command leaked ${containment.processLeakCount} process(es) after completion${first ? `; first leak ${first.role} pid ${first.pid} ${first.command}` : ""}`
+    });
+  }
+  if (containment.gatewayHealthy === false) {
+    violations.push({
+      kind: "agent-containment",
+      metric: "agentGatewayHealthy",
+      expected: `gateway running and health failures <= ${containment.healthLimit}`,
+      actual: `gateway=${containment.finalGatewayState ?? "unknown"} healthFailures=${containment.healthFailures}`,
+      message: `gateway was not healthy after agent command; gateway=${containment.finalGatewayState ?? "unknown"}, health failures=${containment.healthFailures}`
+    });
+  }
+  if (containment.statusWorks === false) {
+    violations.push({
+      kind: "agent-containment",
+      metric: "agentStatusWorks",
+      expected: "post-agent status command succeeds",
+      actual: false,
+      message: "post-agent status command did not succeed"
+    });
+  }
 }
 
 function selectAgentTurn(turns, label) {
@@ -652,6 +740,65 @@ function checkProviderSimulation(violations, simulation) {
       message: `provider ${simulation.mode} failure was not contained; gateway=${simulation.finalGatewayState ?? "unknown"}, health failures=${simulation.healthFailures}`
     });
   }
+}
+
+function buildAgentFailureFixerSummary(latencyDiagnosis, providerSimulation, containment) {
+  const items = [];
+  if (providerSimulation?.mode === "timeout" || providerSimulation?.observedIssue === "provider-timeout") {
+    items.push({
+      kind: "provider-timeout",
+      summary: "Provider timed out; verify OpenClaw surfaces the timeout clearly, cancels the turn, and leaves the gateway responsive.",
+      likelyOwner: "provider / agent timeout handling"
+    });
+  }
+  if (providerSimulation?.mode === "streaming-stall" || providerSimulation?.observedIssue === "streaming-stall") {
+    items.push({
+      kind: "streaming-stall",
+      summary: "Provider stream stalled; verify OpenClaw applies stream idle timeouts and does not freeze gateway/TUI/dashboard.",
+      likelyOwner: "provider streaming / agent turn cancellation"
+    });
+  }
+  if (providerSimulation?.mode === "malformed" || providerSimulation?.observedIssue === "malformed-response") {
+    items.push({
+      kind: "malformed-response",
+      summary: "Provider returned malformed output; verify OpenClaw reports a clear provider parse error and keeps the session usable.",
+      likelyOwner: "provider response parsing"
+    });
+  }
+  if (providerSimulation?.recoveryOk === true) {
+    items.push({
+      kind: "provider-recovered",
+      summary: "Provider failed and later recovered; verify retry/recovery behavior is intentional and latency remains acceptable.",
+      likelyOwner: "provider retry / agent recovery"
+    });
+  }
+  if (latencyDiagnosis?.kind === "cold-pre-provider-stall" || latencyDiagnosis?.kind === "pre-provider-stall") {
+    items.push({
+      kind: "pre-provider-stall",
+      summary: latencyDiagnosis.summary,
+      likelyOwner: latencyDiagnosis.likelyOwner
+    });
+  }
+  if ((containment?.processLeakCount ?? 0) > 0) {
+    const first = containment.leakedProcesses?.[0];
+    items.push({
+      kind: "leaked-child-process",
+      summary: `Agent command left ${containment.processLeakCount} process(es) running after completion${first ? `; first leak ${first.role} pid ${first.pid}` : ""}.`,
+      likelyOwner: "agent cleanup / plugin child process lifecycle"
+    });
+  }
+  if (containment?.gatewayHealthy === false) {
+    items.push({
+      kind: "gateway-after-agent-unhealthy",
+      summary: `Gateway was not healthy after agent command; gateway=${containment.finalGatewayState ?? "unknown"}, health failures=${containment.healthFailures}.`,
+      likelyOwner: "gateway supervision / agent failure containment"
+    });
+  }
+  return {
+    schemaVersion: "kova.agentFailureFixerSummary.v1",
+    count: items.length,
+    items
+  };
 }
 
 function checkAgentTurnThresholds(violations, turns, selected, thresholds, record) {

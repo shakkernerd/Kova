@@ -7,6 +7,7 @@ import {
 } from "./auth.mjs";
 import { materializeCommands } from "./registries/scenarios.mjs";
 import { quoteShell } from "./commands.mjs";
+import { captureProcessSnapshot, diffProcessSnapshots } from "./collectors/resources.mjs";
 import { collectEnvMetrics, collectNodeProfileMetrics } from "./metrics.mjs";
 import { collectorArtifactDirs, prepareCollectorArtifactDirs } from "./collectors/artifacts.mjs";
 import { collectProviderEvidence } from "./collectors/provider.mjs";
@@ -14,7 +15,8 @@ import { evaluateRecord } from "./evaluator.mjs";
 import { artifactsDir } from "./paths.mjs";
 import { repoRoot } from "./paths.mjs";
 import { assertKovaEnvName, assertSafeScenarioCommand } from "./safety.mjs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
 
 export function createRunId() {
   const stamp = new Date().toISOString().replaceAll(":", "").replace(/\.\d+Z$/, "Z");
@@ -587,9 +589,20 @@ function targetSetupCommand(targetPlan) {
   return `ocm runtime build-local ${quoteShell(targetPlan.runtimeName)} --repo ${quoteShell(targetPlan.repoPath)} --force`;
 }
 
-function runScenarioCommand(command, context, envName, artifactDir, phaseId, commandIndex, authPolicy = null) {
+async function runScenarioCommand(command, context, envName, artifactDir, phaseId, commandIndex, authPolicy = null) {
   assertSafeScenarioCommand(command, context, envName);
-  return runCommand(command, {
+  const agentCommand = isAgentMessageCommand(command);
+  const snapshotOptions = {
+    envName,
+    processRoles: context.processRoles ?? [],
+    rootCommand: command
+  };
+  const snapshotBase = join(collectorArtifactDirs(artifactDir).processSnapshots, `${safeSegment(phaseId)}-${commandIndex + 1}`);
+  const beforeSnapshot = agentCommand ? captureProcessSnapshot(snapshotOptions) : null;
+  if (beforeSnapshot) {
+    await writeJsonArtifact(`${snapshotBase}-before.json`, beforeSnapshot);
+  }
+  const result = await runCommand(command, {
     timeoutMs: context.timeoutMs,
     env: {
       ...diagnosticsEnv(context, envName, artifactDir),
@@ -603,6 +616,49 @@ function runScenarioCommand(command, context, envName, artifactDir, phaseId, com
       artifactPath: join(collectorArtifactDirs(artifactDir).resourceSamples, `${safeSegment(phaseId)}-${commandIndex + 1}.jsonl`)
     }
   });
+  if (agentCommand) {
+    await sleep(1000);
+    const afterSnapshot = captureProcessSnapshot(snapshotOptions);
+    const processLeaks = diffProcessSnapshots(beforeSnapshot, afterSnapshot, {
+      roles: agentLeakRoles()
+    });
+    await writeJsonArtifact(`${snapshotBase}-after.json`, afterSnapshot);
+    await writeJsonArtifact(`${snapshotBase}-leaks.json`, processLeaks);
+    result.processSnapshots = {
+      schemaVersion: "kova.agentProcessSnapshots.v1",
+      beforePath: `${snapshotBase}-before.json`,
+      afterPath: `${snapshotBase}-after.json`,
+      leaksPath: `${snapshotBase}-leaks.json`,
+      before: compactSnapshot(beforeSnapshot),
+      after: compactSnapshot(afterSnapshot),
+      leaks: processLeaks
+    };
+  }
+  return result;
+}
+
+function isAgentMessageCommand(command) {
+  return command.includes(" -- agent ") && command.includes("--message");
+}
+
+function agentLeakRoles() {
+  return ["agent-cli", "agent-process", "mcp-runtime", "plugin-cli", "mock-provider", "browser-sidecar"];
+}
+
+function compactSnapshot(snapshot) {
+  return {
+    schemaVersion: snapshot.schemaVersion,
+    capturedAt: snapshot.capturedAt,
+    envName: snapshot.envName,
+    gatewayPid: snapshot.gatewayPid,
+    processCount: snapshot.processCount,
+    roleCounts: snapshot.roleCounts
+  };
+}
+
+async function writeJsonArtifact(path, value) {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
 function shouldApplyAuthAfterPhase(phase, authPolicy, record) {

@@ -4,6 +4,8 @@ import { dirname } from "node:path";
 import { repoRoot } from "../paths.mjs";
 
 export const RESOURCE_SAMPLES_SCHEMA = "kova.resourceSamples.v1";
+export const PROCESS_SNAPSHOT_SCHEMA = "kova.processSnapshot.v1";
+export const PROCESS_LEAKS_SCHEMA = "kova.processLeakSummary.v1";
 
 export function startResourceSampler(rootPid, options = {}) {
   const startedAt = Date.now();
@@ -178,6 +180,70 @@ export function summarizeResourceSamples(samples) {
   };
 }
 
+export function captureProcessSnapshot(options = {}) {
+  const roleMatchers = compileRoleMatchers(options.processRoles ?? []);
+  const envName = options.envName ?? null;
+  const gatewayPid = envName ? resolveGatewayPid(envName) : null;
+  const allProcesses = listProcesses();
+  const gatewayTreePids = gatewayPid === null ? new Set() : collectProcessTreePids(allProcesses, gatewayPid);
+  const included = [];
+
+  for (const process of allProcesses) {
+    const roles = new Set();
+    if (gatewayPid !== null && process.pid === gatewayPid) {
+      roles.add("gateway");
+    }
+    if (gatewayTreePids.has(process.pid)) {
+      roles.add("gateway-tree");
+    }
+    for (const role of matchingRegistryProcessRoles(process, roleMatchers)) {
+      roles.add(role);
+    }
+    if (roles.size === 0) {
+      continue;
+    }
+    const sortedRoles = [...roles].sort();
+    included.push({
+      pid: process.pid,
+      ppid: process.ppid,
+      rssMb: process.rssMb,
+      cpuPercent: process.cpuPercent,
+      roles: sortedRoles,
+      role: sortedRoles.join(","),
+      command: process.command
+    });
+  }
+
+  return {
+    schemaVersion: PROCESS_SNAPSHOT_SCHEMA,
+    capturedAt: new Date().toISOString(),
+    envName,
+    gatewayPid,
+    processCount: included.length,
+    roleCounts: summarizeRoleCounts(included),
+    processes: included.toSorted((left, right) => left.pid - right.pid)
+  };
+}
+
+export function diffProcessSnapshots(before, after, options = {}) {
+  const roles = new Set(options.roles ?? []);
+  const beforePids = new Set((before?.processes ?? []).map((process) => process.pid));
+  const leakedProcesses = (after?.processes ?? [])
+    .filter((process) => !beforePids.has(process.pid))
+    .filter((process) => roles.size === 0 || process.roles?.some((role) => roles.has(role)))
+    .toSorted((left, right) => roleSortKey(left).localeCompare(roleSortKey(right)) || left.pid - right.pid);
+
+  return {
+    schemaVersion: PROCESS_LEAKS_SCHEMA,
+    roles: [...roles],
+    beforeProcessCount: before?.processCount ?? null,
+    afterProcessCount: after?.processCount ?? null,
+    leakCount: leakedProcesses.length,
+    leaksByRole: summarizeRoleCounts(leakedProcesses),
+    leakedProcesses: leakedProcesses.map(compactProcess)
+  };
+}
+
 function compileRoleMatchers(roles) {
   return roles.map((role) => ({
     id: role.id,
@@ -210,6 +276,33 @@ function matchingRegistryRoles(process, rootCommand, roleMatchers) {
     }
   }
   return roles;
+}
+
+function matchingRegistryProcessRoles(process, roleMatchers) {
+  const roles = [];
+  for (const role of roleMatchers) {
+    if (role.id === "command-tree" || role.id === "gateway" || role.id === "gateway-tree") {
+      continue;
+    }
+    if (matchesAny(role.processPatterns, process.command)) {
+      roles.push(role.id);
+    }
+  }
+  return roles;
+}
+
+function summarizeRoleCounts(processes) {
+  const counts = new Map();
+  for (const process of processes) {
+    for (const role of process.roles ?? process.role?.split(",").filter(Boolean) ?? []) {
+      counts.set(role, (counts.get(role) ?? 0) + 1);
+    }
+  }
+  return Object.fromEntries([...counts.entries()].toSorted(([left], [right]) => left.localeCompare(right)));
+}
+
+function roleSortKey(process) {
+  return process.role ?? process.roles?.join(",") ?? "";
 }
 
 function matchesAny(patterns, value) {

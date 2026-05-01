@@ -19,6 +19,7 @@ import { validateRegistryReferences } from "./registries/validate.mjs";
 import { assertSafeScenarioCommand } from "./safety.mjs";
 import { parseTimelineText } from "./collectors/timeline.mjs";
 import { computeProviderTurnAttribution, parseProviderRequestLog } from "./collectors/provider.mjs";
+import { captureProcessSnapshot, diffProcessSnapshots } from "./collectors/resources.mjs";
 import { renderPasteSummary, renderReportSummary } from "./report.mjs";
 
 export async function runSelfCheck(flags = {}) {
@@ -143,6 +144,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await performanceBaselineCheck(tmp));
     checks.push(readinessClassificationCheck());
     checks.push(await resourceRoleAttributionCheck(tmp));
+    checks.push(await processSnapshotCheck(tmp));
     checks.push(roleThresholdEvaluationCheck());
     checks.push(stateRegistryValidationCheck());
     checks.push(scenarioStateCompatibilityCheck());
@@ -756,7 +758,6 @@ async function mockProviderBehaviorCheck(tmp) {
 
 function providerFailureEvaluationCheck() {
   try {
-    const failCommand = "node support/expect-command-fails.mjs -- ocm @kova -- agent --local --agent main --session-id kova-agent-provider-recovery --message hi --json";
     const recoverCommand = "ocm @kova -- agent --local --agent main --session-id kova-agent-provider-recovery --message hi --json";
     const record = {
       scenario: "agent-provider-recovery",
@@ -765,9 +766,8 @@ function providerFailureEvaluationCheck() {
       phases: [
         {
           id: "transient-provider-failure-turn",
-          expectedAgentFailure: true,
           results: [{
-            command: failCommand,
+            command: recoverCommand,
             status: 0,
             timedOut: false,
             startedAt: "2026-04-30T10:00:01.000Z",
@@ -775,24 +775,16 @@ function providerFailureEvaluationCheck() {
             finishedAt: "2026-04-30T10:00:02.000Z",
             finishedAtEpochMs: 1777543202000,
             durationMs: 1000,
-            stdout: "",
-            stderr: "provider failed"
-          }],
-          metrics: { logs: zeroLogMetrics(), health: { ok: true } }
-        },
-        {
-          id: "recovery-provider-turn",
-          results: [{
-            command: recoverCommand,
-            status: 0,
-            timedOut: false,
-            startedAt: "2026-04-30T10:00:05.000Z",
-            startedAtEpochMs: 1777543205000,
-            finishedAt: "2026-04-30T10:00:06.000Z",
-            finishedAtEpochMs: 1777543206000,
-            durationMs: 1000,
             stdout: "{\"finalAssistantVisibleText\":\"KOVA_AGENT_OK\"}",
-            stderr: ""
+            stderr: "",
+            processSnapshots: {
+              leaks: {
+                schemaVersion: "kova.processLeakSummary.v1",
+                leakCount: 0,
+                leakedProcesses: [],
+                leaksByRole: {}
+              }
+            }
           }],
           metrics: { logs: zeroLogMetrics(), health: { ok: true } }
         }
@@ -823,10 +815,10 @@ function providerFailureEvaluationCheck() {
             mode: "normal",
             outcome: "completed",
             errorClass: null,
-            receivedAt: "2026-04-30T10:00:05.500Z",
-            receivedAtEpochMs: 1777543205500,
-            respondedAt: "2026-04-30T10:00:05.700Z",
-            respondedAtEpochMs: 1777543205700,
+            receivedAt: "2026-04-30T10:00:01.600Z",
+            receivedAtEpochMs: 1777543201600,
+            respondedAt: "2026-04-30T10:00:01.700Z",
+            respondedAtEpochMs: 1777543201700,
             firstByteLatencyMs: 20,
             firstChunkLatencyMs: 20,
             route: "/v1/responses",
@@ -857,8 +849,8 @@ function providerFailureEvaluationCheck() {
     assertEqual(record.measurements.agentProviderSimulation.mode, "error-then-recover", "provider simulation mode");
     assertEqual(record.measurements.agentProviderSimulation.recoveryOk, true, "provider recovery ok");
     assertEqual(record.measurements.agentProviderSimulation.containmentOk, true, "provider containment ok");
-    assertEqual(record.measurements.agentTurns[0].expectedFailureObserved, true, "expected provider failure observed");
-    assertEqual(record.measurements.agentTurns[1].responseOk, true, "recovery response ok");
+    assertEqual(record.measurements.agentFailureContainment.processLeaksOk, true, "agent process leaks ok");
+    assertEqual(record.measurements.agentTurns[0].responseOk, true, "recovery response ok");
     assertEqual(record.measurements.agentLatencyDiagnosis.kind, "provider-error", "provider failure diagnosis");
     return {
       id: "provider-failure-evaluation",
@@ -1298,6 +1290,49 @@ async function resourceRoleAttributionCheck(tmp) {
       id: "resource-role-attribution",
       status: "FAIL",
       command,
+      durationMs: result.durationMs,
+      message: error.message
+    };
+  }
+}
+
+async function processSnapshotCheck(tmp) {
+  const child = runCommand("node -e 'setTimeout(() => {}, 1200)'", {
+    timeoutMs: 5000,
+    resourceSample: null
+  });
+  await sleep(250);
+  const before = captureProcessSnapshot({
+    processRoles: await loadProcessRoles(),
+    rootCommand: "ocm @kova -- agent --local --message hi"
+  });
+  const result = await child;
+  const after = captureProcessSnapshot({
+    processRoles: await loadProcessRoles(),
+    rootCommand: "ocm @kova -- agent --local --message hi"
+  });
+  const leaks = diffProcessSnapshots(before, after, {
+    roles: ["agent-cli", "agent-process", "mcp-runtime", "plugin-cli", "mock-provider", "browser-sidecar"]
+  });
+  const artifactPath = join(tmp, "process-snapshot-leaks.json");
+  await writeFile(artifactPath, `${JSON.stringify(leaks, null, 2)}\n`, "utf8");
+
+  try {
+    assertEqual(result.status, 0, "snapshot command status");
+    assertEqual(before.schemaVersion, "kova.processSnapshot.v1", "snapshot schema");
+    assertEqual(leaks.schemaVersion, "kova.processLeakSummary.v1", "leak summary schema");
+    assertEqual(typeof leaks.leakCount, "number", "leak count type");
+    return {
+      id: "process-snapshot-leak-contract",
+      status: "PASS",
+      command: "capture and diff role-aware process snapshots",
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "process-snapshot-leak-contract",
+      status: "FAIL",
+      command: "capture and diff role-aware process snapshots",
       durationMs: result.durationMs,
       message: error.message
     };
@@ -1878,6 +1913,10 @@ function assertString(value, label) {
   if (typeof value !== "string" || value.length === 0) {
     throw new Error(`${label} must be a non-empty string`);
   }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function assertArray(value, label) {

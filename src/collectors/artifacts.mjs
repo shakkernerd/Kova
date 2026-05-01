@@ -10,6 +10,7 @@ export function collectorArtifactDirs(runArtifactDir) {
     collectors: join(runArtifactDir, "collectors"),
     openclaw: join(runArtifactDir, "openclaw"),
     provider: join(runArtifactDir, "provider"),
+    processSnapshots: join(runArtifactDir, "process-snapshots"),
     resourceSamples: join(runArtifactDir, "resource-samples"),
     nodeProfiles: join(runArtifactDir, "node-profiles"),
     diagnostics: join(runArtifactDir, "diagnostics"),
@@ -25,6 +26,7 @@ export async function prepareCollectorArtifactDirs(runArtifactDir, options = {})
     dirs.collectors,
     dirs.openclaw,
     dirs.provider,
+    dirs.processSnapshots,
     dirs.resourceSamples
   ];
   if (options.nodeProfile === true) {
