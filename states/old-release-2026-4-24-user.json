@@ -1,0 +1,30 @@
+{
+  "id": "old-release-2026-4-24-user",
+  "title": "OpenClaw 2026.4.24 Plugin Architecture User",
+  "objective": "A cloned existing user env that is deliberately moved through OpenClaw 2026.4.24 before testing target upgrade behavior around plugin install indexes and bundled runtime deps.",
+  "tags": ["existing-user", "upgrade", "old-release", "plugin-architecture", "2026-4-24"],
+  "setup": [
+    {
+      "id": "write-2026-4-24-markers",
+      "title": "Write 2026.4.24 Fixture Markers",
+      "intent": "Persist non-invasive markers so reports can prove the disposable clone was shaped as a 2026.4.24 plugin-architecture upgrade source.",
+      "afterPhases": ["source-runtime"],
+      "commands": [
+        "ocm env exec {env} -- node -e 'const fs=require(\"fs\"), path=require(\"path\"); const home=process.env.OPENCLAW_HOME; fs.mkdirSync(path.join(home,\"config\"),{recursive:true}); fs.mkdirSync(path.join(home,\"plugins\"),{recursive:true}); fs.writeFileSync(path.join(home,\"config\",\"kova-source-release.json\"),JSON.stringify({schemaVersion:\"kova.fixture.source-release.v1\",release:\"2026.4.24\",surface:\"upgrade-existing-user\",risk:\"plugin-runtime-deps\"},null,2)); if(!fs.existsSync(path.join(home,\"plugins\",\"installs.json\"))) fs.writeFileSync(path.join(home,\"plugins\",\"kova-missing-installs-index-marker.json\"),JSON.stringify({schemaVersion:\"kova.fixture.plugin-index-marker.v1\",release:\"2026.4.24\"},null,2));'"
+      ],
+      "evidence": ["2026.4.24 source marker exists", "plugin install index marker exists when installs.json is missing"]
+    }
+  ],
+  "traits": ["existing-user", "old-release", "migration-state", "plugin-pressure", "runtime-deps"],
+  "compatibleSurfaces": ["upgrade-existing-user"],
+  "incompatibleSurfaces": [],
+  "riskArea": "plugin-runtime-deps",
+  "ownerArea": "plugins",
+  "setupEvidence": ["2026.4.24 source marker exists", "plugin install index marker exists when installs.json is missing"],
+  "cleanupGuarantees": ["disposable env cleanup removes 2026.4.24 fixture markers"],
+  "source": {
+    "kind": "real-runtime-downgrade",
+    "release": "2026.4.24",
+    "note": "The scenario uses ocm upgrade --version 2026.4.24 before upgrading to the target."
+  }
+}

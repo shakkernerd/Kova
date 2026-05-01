@@ -1,0 +1,46 @@
+{
+  "id": "upgrade-from-2026-4-24",
+  "surface": "upgrade-existing-user",
+  "title": "Upgrade From OpenClaw 2026.4.24",
+  "objective": "Clone existing OpenClaw user state, move the clone through the real 2026.4.24 plugin-architecture release, then upgrade the same clone to the target and verify plugin index migration, bundled plugin runtime deps, doctor recovery, and gateway health.",
+  "tags": ["existing-user", "upgrade", "old-release", "plugin-architecture", "plugins", "migration", "gateway"],
+  "states": ["old-release-2026-4-24-user"],
+  "timeoutMs": 240000,
+  "thresholds": {
+    "upgradeMs": 180000,
+    "gatewayReadyMs": 60000,
+    "statusMs": 10000,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "clone",
+      "title": "Clone Existing Env",
+      "intent": "Clone a durable existing env into a disposable Kova env before any old-release or upgrade action.",
+      "commands": ["ocm env clone {sourceEnv} {env} --json"],
+      "evidence": ["clone result", "source env", "clone root"]
+    },
+    {
+      "id": "source-runtime",
+      "title": "Move Clone To 2026.4.24",
+      "intent": "Use the real OCM upgrade path to bind and reconcile the cloned env on OpenClaw 2026.4.24 before the target upgrade.",
+      "commands": ["ocm upgrade {env} --version 2026.4.24 --json", "ocm service status {env} --json", "ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["2026.4.24 upgrade output", "pre-upgrade service status", "pre-upgrade OpenClaw status", "known 2026.4.24 plugin/runtime-deps logs"]
+    },
+    {
+      "id": "upgrade",
+      "title": "Upgrade To Target",
+      "intent": "Run the real target upgrade path through OCM and verify post-upgrade service reconciliation.",
+      "commands": ["ocm upgrade {env} {upgradeSelector} --json"],
+      "evidence": ["target upgrade JSON", "snapshot id", "doctor/update output", "rollback status"]
+    },
+    {
+      "id": "post-upgrade",
+      "title": "Post-Upgrade Plugin Checks",
+      "intent": "Verify the target OpenClaw fixes plugin architecture state from 2026.4.24 without missing dependency errors or plugin load failures.",
+      "commands": ["ocm @{env} -- status", "ocm @{env} -- plugins list", "ocm @{env} -- doctor --fix", "ocm logs {env} --tail 400 --raw"],
+      "evidence": ["status output", "plugins install index", "doctor output", "gateway logs without missing dependency/plugin load failures"]
+    }
+  ]
+}

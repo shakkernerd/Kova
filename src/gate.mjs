@@ -6,10 +6,19 @@ export function preflightGateRun({ entries, flags }) {
   }
 
   const selected = entries.filter((entry) => !entry.skipReason);
-  const needsSourceEnv = selected.some((entry) => entry.scenario?.id === "upgrade-existing-user");
+  const sourceEnvScenarios = selected
+    .filter((entry) => scenarioUsesSourceEnv(entry.scenario))
+    .map((entry) => entry.scenario.id);
+  const needsSourceEnv = sourceEnvScenarios.length > 0;
   if (needsSourceEnv && !flags.source_env) {
-    throw new Error("release gate preflight failed: --source-env <env> is required because selected gate scenario upgrade-existing-user clones existing user state");
+    throw new Error(`release gate preflight failed: --source-env <env> is required because selected gate scenario(s) ${sourceEnvScenarios.join(", ")} clone existing user state`);
   }
+}
+
+function scenarioUsesSourceEnv(scenario) {
+  return (scenario?.phases ?? []).some((phase) =>
+    (phase.commands ?? []).some((command) => command.includes("{sourceEnv}"))
+  );
 }
 
 export function evaluateGate(report, profile) {

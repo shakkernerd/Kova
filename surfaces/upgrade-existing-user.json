@@ -3,7 +3,12 @@
   "title": "Existing User Upgrade",
   "ownerArea": "upgrade",
   "description": "Clone existing OpenClaw state, run the real upgrade path, and verify migrations, plugin indexes, runtime deps, gateway readiness, and diagnostics.",
-  "requiredStates": ["old-release-user", "failed-upgrade"],
+  "requiredStates": [
+    "old-release-user",
+    "old-release-2026-4-20-user",
+    "old-release-2026-4-24-user",
+    "failed-upgrade"
+  ],
   "targetKinds": ["npm", "channel", "runtime", "local-build"],
   "requiredMetrics": ["upgradeMs", "gatewayReadyMs", "statusMs", "pluginIndexPresent", "doctorFixMs"],
   "processRoles": ["gateway", "command-tree", "runtime-management", "package-manager", "doctor-cli", "plugin-cli"],

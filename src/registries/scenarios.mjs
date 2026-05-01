@@ -144,9 +144,16 @@ function validateStringArray(values, key, errors, options = {}) {
 }
 
 export function validateScenarioRun(scenario, flags) {
-  if (scenario.id === "upgrade-existing-user" && flags.execute === true && !flags.source_env) {
-    throw new Error("upgrade-existing-user execution requires --source-env <env>");
+  const needsSourceEnv = scenarioUsesSourceEnv(scenario);
+  if (needsSourceEnv && flags.execute === true && !flags.source_env) {
+    throw new Error(`${scenario.id} execution requires --source-env <env>`);
   }
+}
+
+function scenarioUsesSourceEnv(scenario) {
+  return (scenario.phases ?? []).some((phase) =>
+    (phase.commands ?? []).some((command) => command.includes("{sourceEnv}"))
+  );
 }
 
 export function materializeCommands(commands, values) {

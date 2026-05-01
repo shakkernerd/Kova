@@ -10,7 +10,15 @@
         "warning": ["linux-x64", "linux-arm64", "wsl2"]
       },
       "states": {
-        "blocking": ["fresh", "onboarded-user", "old-release-user", "plugin-index", "many-bundled-plugins"]
+        "blocking": [
+          "fresh",
+          "onboarded-user",
+          "old-release-user",
+          "old-release-2026-4-20-user",
+          "old-release-2026-4-24-user",
+          "plugin-index",
+          "many-bundled-plugins"
+        ]
       },
       "traits": {
         "blocking": ["fresh-user", "existing-user", "old-release", "plugin-pressure", "provider-pressure"],
@@ -22,6 +30,8 @@
           "fresh-install:fresh",
           "fresh-install:onboarded-user",
           "upgrade-existing-user:old-release-user",
+          "upgrade-existing-user:old-release-2026-4-20-user",
+          "upgrade-existing-user:old-release-2026-4-24-user",
           "bundled-runtime-deps:missing-plugin-index",
           "plugin-lifecycle:plugin-index",
           "plugin-lifecycle:external-plugin",
@@ -63,6 +73,8 @@
           "release-runtime-startup",
           "fresh-install",
           "upgrade-existing-user",
+          "upgrade-from-2026-4-20",
+          "upgrade-from-2026-4-24",
           "bundled-runtime-deps",
           "plugin-lifecycle",
           "provider-models",
@@ -77,6 +89,8 @@
       { "scenario": "fresh-install", "state": "fresh" },
       { "scenario": "fresh-install", "state": "onboarded-user" },
       { "scenario": "upgrade-existing-user", "state": "old-release-user" },
+      { "scenario": "upgrade-from-2026-4-20", "state": "old-release-2026-4-20-user" },
+      { "scenario": "upgrade-from-2026-4-24", "state": "old-release-2026-4-24-user" },
       { "scenario": "bundled-runtime-deps", "state": "missing-plugin-index" },
       { "scenario": "plugin-lifecycle", "state": "plugin-index" },
       { "scenario": "plugin-external-install", "state": "fresh" },
@@ -123,6 +137,16 @@
       "scenario": "upgrade-existing-user",
       "state": "old-release-user",
       "timeoutMs": 180000
+    },
+    {
+      "scenario": "upgrade-from-2026-4-20",
+      "state": "old-release-2026-4-20-user",
+      "timeoutMs": 240000
+    },
+    {
+      "scenario": "upgrade-from-2026-4-24",
+      "state": "old-release-2026-4-24-user",
+      "timeoutMs": 240000
     },
     {
       "scenario": "bundled-runtime-deps",

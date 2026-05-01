@@ -1,0 +1,30 @@
+{
+  "id": "old-release-2026-4-20-user",
+  "title": "OpenClaw 2026.4.20 User",
+  "objective": "A cloned existing user env that is deliberately moved through OpenClaw 2026.4.20 before testing target upgrade behavior.",
+  "tags": ["existing-user", "upgrade", "old-release", "2026-4-20"],
+  "setup": [
+    {
+      "id": "write-2026-4-20-markers",
+      "title": "Write 2026.4.20 Fixture Markers",
+      "intent": "Persist non-invasive markers so reports can prove the disposable clone was shaped as a 2026.4.20 upgrade source.",
+      "afterPhases": ["source-runtime"],
+      "commands": [
+        "ocm env exec {env} -- node -e 'const fs=require(\"fs\"), path=require(\"path\"); const home=process.env.OPENCLAW_HOME; fs.mkdirSync(path.join(home,\"config\"),{recursive:true}); fs.writeFileSync(path.join(home,\"config\",\"kova-source-release.json\"),JSON.stringify({schemaVersion:\"kova.fixture.source-release.v1\",release:\"2026.4.20\",surface:\"upgrade-existing-user\"},null,2));'"
+      ],
+      "evidence": ["2026.4.20 source marker exists"]
+    }
+  ],
+  "traits": ["existing-user", "old-release", "migration-state"],
+  "compatibleSurfaces": ["upgrade-existing-user"],
+  "incompatibleSurfaces": [],
+  "riskArea": "release-upgrade",
+  "ownerArea": "upgrade",
+  "setupEvidence": ["2026.4.20 source marker exists"],
+  "cleanupGuarantees": ["disposable env cleanup removes 2026.4.20 fixture markers"],
+  "source": {
+    "kind": "real-runtime-downgrade",
+    "release": "2026.4.20",
+    "note": "The scenario uses ocm upgrade --version 2026.4.20 before upgrading to the target."
+  }
+}
