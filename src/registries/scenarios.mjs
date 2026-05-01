@@ -39,6 +39,12 @@ export function validateScenarioShape(scenario, sourceName = "scenario") {
   validateStringArray(scenario.tags, "tags", errors);
   validateStringArray(scenario.states, "states", errors, { optional: true });
   validateStringArray(scenario.targetKinds, "targetKinds", errors, { optional: true });
+  validateStringArray(scenario.targetValues, "targetValues", errors, { optional: true });
+  validateStringArray(scenario.fromKinds, "fromKinds", errors, { optional: true });
+  validateStringArray(scenario.fromValues, "fromValues", errors, { optional: true });
+  if (scenario.requiresFrom !== undefined && typeof scenario.requiresFrom !== "boolean") {
+    errors.push("requiresFrom must be a boolean when set");
+  }
   validatePhases(scenario.phases, errors);
 
   assertNoShapeErrors(errors, sourceName);
@@ -143,10 +149,17 @@ function validateStringArray(values, key, errors, options = {}) {
   }
 }
 
-export function validateScenarioRun(scenario, flags) {
+export function validateScenarioRun(scenario, flags, context = {}) {
   const needsSourceEnv = scenarioUsesSourceEnv(scenario);
   if (needsSourceEnv && flags.execute === true && !flags.source_env) {
     throw new Error(`${scenario.id} execution requires --source-env <env>`);
+  }
+  validateTargetContract(scenario, context.targetPlan, "target", "targetKinds", "targetValues");
+  if (scenario.requiresFrom === true && !context.fromPlan) {
+    throw new Error(`${scenario.id} requires --from <selector>`);
+  }
+  if (context.fromPlan) {
+    validateTargetContract(scenario, context.fromPlan, "from", "fromKinds", "fromValues");
   }
 }
 
@@ -154,6 +167,20 @@ function scenarioUsesSourceEnv(scenario) {
   return (scenario.phases ?? []).some((phase) =>
     (phase.commands ?? []).some((command) => command.includes("{sourceEnv}"))
   );
+}
+
+function validateTargetContract(scenario, plan, role, kindKey, valueKey) {
+  if (!plan) {
+    return;
+  }
+  const allowedKinds = scenario[kindKey] ?? [];
+  if (allowedKinds.length > 0 && !allowedKinds.includes(plan.kind)) {
+    throw new Error(`${scenario.id} supports ${role} kind ${allowedKinds.join(", ")}, got ${plan.kind}`);
+  }
+  const allowedValues = scenario[valueKey] ?? [];
+  if (allowedValues.length > 0 && !allowedValues.includes(plan.value)) {
+    throw new Error(`${scenario.id} supports ${role} value ${allowedValues.join(", ")}, got ${plan.value}`);
+  }
 }
 
 export function materializeCommands(commands, values) {

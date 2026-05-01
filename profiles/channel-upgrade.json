@@ -1,0 +1,9 @@
+{
+  "id": "channel-upgrade",
+  "title": "Channel Upgrade Matrix",
+  "objective": "Focused OpenClaw channel upgrade coverage for stable-to-beta transitions through real OCM-managed envs.",
+  "targetKinds": ["channel"],
+  "entries": [
+    { "scenario": "upgrade-stable-channel-to-beta", "state": "stable-channel-user", "timeoutMs": 240000 }
+  ]
+}

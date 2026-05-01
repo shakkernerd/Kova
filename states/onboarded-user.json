@@ -35,7 +35,8 @@
     "config-state"
   ],
   "compatibleSurfaces": [
-    "fresh-install"
+    "fresh-install",
+    "upgrade-existing-user"
   ],
   "incompatibleSurfaces": [],
   "riskArea": "onboarding-migration",

@@ -1,0 +1,29 @@
+{
+  "id": "stable-channel-user",
+  "title": "Stable Channel User",
+  "objective": "A disposable OpenClaw env that has been started on the stable release channel before testing channel or local-build upgrade behavior.",
+  "tags": ["upgrade", "channel", "stable", "existing-user"],
+  "setup": [
+    {
+      "id": "write-stable-channel-marker",
+      "title": "Write Stable Channel Marker",
+      "intent": "Persist stable-channel metadata after the env is first started so reports can prove the upgrade source shape.",
+      "afterPhases": ["start", "clone"],
+      "commands": [
+        "ocm env exec {env} -- node -e 'const fs=require(\"fs\"), path=require(\"path\"); const home=process.env.OPENCLAW_HOME; fs.mkdirSync(path.join(home,\"config\"),{recursive:true}); fs.writeFileSync(path.join(home,\"config\",\"channel.json\"),JSON.stringify({schemaVersion:\"kova.fixture.channel.v1\",channel:\"stable\"},null,2)); fs.writeFileSync(path.join(home,\".openclaw-channel\"),\"stable\\n\");'"
+      ],
+      "evidence": ["stable channel marker exists"]
+    }
+  ],
+  "traits": ["existing-user", "channel-state"],
+  "compatibleSurfaces": ["upgrade-existing-user"],
+  "incompatibleSurfaces": [],
+  "riskArea": "release-channel-upgrade",
+  "ownerArea": "upgrade",
+  "setupEvidence": ["stable channel marker exists"],
+  "cleanupGuarantees": ["disposable env cleanup removes stable channel fixture files"],
+  "source": {
+    "kind": "generated",
+    "note": "The scenario starts the env through the real stable channel before upgrading it."
+  }
+}

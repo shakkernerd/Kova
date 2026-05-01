@@ -1,0 +1,40 @@
+{
+  "id": "upgrade-stable-channel-to-local-build",
+  "surface": "upgrade-existing-user",
+  "title": "Stable Channel To Local Build Upgrade",
+  "objective": "Start a disposable OpenClaw env on the stable channel, upgrade it to a release-shaped local build, and verify the same migration/runtime behavior users would see when updating to the upcoming release.",
+  "tags": ["upgrade", "channel", "stable", "local-build", "plugins", "gateway"],
+  "states": ["stable-channel-user"],
+  "targetKinds": ["local-build"],
+  "timeoutMs": 300000,
+  "thresholds": {
+    "upgradeMs": 180000,
+    "gatewayReadyMs": 60000,
+    "statusMs": 10000,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "start",
+      "title": "Start Stable Channel Env",
+      "intent": "Create a disposable env through the real stable channel before upgrading to the local release-shaped runtime.",
+      "commands": ["ocm start {env} --channel stable --json", "ocm service status {env} --json", "ocm @{env} -- status"],
+      "evidence": ["stable channel start output", "pre-upgrade gateway status", "pre-upgrade OpenClaw status"]
+    },
+    {
+      "id": "upgrade",
+      "title": "Upgrade To Local Build",
+      "intent": "Run the real OpenClaw upgrade path to the release-shaped local build runtime.",
+      "commands": ["ocm upgrade {env} {upgradeSelector} --json"],
+      "evidence": ["local-build upgrade JSON", "snapshot id", "doctor/update output", "rollback status"]
+    },
+    {
+      "id": "post-upgrade",
+      "title": "Post-Local-Build Upgrade Checks",
+      "intent": "Verify the local build handles plugin indexes, runtime deps, doctor recovery, and gateway readiness after upgrade.",
+      "commands": ["ocm service status {env} --json", "ocm @{env} -- status", "ocm @{env} -- plugins list", "ocm @{env} -- doctor --fix", "ocm logs {env} --tail 400 --raw"],
+      "evidence": ["gateway state", "status output", "plugins install index", "doctor output", "gateway logs without missing dependency/plugin load failures"]
+    }
+  ]
+}

@@ -35,7 +35,8 @@
   ],
   "compatibleSurfaces": [
     "fresh-install",
-    "plugin-lifecycle"
+    "plugin-lifecycle",
+    "upgrade-existing-user"
   ],
   "incompatibleSurfaces": [],
   "riskArea": "plugin-index-migration",

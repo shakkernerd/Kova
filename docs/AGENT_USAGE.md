@@ -158,6 +158,18 @@ node bin/kova.mjs run \
   --execute
 ```
 
+Focused upgrade lanes are target-specific and Kova validates the selector:
+
+```sh
+node bin/kova.mjs matrix run --profile channel-upgrade --target channel:beta --execute --json
+node bin/kova.mjs matrix run --profile local-build-upgrade --target local-build:/path/to/openclaw --source-env Violet --execute --json
+```
+
+`channel-upgrade` is specifically stable-to-beta. Running it with
+`channel:stable` is rejected instead of producing misleading evidence.
+`local-build-upgrade` exercises stable-channel and cloned existing-user upgrades
+against the release-shaped local build.
+
 If a user wants to retain a failed env:
 
 ```sh

@@ -1,0 +1,41 @@
+{
+  "id": "upgrade-stable-channel-to-beta",
+  "surface": "upgrade-existing-user",
+  "title": "Stable Channel To Beta Upgrade",
+  "objective": "Start a disposable OpenClaw env on the stable channel, run the real upgrade path to beta, and verify channel upgrade behavior, plugin index migration, bundled runtime deps, and gateway health.",
+  "tags": ["upgrade", "channel", "stable", "beta", "plugins", "gateway"],
+  "states": ["stable-channel-user"],
+  "targetKinds": ["channel"],
+  "targetValues": ["beta"],
+  "timeoutMs": 240000,
+  "thresholds": {
+    "upgradeMs": 180000,
+    "gatewayReadyMs": 60000,
+    "statusMs": 10000,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "start",
+      "title": "Start Stable Channel Env",
+      "intent": "Create a disposable env through the real stable channel before switching to beta.",
+      "commands": ["ocm start {env} --channel stable --json", "ocm service status {env} --json", "ocm @{env} -- status"],
+      "evidence": ["stable channel start output", "pre-upgrade gateway status", "pre-upgrade OpenClaw status"]
+    },
+    {
+      "id": "upgrade",
+      "title": "Upgrade To Beta",
+      "intent": "Run the real OpenClaw upgrade path to the beta channel through OCM.",
+      "commands": ["ocm upgrade {env} {upgradeSelector} --json"],
+      "evidence": ["beta upgrade JSON", "snapshot id", "doctor/update output", "rollback status"]
+    },
+    {
+      "id": "post-upgrade",
+      "title": "Post-Beta Upgrade Checks",
+      "intent": "Verify OpenClaw is usable after the beta channel upgrade and capture plugin/runtime dependency evidence.",
+      "commands": ["ocm service status {env} --json", "ocm @{env} -- status", "ocm @{env} -- plugins list", "ocm @{env} -- doctor --fix", "ocm logs {env} --tail 400 --raw"],
+      "evidence": ["gateway state", "status output", "plugins install index", "doctor output", "gateway logs without missing dependency/plugin load failures"]
+    }
+  ]
+}

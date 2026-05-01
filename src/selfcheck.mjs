@@ -113,6 +113,34 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await jsonCommandCheck("matrix-plan-repeat-json", "node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --include scenario:fresh-install --repeat 3 --json", (data) => {
       assertEqual(data.controls?.repeat, 3, "matrix repeat control");
     }));
+    checks.push(await jsonCommandCheck("channel-upgrade-plan-json", "node bin/kova.mjs matrix plan --profile channel-upgrade --target channel:beta --json", (data) => {
+      assertEqual(data.profile?.id, "channel-upgrade", "channel upgrade profile id");
+      assertEqual(data.target, "channel:beta", "channel upgrade target");
+      assertEqual(data.entries?.[0]?.scenario?.id, "upgrade-stable-channel-to-beta", "channel upgrade scenario");
+    }));
+    checks.push(await failingCommandCheck(
+      "channel-upgrade-rejects-wrong-target-value",
+      "node bin/kova.mjs matrix plan --profile channel-upgrade --target channel:stable --json",
+      "upgrade-stable-channel-to-beta supports target value beta, got stable"
+    ));
+    checks.push(await jsonCommandCheck("local-build-upgrade-plan-json", "node bin/kova.mjs matrix plan --profile local-build-upgrade --target local-build:/tmp/openclaw --include scenario:upgrade-stable-channel-to-local-build --json", (data) => {
+      assertEqual(data.profile?.id, "local-build-upgrade", "local-build upgrade profile id");
+      assertEqual(data.entries?.[0]?.scenario?.id, "upgrade-stable-channel-to-local-build", "local-build stable upgrade scenario");
+    }));
+    checks.push(await jsonCommandCheck("channel-upgrade-dry-run-json", `node bin/kova.mjs run --target channel:beta --scenario upgrade-stable-channel-to-beta --state stable-channel-user --report-dir ${quoteShell(tmp)} --json`, async (data) => {
+      const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
+      const record = report.records?.[0];
+      const commands = (record?.phases ?? []).flatMap((phase) => phase.commands ?? []);
+      assertEqual(commands.some((command) => command.includes("ocm start") && command.includes("--channel stable")), true, "stable start command present");
+      assertEqual(commands.some((command) => command.includes("ocm upgrade") && /--channel '?beta'?/.test(command)), true, "beta upgrade command present");
+    }));
+    checks.push(await jsonCommandCheck("durable-clone-local-build-dry-run-json", `node bin/kova.mjs run --target local-build:/tmp/openclaw --scenario upgrade-durable-clone-to-local-build --state plugin-index --source-env 'Team Env' --report-dir ${quoteShell(tmp)} --json`, async (data) => {
+      const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
+      const record = report.records?.[0];
+      const commands = (record?.phases ?? []).flatMap((phase) => phase.commands ?? []);
+      assertEqual(commands.some((command) => command.includes("ocm env clone 'Team Env'")), true, "quoted source env clone command present");
+      assertEqual(commands.some((command) => command.includes("ocm upgrade") && /--runtime '?kova-local-/.test(command)), true, "local-build runtime upgrade command present");
+    }));
     checks.push(await jsonCommandCheck("run-auth-default-mock-json", `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --report-dir ${quoteShell(tmp)} --json`, async (data) => {
       const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
       const record = report.records?.[0];

@@ -1,0 +1,40 @@
+{
+  "id": "upgrade-durable-clone-to-local-build",
+  "surface": "upgrade-existing-user",
+  "title": "Durable Clone To Local Build Upgrade",
+  "objective": "Clone a real existing OpenClaw env into disposable state, upgrade the clone to a release-shaped local build, and verify user-state migration, plugin indexes, bundled runtime deps, and gateway health without mutating the source env.",
+  "tags": ["existing-user", "upgrade", "local-build", "plugins", "migration", "gateway"],
+  "states": ["onboarded-user", "plugin-index", "failed-upgrade"],
+  "targetKinds": ["local-build"],
+  "timeoutMs": 300000,
+  "thresholds": {
+    "upgradeMs": 180000,
+    "gatewayReadyMs": 60000,
+    "statusMs": 10000,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "clone",
+      "title": "Clone Existing Env",
+      "intent": "Clone a durable existing env into a disposable Kova env before any local-build upgrade action.",
+      "commands": ["ocm env clone {sourceEnv} {env} --json", "ocm service status {env} --json"],
+      "evidence": ["clone result", "source env", "clone root", "pre-upgrade service status"]
+    },
+    {
+      "id": "upgrade",
+      "title": "Upgrade Clone To Local Build",
+      "intent": "Run the real OpenClaw upgrade path against the cloned user state using the release-shaped local build runtime.",
+      "commands": ["ocm upgrade {env} {upgradeSelector} --json"],
+      "evidence": ["local-build upgrade JSON", "snapshot id", "doctor/update output", "rollback status"]
+    },
+    {
+      "id": "post-upgrade",
+      "title": "Post-Upgrade Clone Checks",
+      "intent": "Verify cloned user state survives local-build upgrade, including plugin index migration and gateway readiness.",
+      "commands": ["ocm service status {env} --json", "ocm @{env} -- status", "ocm @{env} -- plugins list", "ocm @{env} -- doctor --fix", "ocm logs {env} --tail 400 --raw"],
+      "evidence": ["gateway state", "status output", "plugins install index", "doctor output", "gateway logs without missing dependency/plugin load failures"]
+    }
+  ]
+}

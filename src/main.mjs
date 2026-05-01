@@ -169,11 +169,12 @@ async function matrixCommand(flags) {
     const target = required(flags.target, "--target");
     const targetPlan = resolveTarget(target, "target");
     validateProfileTarget(profile, targetPlan);
-    if (flags.from) {
-      resolveTarget(flags.from, "from");
-    }
+    const fromPlan = flags.from ? resolveTarget(flags.from, "from") : null;
     const platform = platformInfo();
     const entries = applyMatrixControls(await expandProfile(profile), flags, platform);
+    for (const entry of entries.filter((item) => !item.skipReason)) {
+      validateScenarioRun(entry.scenario, flags, { targetPlan, fromPlan });
+    }
     const response = {
       schemaVersion: "kova.matrix.plan.v1",
       generatedAt: new Date().toISOString(),
@@ -305,7 +306,7 @@ async function matrixRun(flags) {
   const baselineStore = baselinePath ? await loadBaselineStore(baselinePath) : null;
   preflightGateRun({ entries, flags });
   for (const entry of entries.filter((item) => !item.skipReason)) {
-    validateScenarioRun(entry.scenario, flags);
+    validateScenarioRun(entry.scenario, flags, { targetPlan, fromPlan });
   }
   const reportRoot = flags.report_dir ? resolveFromCwd(flags.report_dir) : reportsDir;
   const runId = createRunId();
@@ -816,7 +817,7 @@ async function run(flags) {
   const state = await loadState(flags.state ?? "fresh");
   const scenarios = await loadScenarios(flags.scenario);
   for (const scenario of scenarios) {
-    validateScenarioRun(scenario, flags);
+    validateScenarioRun(scenario, flags, { targetPlan, fromPlan });
   }
 
   const reportRoot = flags.report_dir ? resolveFromCwd(flags.report_dir) : reportsDir;
