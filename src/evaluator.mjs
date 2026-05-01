@@ -1496,6 +1496,14 @@ function diagnoseAgentLatency({ coldAgentTurn, warmAgentTurn, providerTurn, thre
         likelyOwner: "agent-runtime/auth"
       };
     }
+    if (authMode === "live") {
+      return {
+        kind: "live-provider-timing-unavailable",
+        severity: "info",
+        summary: "Live provider request timing was not captured; use OpenClaw timeline spans or a deterministic mock provider lane for provider boundary attribution.",
+        likelyOwner: "Kova/OpenClaw diagnostics integration"
+      };
+    }
     return {
       kind: "no-provider-request",
       severity: "fail",

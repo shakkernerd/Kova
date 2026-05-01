@@ -80,7 +80,7 @@ export async function collectEnvMetrics(envName, options = {}) {
     recordCollector(collectors, "process", metrics.process);
   }
 
-  if (serviceJson.gatewayPort) {
+  if (serviceJson.gatewayPort && shouldProbeReadiness(serviceJson, readinessTimeoutMs)) {
     await collectReadinessAndHealth(metrics, collectors, serviceJson.gatewayPort, {
       readinessTimeoutMs,
       readinessThresholdMs: options.readinessThresholdMs,
@@ -90,6 +90,20 @@ export async function collectEnvMetrics(envName, options = {}) {
       healthIntervalMs,
       timeoutMs,
       sampleHealthAfterReady: Boolean(serviceJson.childPid)
+    });
+  } else if (serviceJson.gatewayPort) {
+    metrics.readiness = skippedReadinessMetrics(serviceJson.gatewayPort, {
+      thresholdMs: options.readinessThresholdMs,
+      deadlineMs: readinessTimeoutMs,
+      reason: serviceJson.childPid
+        ? "readiness probe disabled for this phase"
+        : "gateway process is not expected to be running for this phase"
+    });
+    recordCollector(collectors, "readiness", {
+      commandStatus: 0,
+      durationMs: 0,
+      statusLabel: "INFO",
+      error: null
     });
   }
 
@@ -108,6 +122,45 @@ export async function collectEnvMetrics(envName, options = {}) {
   await collectDiagnosticArtifactMetrics(metrics, collectors, envName, timeoutMs, options);
 
   return metrics;
+}
+
+function shouldProbeReadiness(serviceJson, readinessTimeoutMs) {
+  if (serviceJson.childPid) {
+    return true;
+  }
+  if (readinessTimeoutMs <= 0) {
+    return false;
+  }
+  return serviceJson.running === true || serviceJson.desiredRunning === true || serviceJson.gatewayState === "running" || serviceJson.gatewayState === "backoff";
+}
+
+function skippedReadinessMetrics(port, { thresholdMs, deadlineMs, reason }) {
+  return {
+    schemaVersion: "kova.readiness.v1",
+    deadlineMs,
+    thresholdMs: Math.max(0, Number(thresholdMs ?? 0)),
+    intervalMs: null,
+    attempts: 0,
+    ready: null,
+    listeningReady: null,
+    listeningReadyAtMs: null,
+    healthReadyAtMs: null,
+    classification: {
+      state: "not-applicable",
+      severity: "info",
+      reason
+    },
+    listening: {
+      host: "127.0.0.1",
+      port: Number(port),
+      ok: null,
+      durationMs: null,
+      error: reason
+    },
+    health: null,
+    listeningAttempts: [],
+    healthAttempts: []
+  };
 }
 
 async function collectReadinessAndHealth(metrics, collectors, port, options) {
