@@ -91,8 +91,11 @@ the scenario/state explicitly tests missing or broken auth. `--auth mock` is the
 default and uses Kova's deterministic local OpenAI-compatible provider.
 `--auth live` requires credentials configured through `kova setup`; live results
 are marked environment-dependent and should be compared separately from mock
-baselines. Kova's live auth setup patches disposable env config as fixture setup
-for runtime validation; it is not proof that OpenClaw onboarding/auth UX passed.
+baselines. For supported API-key/env-only providers, Kova configures live auth
+through OpenClaw's own non-interactive `onboard` path with env-backed
+SecretRefs. Live paths without a stable OpenClaw command path are labeled
+fixture setup and must not be cited as proof that OpenClaw onboarding/auth UX
+passed.
 
 `plan --json` is coverage-aware: scenarios map to declared OpenClaw surfaces,
 surfaces declare process roles and required metrics, and profile coverage gaps

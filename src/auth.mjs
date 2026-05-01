@@ -129,7 +129,7 @@ export function scenarioAuthPolicy(context, scenario, state) {
       fallbackFrom: live.fallbackFrom ?? null,
       fallbackPolicy: live.fallbackPolicy ?? null,
       setup: true,
-      setupKind: "fixture-config-patch",
+      setupKind: liveAuthSetupKind(live),
       commandEnv: env,
       redactionValues: [...(context.auth?.redactionValues ?? []), ...secretValues(env)],
       summary: authDisplay({
@@ -140,7 +140,7 @@ export function scenarioAuthPolicy(context, scenario, state) {
         fallbackFrom: live.fallbackFrom ?? null,
         fallbackPolicy: live.fallbackPolicy ?? null,
         setup: true,
-        setupKind: "fixture-config-patch",
+        setupKind: liveAuthSetupKind(live),
         envVars: live.envVars
       })
     };
@@ -199,9 +199,9 @@ export function buildAuthSetupPhase(authPolicy, envName, artifactDir) {
   return {
     id: "auth-setup",
     title: "Auth Setup",
-    intent: "Patch the disposable OpenClaw env with fixture live auth config; this proves runtime behavior, not OpenClaw onboarding/auth UX.",
+    intent: liveAuthSetupIntent(authPolicy),
     commands: [configureLiveAuthCommand(authPolicy, envName)],
-    evidence: ["fixture auth config applied", "OpenClaw config references live auth env vars or selected external CLI", "live auth is environment-dependent"]
+    evidence: liveAuthSetupEvidence(authPolicy)
   };
 }
 
@@ -593,11 +593,85 @@ function configureMockAuthCommand(envName, dir) {
 }
 
 function configureLiveAuthCommand(authPolicy, envName) {
+  if (authPolicy.setupKind === "openclaw-onboard") {
+    return configureLiveAuthViaOpenClawOnboardCommand(authPolicy, envName);
+  }
   const envVar = authPolicy.summary.envVars?.[0] ?? defaultEnvVarForProvider(authPolicy.providerId);
   const externalCliArgs = authPolicy.source === "external-cli" && authPolicy.externalCli
     ? ` --auth-method external-cli --external-cli ${quoteShell(authPolicy.externalCli)}`
     : "";
   return `ocm env exec ${quoteShell(envName)} -- node ${quoteShell(join(repoRoot, "support/configure-openclaw-live-auth.mjs"))} --provider ${quoteShell(authPolicy.providerId)} --env-var ${quoteShell(envVar)}${externalCliArgs}`;
+}
+
+function configureLiveAuthViaOpenClawOnboardCommand(authPolicy, envName) {
+  const onboard = liveOnboardConfig(authPolicy);
+  const args = [
+    "onboard",
+    "--non-interactive",
+    "--accept-risk",
+    "--mode", "local",
+    "--auth-choice", onboard.authChoice,
+    "--skip-health",
+    "--skip-ui",
+    "--skip-search",
+    "--skip-skills",
+    "--skip-channels",
+    "--skip-bootstrap",
+    "--no-install-daemon",
+    "--json"
+  ];
+  if (onboard.secretInputMode) {
+    args.push("--secret-input-mode", onboard.secretInputMode);
+  }
+  return `ocm @${quoteShell(envName)} -- ${args.map(quoteShell).join(" ")}`;
+}
+
+function liveAuthSetupKind(live) {
+  if (live.method === "api-key" || live.method === "env-only") {
+    if (live.providerId === "openai" || live.providerId === "anthropic") {
+      return "openclaw-onboard";
+    }
+  }
+  if (live.method === "external-cli" && live.providerId === "anthropic") {
+    return "openclaw-onboard";
+  }
+  return "fixture-config-patch";
+}
+
+function liveAuthSetupIntent(authPolicy) {
+  if (authPolicy.setupKind === "openclaw-onboard") {
+    return "Configure the disposable OpenClaw env through OpenClaw's own non-interactive onboarding/auth path using env-backed SecretRefs where applicable.";
+  }
+  return "Patch the disposable OpenClaw env with fixture live auth config; this proves runtime behavior, not OpenClaw onboarding/auth UX.";
+}
+
+function liveAuthSetupEvidence(authPolicy) {
+  if (authPolicy.setupKind === "openclaw-onboard") {
+    return ["OpenClaw onboard command completed", "OpenClaw config references live auth env vars or selected external CLI", "live auth is environment-dependent"];
+  }
+  return ["fixture auth config applied", "OpenClaw config references live auth env vars or selected external CLI", "live auth is environment-dependent"];
+}
+
+function liveOnboardConfig(authPolicy) {
+  if (authPolicy.source === "external-cli" && authPolicy.providerId === "anthropic") {
+    return {
+      authChoice: "anthropic-cli",
+      secretInputMode: null
+    };
+  }
+  if (authPolicy.providerId === "openai") {
+    return {
+      authChoice: "openai-api-key",
+      secretInputMode: "ref"
+    };
+  }
+  if (authPolicy.providerId === "anthropic") {
+    return {
+      authChoice: "apiKey",
+      secretInputMode: "ref"
+    };
+  }
+  throw new Error(`provider ${authPolicy.providerId} does not have a supported OpenClaw non-interactive live auth setup path`);
 }
 
 function defaultEnvVarForProvider(providerId) {

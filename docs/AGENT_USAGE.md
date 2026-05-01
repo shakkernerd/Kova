@@ -69,8 +69,10 @@ setup passes. `openai + external-cli` uses Codex CLI; `anthropic + external-cli`
 uses Claude CLI. External CLI fallback is only valid when setup explicitly
 selected `--fallback-policy external-cli`. Use API-key or env-only auth for
 `custom-openai`.
-Live auth setup patches disposable env config as fixture setup for runtime
-validation; do not cite it as proof that OpenClaw onboarding/auth UX passed.
+For supported API-key/env-only providers, live auth setup runs OpenClaw's own
+non-interactive `onboard` path with env-backed SecretRefs. Live auth paths that
+do not expose a stable OpenClaw command path are labeled fixture setup; do not
+cite those runs as proof that OpenClaw onboarding/auth UX passed.
 
 4. Execute one scenario explicitly:
 

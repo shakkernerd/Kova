@@ -70,6 +70,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await claudeCliOpenClawConfigCheck(tmp));
     checks.push(await liveApiKeyExecutionCheck(tmp));
     checks.push(await liveExternalCliDryRunCheck(tmp));
+    checks.push(await liveAnthropicExternalCliDryRunCheck(tmp));
     checks.push(await liveExternalCliFallbackCheck(tmp));
     checks.push(await failingCommandCheck(
       "setup-custom-provider-rejects-external-cli",
@@ -1047,6 +1048,7 @@ async function liveApiKeyExecutionCheck(tmp) {
     assertEqual(report.auth?.live?.environmentDependent, true, "top-level live env-dependent flag");
     assertEqual(record?.auth?.mode, "live", "record live auth mode");
     assertEqual(record?.auth?.source, "api-key", "record live auth source");
+    assertEqual(record?.auth?.setupKind, "openclaw-onboard", "record live setup kind");
     assertEqual(record?.auth?.environmentDependent, true, "record live env-dependent flag");
     assertEqual(record?.auth?.secretValues, "redacted", "record secret values redacted");
     assertEqual(record?.providerEvidence?.environmentDependent, true, "provider evidence live env-dependent flag");
@@ -1127,6 +1129,7 @@ async function liveExternalCliDryRunCheck(tmp) {
     assertEqual(record?.auth?.mode, "live", "external cli record live mode");
     assertEqual(record?.auth?.source, "external-cli", "external cli record source");
     assertEqual(record?.auth?.externalCli, "codex", "external cli record name");
+    assertEqual(record?.auth?.setupKind, "fixture-config-patch", "codex cli fixture setup kind");
     const authSetupCommand = record.phases
       ?.flatMap((phase) => phase.commands ?? [])
       ?.find((item) => item.includes("configure-openclaw-live-auth.mjs")) ?? "";
@@ -1215,6 +1218,76 @@ async function liveExternalCliFallbackCheck(tmp) {
   }
 }
 
+async function liveAnthropicExternalCliDryRunCheck(tmp) {
+  const home = join(tmp, "live-anthropic-cli-home");
+  const kovaHome = join(tmp, "live-anthropic-cli-kova-home");
+  const fakeBin = join(tmp, "live-anthropic-cli-bin");
+  const reportDir = join(tmp, "live-anthropic-cli-report");
+  await mkdir(join(home, ".claude"), { recursive: true });
+  await mkdir(join(kovaHome, "credentials"), { recursive: true });
+  await mkdir(fakeBin, { recursive: true });
+  await writeFile(join(home, ".claude", ".credentials.json"), "{\"claudeAiOauth\":{\"accessToken\":\"redacted\"}}\n", "utf8");
+  await writeFile(join(fakeBin, "claude"), "#!/bin/sh\necho claude-selfcheck\n", "utf8");
+  await chmod(join(fakeBin, "claude"), 0o755);
+  await writeFile(join(kovaHome, "credentials", "providers.json"), `${JSON.stringify({
+    schemaVersion: "kova.credentials.providers.v1",
+    defaultProvider: "anthropic",
+    providers: {
+      anthropic: {
+        id: "anthropic",
+        method: "external-cli",
+        envVars: [],
+        externalCli: "claude",
+        fallbackPolicy: "mock",
+        configuredAt: new Date().toISOString()
+      }
+    }
+  }, null, 2)}\n`, "utf8");
+  await writeFile(join(kovaHome, "credentials", "live.env"), "", { encoding: "utf8", mode: 0o600 });
+
+  const command = [
+    `HOME=${quoteShell(home)}`,
+    `PATH=${quoteShell(`${fakeBin}:${process.env.PATH}`)}`,
+    `KOVA_HOME=${quoteShell(kovaHome)}`,
+    `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --auth live --report-dir ${quoteShell(reportDir)} --json`
+  ].join(" ");
+  const result = await runCommand(command, { timeoutMs: 30000, maxOutputChars: 1000000 });
+
+  try {
+    if (result.status !== 0) {
+      throw new Error(result.stderr.trim() || result.stdout.trim() || `exit ${result.status}`);
+    }
+    const receipt = JSON.parse(result.stdout);
+    const report = JSON.parse(await readFile(receipt.jsonPath, "utf8"));
+    const record = report.records?.[0];
+    assertEqual(report.auth?.live?.method, "external-cli", "anthropic external cli live method");
+    assertEqual(report.auth?.live?.externalCli, "claude", "anthropic external cli name");
+    assertEqual(record?.auth?.mode, "live", "anthropic cli record live mode");
+    assertEqual(record?.auth?.providerId, "anthropic", "anthropic cli provider");
+    assertEqual(record?.auth?.setupKind, "openclaw-onboard", "anthropic cli onboard setup");
+    const authSetupCommand = record.phases
+      ?.flatMap((phase) => phase.commands ?? [])
+      ?.find((item) => item.includes("onboard")) ?? "";
+    if (!authSetupCommand.includes("--auth-choice") || !authSetupCommand.includes("anthropic-cli")) {
+      throw new Error(`anthropic external-cli auth setup command missing OpenClaw onboard path: ${authSetupCommand}`);
+    }
+    return {
+      id: "live-anthropic-external-cli-dry-run",
+      status: "PASS",
+      command,
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "live-anthropic-external-cli-dry-run",
+      status: "FAIL",
+      command,
+      durationMs: result.durationMs,
+      message: error.message
+    };
+  }
+}
+
 function fakeOcmScript() {
   return `#!/bin/sh
 printf '%s\\n' "$*" >> "$KOVA_MOCK_OCM_LOG"
@@ -1231,7 +1304,35 @@ esac
 case "$1" in
   start) echo '{"ok":true}'; exit 0 ;;
   logs) exit 0 ;;
-  @*) echo "live command key=$OPENAI_API_KEY"; exit 0 ;;
+  @*)
+    env_name="$1"
+    shift
+    if [ "$1" = "--" ]; then shift; fi
+    if [ "$1" = "onboard" ]; then
+      mkdir -p "$KOVA_FAKE_OPENCLAW_HOME/.openclaw"
+      case " $* " in
+        *" --auth-choice openai-api-key "*)
+          cat > "$KOVA_FAKE_OPENCLAW_HOME/.openclaw/openclaw.json" <<'JSON'
+{"models":{"mode":"merge","providers":{"openai":{"apiKey":{"source":"env","provider":"default","id":"OPENAI_API_KEY"},"models":[{"id":"gpt-5.5","name":"gpt-5.5","api":"openai-responses"}]}}},"agents":{"defaults":{"model":{"primary":"openai/gpt-5.5"}}}}
+JSON
+          ;;
+        *" --auth-choice apiKey "*)
+          cat > "$KOVA_FAKE_OPENCLAW_HOME/.openclaw/openclaw.json" <<'JSON'
+{"models":{"mode":"merge","providers":{"anthropic":{"apiKey":{"source":"env","provider":"default","id":"ANTHROPIC_API_KEY"},"models":[{"id":"claude-sonnet-4-5","name":"claude-sonnet-4-5"}]}}},"agents":{"defaults":{"model":{"primary":"anthropic/claude-sonnet-4-5"}}}}
+JSON
+          ;;
+        *" --auth-choice anthropic-cli "*)
+          cat > "$KOVA_FAKE_OPENCLAW_HOME/.openclaw/openclaw.json" <<'JSON'
+{"agents":{"defaults":{"model":{"primary":"claude-cli/claude-sonnet-4-5"},"agentRuntime":{"id":"claude-cli","fallback":"none"}}}}
+JSON
+          ;;
+      esac
+      echo '{"ok":true}'
+      exit 0
+    fi
+    echo "live command key=$OPENAI_API_KEY"
+    exit 0
+    ;;
   --version) echo 'mock-ocm'; exit 0 ;;
 esac
 echo "unhandled mock ocm command: $*" >&2

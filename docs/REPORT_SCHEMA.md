@@ -137,6 +137,17 @@ Executed phases include:
 Successful command stdout/stderr may be present in JSON but should not be pasted
 by agents unless it explains a failure.
 
+## Auth Evidence
+
+Record `auth.setupKind` states how Kova configured model auth for the disposable
+OpenClaw env:
+
+- `openclaw-onboard`: Kova used OpenClaw's own non-interactive `onboard`
+  command, normally with env-backed SecretRefs for API-key/env-only providers.
+- `fixture-config-patch`: Kova patched disposable env config directly for a
+  live path that has no stable non-interactive OpenClaw command path. Treat this
+  as runtime validation only, not proof that OpenClaw onboarding/auth UX passed.
+
 ## Metrics
 
 Metrics use explicit collector result contracts. The top-level metrics object
