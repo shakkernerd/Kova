@@ -313,6 +313,9 @@ export async function runSelfCheck(flags = {}) {
           assertString(data.outputPath, "bundle output path");
           assertString(data.checksumPath, "bundle checksum path");
           assertString(data.sha256, "bundle sha256");
+          assertEqual(data.included?.artifactIndex, true, "bundle includes artifact index");
+          assertEqual(data.artifactIndex?.path, "artifact-index.json", "artifact index path");
+          assertEqual((data.artifactIndex?.fileCount ?? 0) > 0, true, "artifact index file count");
         }
       ));
     }

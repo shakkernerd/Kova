@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { cp, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, dirname, extname, join, relative, resolve } from "node:path";
 import { artifactsDir } from "./paths.mjs";
 import { renderPasteSummary } from "./report.mjs";
 
@@ -33,7 +33,8 @@ export async function bundleReport(reportPath, options = {}) {
       reportJson: true,
       reportMarkdown: false,
       pasteSummary: true,
-      runArtifacts: false
+      runArtifacts: false,
+      artifactIndex: true
     };
 
     if (existsSync(markdownPath)) {
@@ -65,6 +66,8 @@ export async function bundleReport(reportPath, options = {}) {
       included
     };
     await writeFile(join(stage, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    const artifactIndex = await buildArtifactIndex(stage, bundleName);
+    await writeFile(join(stage, "artifact-index.json"), `${JSON.stringify(artifactIndex, null, 2)}\n`, "utf8");
 
     const tar = spawnSync("tar", ["-czf", outputPath, "-C", tmp, bundleName], {
       encoding: "utf8",
@@ -86,6 +89,11 @@ export async function bundleReport(reportPath, options = {}) {
       checksumPath,
       sha256,
       bytes: archive.length,
+      artifactIndex: {
+        path: "artifact-index.json",
+        fileCount: artifactIndex.fileCount,
+        totalBytes: artifactIndex.totalBytes
+      },
       included
     };
   } finally {
@@ -150,4 +158,39 @@ function siblingMarkdownPath(path) {
 
 function sanitize(value) {
   return String(value).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+async function buildArtifactIndex(stage, bundleName) {
+  const entries = await listFiles(stage, stage);
+  const totalBytes = entries.reduce((sum, entry) => sum + entry.bytes, 0);
+  return {
+    schemaVersion: "kova.artifact.index.v1",
+    generatedAt: new Date().toISOString(),
+    bundleRoot: bundleName,
+    fileCount: entries.length,
+    totalBytes,
+    entries
+  };
+}
+
+async function listFiles(root, dir) {
+  const names = await readdir(dir, { withFileTypes: true });
+  const entries = [];
+  for (const name of names.toSorted((left, right) => left.name.localeCompare(right.name))) {
+    const path = join(dir, name.name);
+    if (name.isDirectory()) {
+      entries.push(...await listFiles(root, path));
+      continue;
+    }
+    if (!name.isFile()) {
+      continue;
+    }
+    const bytes = await readFile(path);
+    entries.push({
+      path: relative(root, path),
+      bytes: bytes.length,
+      sha256: createHash("sha256").update(bytes).digest("hex")
+    });
+  }
+  return entries;
 }

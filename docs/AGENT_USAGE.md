@@ -94,7 +94,9 @@ node bin/kova.mjs matrix run --profile release --target runtime:stable --include
 node bin/kova.mjs matrix run --profile release --target local-build:/path/to/openclaw --include scenario:release-runtime-startup --execute --gate --json
 ```
 
-Matrix runs automatically produce a bundle path in the JSON receipt.
+Matrix runs automatically produce a bundle path in the JSON receipt. Bundles
+include `artifact-index.json`, which lists evidence files with byte sizes and
+SHA-256 hashes.
 Filtered gate slices are reject-only: a selected blocking scenario failure means
 `DO_NOT_SHIP`, while a passing partial slice remains `PARTIAL` because it cannot
 approve the full release gate.
