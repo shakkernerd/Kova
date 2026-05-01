@@ -155,6 +155,9 @@ export function renderMarkdownReport(report) {
       if (record.measurements.mediaUnderstandingEvidence?.available) {
         lines.push(`- Media understanding: describe ${record.measurements.mediaDescribeMs ?? "unknown"} ms; timeout observed ${record.measurements.mediaTimeoutObserved ?? "unknown"}; command outer timeout ${record.measurements.mediaCommandTimedOut ?? "unknown"}; status after timeout ${record.measurements.mediaStatusAfterTimeoutMs ?? "unknown"} ms; gateway status ${record.measurements.mediaGatewayStatusWorks ?? "unknown"}`);
       }
+      if (record.measurements.networkOfflineEvidence?.available) {
+        lines.push(`- Network offline: turn ${record.measurements.networkTurnMs ?? "unknown"} ms; failure observed ${record.measurements.networkFailureObserved ?? "unknown"}; command outer timeout ${record.measurements.networkCommandTimedOut ?? "unknown"}; status after failure ${record.measurements.networkStatusAfterFailureMs ?? "unknown"} ms; gateway status ${record.measurements.networkGatewayStatusWorks ?? "unknown"}`);
+      }
       lines.push(`- Provider/model timing: ${record.measurements.providerModelTimingMs ?? "unknown"} ms`);
       lines.push(`- Agent turn: ${record.measurements.agentTurnMs ?? "unknown"} ms (${record.measurements.agentResponseOk ?? "not-run"})`);
       if (record.measurements.agentTurnCount > 0) {
@@ -711,6 +714,12 @@ function summarizeMeasurements(measurements) {
     mediaCommandTimedOut: measurements.mediaCommandTimedOut ?? null,
     mediaStatusAfterTimeoutMs: measurements.mediaStatusAfterTimeoutMs ?? null,
     mediaGatewayStatusWorks: measurements.mediaGatewayStatusWorks ?? null,
+    networkOfflineEvidence: measurements.networkOfflineEvidence ?? null,
+    networkTurnMs: measurements.networkTurnMs ?? null,
+    networkFailureObserved: measurements.networkFailureObserved ?? null,
+    networkCommandTimedOut: measurements.networkCommandTimedOut ?? null,
+    networkStatusAfterFailureMs: measurements.networkStatusAfterFailureMs ?? null,
+    networkGatewayStatusWorks: measurements.networkGatewayStatusWorks ?? null,
     resourceTrend: measurements.resourceTrend ?? null,
     profilingEnabled: measurements.profilingEnabled ?? null,
     profilingResourceInterpretation: measurements.profilingResourceInterpretation ?? null,
@@ -864,6 +873,12 @@ export function renderPasteSummary(report) {
     } else if (record.violations?.length > 0) {
       if (record.measurements) {
         lines.push(`Measurements: agent turn ${record.measurements.agentTurnMs ?? "not-run"}ms; cold/warm ${record.measurements.coldAgentTurnMs ?? "unknown"}/${record.measurements.warmAgentTurnMs ?? "unknown"}ms; cold-warm delta ${record.measurements.agentColdWarmDeltaMs ?? "unknown"}ms; pre-provider ${record.measurements.agentPreProviderMs ?? "unknown"}ms; provider work ${record.measurements.agentProviderFinalMs ?? "unknown"}ms; cleanup max ${record.measurements.agentCleanupMaxMs ?? "unknown"}ms; diagnosis ${record.measurements.agentLatencyDiagnosis?.kind ?? "unknown"}; cleanup diagnosis ${record.measurements.agentCleanupDiagnosis?.kind ?? "none"}; provider simulation ${record.measurements.agentProviderMode ?? "normal"}/${record.measurements.agentProviderIssue ?? "none"} containment ${record.measurements.agentProviderContainmentOk ?? "n/a"} recovery ${record.measurements.agentProviderRecoveryOk ?? "n/a"}; agent process leaks ${record.measurements.agentProcessLeakCount ?? "unknown"}.`);
+        if (record.measurements.mediaUnderstandingEvidence?.available) {
+          lines.push(`Media: describe ${record.measurements.mediaDescribeMs ?? "unknown"}ms; timeout ${record.measurements.mediaTimeoutObserved ?? "unknown"}; status ${record.measurements.mediaStatusAfterTimeoutMs ?? "unknown"}ms.`);
+        }
+        if (record.measurements.networkOfflineEvidence?.available) {
+          lines.push(`Network offline: turn ${record.measurements.networkTurnMs ?? "unknown"}ms; failure ${record.measurements.networkFailureObserved ?? "unknown"}; status ${record.measurements.networkStatusAfterFailureMs ?? "unknown"}ms.`);
+        }
       }
       lines.push("Violations:");
       for (const violation of record.violations) {

@@ -24,7 +24,8 @@
     "tui",
     "mcp-runtime",
     "browser-automation",
-    "media-understanding"
+    "media-understanding",
+    "network-offline"
   ],
   "incompatibleSurfaces": [
     "upgrade-existing-user"

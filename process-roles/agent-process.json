@@ -4,6 +4,7 @@
   "description": "Longer-running agent execution work spawned by OpenClaw while processing a turn.",
   "commandPatterns": ["(^|\\s)agent(\\s|$)"],
   "processPatterns": [
+    "(^|\\s|/)openclaw-agent(\\s|$)",
     "(^|\\s|/)openclaw\\s+.*\\bsession\\b",
     "(^|\\s|/)openclaw\\s+.*\\bagent\\b"
   ]

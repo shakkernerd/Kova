@@ -114,6 +114,14 @@
           "statusMs": 10000,
           "pluginLoadFailures": 0
         }
+      },
+      "network-offline": {
+        "thresholds": {
+          "networkFailureObserved": 1,
+          "networkStatusAfterFailureMs": 10000,
+          "statusMs": 10000,
+          "pluginLoadFailures": 0
+        }
       }
     }
   },
@@ -163,6 +171,7 @@
           "mcp-runtime:fresh",
           "browser-automation:fresh",
           "media-understanding:fresh",
+          "network-offline:fresh",
           "cross-platform-smoke:slow-filesystem"
         ]
       },
@@ -185,7 +194,7 @@
           "tui",
           "gateway-performance"
         ],
-        "warning": ["failure-containment", "soak", "workspace-scan", "mcp-runtime", "browser-automation", "media-understanding", "cross-platform-smoke"]
+        "warning": ["failure-containment", "soak", "workspace-scan", "mcp-runtime", "browser-automation", "media-understanding", "network-offline", "cross-platform-smoke"]
       },
       "scenarios": {
         "blocking": [
@@ -205,7 +214,8 @@
           "workspace-scan-pressure",
           "mcp-runtime-start-stop",
           "browser-automation-smoke",
-          "media-understanding-timeout"
+          "media-understanding-timeout",
+          "agent-network-offline"
         ]
       }
     },
@@ -246,6 +256,7 @@
       { "scenario": "mcp-runtime-start-stop", "state": "fresh" },
       { "scenario": "browser-automation-smoke", "state": "fresh", "timeoutMs": 180000 },
       { "scenario": "media-understanding-timeout", "state": "fresh", "timeoutMs": 180000 },
+      { "scenario": "agent-network-offline", "state": "fresh", "timeoutMs": 180000 },
       { "scenario": "cross-platform-smoke", "state": "slow-filesystem" }
     ]
   },
@@ -399,6 +410,11 @@
     },
     {
       "scenario": "media-understanding-timeout",
+      "state": "fresh",
+      "timeoutMs": 180000
+    },
+    {
+      "scenario": "agent-network-offline",
       "state": "fresh",
       "timeoutMs": 180000
     },

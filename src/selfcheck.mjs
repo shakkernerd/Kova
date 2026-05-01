@@ -215,6 +215,21 @@ export async function runSelfCheck(flags = {}) {
       assertEqual(record?.thresholds?.mediaTimeoutObserved, 1, "media timeout threshold");
       assertEqual(record?.thresholds?.providerRequestCountMin, 1, "media provider request threshold");
     }));
+    checks.push(await jsonCommandCheck("network-offline-dry-run-json", `node bin/kova.mjs run --target runtime:stable --scenario agent-network-offline --state fresh --report-dir ${quoteShell(tmp)} --json`, async (data) => {
+      const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
+      const record = report.records?.[0];
+      assertEqual(record?.surface, "network-offline", "network offline surface");
+      assertEqual(record?.auth?.mode, "none", "network offline opts out of default mock auth");
+      const phaseIds = record?.phases?.map((phase) => phase.id) ?? [];
+      if (phaseIds.includes("auth-prepare") || phaseIds.includes("auth-setup")) {
+        throw new Error(`network offline must not start mock auth phases: ${phaseIds.join(", ")}`);
+      }
+      const commands = record?.phases?.flatMap((phase) => phase.commands ?? []) ?? [];
+      const networkCommand = commands.find((command) => command.includes("agent-network-offline.mjs")) ?? "";
+      assertEqual(networkCommand.includes("--artifact-dir '"), true, "network helper receives quoted artifact dir");
+      assertEqual(networkCommand.includes("--max-command-ms 45000"), true, "network helper allows cold CLI evidence before outer timeout");
+      assertEqual(record?.thresholds?.networkFailureObserved, 1, "network failure threshold");
+    }));
     checks.push(await jsonCommandCheck("diagnostic-profile-plan-json", "node bin/kova.mjs matrix plan --profile diagnostic --target local-build:/tmp/openclaw --include scenario:release-runtime-startup --json", (data) => {
       assertEqual(data.schemaVersion, "kova.matrix.plan.v1", "diagnostic matrix plan schema");
       assertEqual(data.profile?.id, "diagnostic", "diagnostic profile id");
@@ -292,6 +307,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(mcpBridgeEvidenceEvaluationCheck());
     checks.push(browserAutomationEvidenceEvaluationCheck());
     checks.push(mediaUnderstandingEvidenceEvaluationCheck());
+    checks.push(networkOfflineEvidenceEvaluationCheck());
     checks.push(await jsonCommandCheck(
       "dry-run-state-lifecycle-json",
       `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --state missing-plugin-index --report-dir ${quoteShell(tmp)} --json`,
@@ -2567,6 +2583,111 @@ function mediaUnderstandingEvidenceEvaluationCheck() {
   }
 }
 
+function networkOfflineEvidenceEvaluationCheck() {
+  try {
+    const smoke = {
+      schemaVersion: "kova.agentNetworkOffline.v1",
+      ok: true,
+      durationMs: 1800,
+      networkTurnMs: 1400,
+      networkFailureObserved: true,
+      networkCommandTimedOut: false,
+      networkCommandStatus: 1,
+      networkStatusAfterFailureMs: 190,
+      gatewayStatusWorks: true,
+      errors: []
+    };
+    const record = {
+      scenario: "agent-network-offline",
+      status: "PASS",
+      phases: [{
+        id: "network-offline-turn",
+        results: [{
+          command: "node support/agent-network-offline.mjs --env kova-self-check --artifact-dir /tmp/kova",
+          status: 0,
+          timedOut: false,
+          durationMs: 1800,
+          stdout: JSON.stringify(smoke),
+          stderr: ""
+        }],
+        metrics: { service: { gatewayState: "running" }, logs: zeroLogMetrics() }
+      }],
+      finalMetrics: { service: { gatewayState: "running" }, logs: zeroLogMetrics() }
+    };
+    evaluateRecord(record, {
+      id: "agent-network-offline",
+      thresholds: {
+        networkFailureObserved: 1,
+        networkStatusAfterFailureMs: 10000
+      }
+    }, { surface: { thresholds: {} }, targetPlan: { kind: "npm" } });
+
+    assertEqual(record.status, "PASS", "network offline record status");
+    assertEqual(record.measurements.networkTurnMs, 1400, "network turn ms");
+    assertEqual(record.measurements.networkFailureObserved, true, "network failure observed");
+    assertEqual(record.measurements.networkCommandTimedOut, false, "network command did not hit outer timeout");
+    assertEqual(record.measurements.networkStatusAfterFailureMs, 190, "post-network status ms");
+    assertEqual(record.measurements.networkGatewayStatusWorks, true, "gateway status after network failure");
+
+    const failed = {
+      ...record,
+      status: "PASS",
+      violations: [],
+      measurements: undefined,
+      phases: [{
+        id: "network-offline-turn",
+        results: [{
+          command: "node support/agent-network-offline.mjs --env kova-self-check --artifact-dir /tmp/kova",
+          status: 0,
+          timedOut: false,
+          durationMs: 1800,
+          stdout: JSON.stringify({
+            ...smoke,
+            ok: false,
+            networkFailureObserved: false,
+            gatewayStatusWorks: false,
+            errors: ["network failure not observed"]
+          }),
+          stderr: ""
+        }],
+        metrics: { service: { gatewayState: "running" }, logs: zeroLogMetrics() }
+      }]
+    };
+    evaluateRecord(failed, {
+      id: "agent-network-offline",
+      thresholds: {
+        networkFailureObserved: 1
+      }
+    }, { surface: { thresholds: {} }, targetPlan: { kind: "npm" } });
+    assertEqual(failed.status, "FAIL", "network failure status");
+    assertEqual(
+      failed.violations.some((violation) => violation.metric === "networkFailureObserved"),
+      true,
+      "network failure observed violation"
+    );
+    assertEqual(
+      failed.violations.some((violation) => violation.metric === "networkGatewayStatusWorks"),
+      true,
+      "network gateway status violation"
+    );
+
+    return {
+      id: "network-offline-evidence-evaluation",
+      status: "PASS",
+      command: "evaluate synthetic network offline evidence",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "network-offline-evidence-evaluation",
+      status: "FAIL",
+      command: "evaluate synthetic network offline evidence",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
 function agentColdWarmEvaluationCheck() {
   try {
     const coldCommand = "ocm @kova -- agent --local --agent main --session-id kova-agent-cold-warm --message hi --json";
@@ -3339,6 +3460,14 @@ async function resourceRolePollutionCheck() {
         existingRoles: ["command-tree"]
       }
     );
+    const openclawAgentRoles = classifyRegistryRolesForProcess(
+      { command: "openclaw-agent" },
+      {
+        processRoles,
+        rootCommand: "ocm @kova -- agent --local --message hi",
+        existingRoles: ["command-tree"]
+      }
+    );
 
     assertEqual(mockProviderRoles.includes("mock-provider"), true, "mock provider helper remains classified");
     assertEqual(mockProviderRoles.includes("agent-cli"), false, "KOVA_AGENT_OK marker must not imply agent-cli");
@@ -3346,6 +3475,8 @@ async function resourceRolePollutionCheck() {
     assertEqual(mockProviderRoles.includes("browser-sidecar"), false, "browser env name must not imply browser-sidecar");
     assertEqual(envNameRoles.includes("runtime-management"), false, "mcp-runtime env name must not imply runtime-management");
     assertEqual(envNameRoles.includes("model-cli"), false, "configure-openclaw fixture helper must not imply model-cli");
+    assertEqual(openclawAgentRoles.includes("agent-cli"), true, "openclaw-agent process must imply agent-cli");
+    assertEqual(openclawAgentRoles.includes("agent-process"), true, "openclaw-agent process must imply agent-process");
     return {
       id: "resource-role-pollution-boundary",
       status: "PASS",

@@ -80,6 +80,7 @@ export function evaluateRecord(record, scenario, options = {}) {
   const mcpBridgeEvidence = collectMcpBridgeEvidence(allResults);
   const browserAutomationEvidence = collectBrowserAutomationEvidence(allResults);
   const mediaUnderstandingEvidence = collectMediaUnderstandingEvidence(allResults);
+  const networkOfflineEvidence = collectNetworkOfflineEvidence(allResults);
   const listeningFailures = countListeningFailures(record);
   const tcpConnectMaxMs = collectTcpConnectMax(record);
   const timeToListeningMs = collectTimeToListening(record);
@@ -391,6 +392,51 @@ export function evaluateRecord(record, scenario, options = {}) {
     }
   }
 
+  if (networkOfflineEvidence.available) {
+    checkEvidenceThreshold(violations, "network-offline", "networkTurnMs", networkOfflineEvidence.networkTurnMs, thresholds.networkTurnMs, "Network offline agent turn");
+    checkEvidenceThreshold(violations, "network-offline", "networkStatusAfterFailureMs", networkOfflineEvidence.networkStatusAfterFailureMs, thresholds.networkStatusAfterFailureMs, "Post-network status");
+
+    if (typeof thresholds.networkFailureObserved === "number" && networkOfflineEvidence.networkFailureObserved !== true) {
+      violations.push({
+        kind: "network-offline",
+        metric: "networkFailureObserved",
+        expected: true,
+        actual: networkOfflineEvidence.networkFailureObserved,
+        message: "Network/provider failure was not observed as a bounded command failure"
+      });
+    }
+
+    if (networkOfflineEvidence.networkCommandTimedOut === true) {
+      violations.push({
+        kind: "network-offline",
+        metric: "networkCommandTimedOut",
+        expected: false,
+        actual: true,
+        message: "Network offline command hit Kova's outer timeout instead of OpenClaw surfacing the provider failure"
+      });
+    }
+
+    if (networkOfflineEvidence.gatewayStatusWorks === false) {
+      violations.push({
+        kind: "network-offline",
+        metric: "networkGatewayStatusWorks",
+        expected: true,
+        actual: false,
+        message: "Gateway status did not work after network/provider failure"
+      });
+    }
+
+    if (networkOfflineEvidence.errors.length > 0) {
+      violations.push({
+        kind: "network-offline",
+        metric: "networkOfflineErrors",
+        expected: "0",
+        actual: networkOfflineEvidence.errors.length,
+        message: `Network offline smoke reported ${networkOfflineEvidence.errors.length} error(s): ${networkOfflineEvidence.errors[0]}`
+      });
+    }
+  }
+
   if (typeof thresholds.providerRequestCountMin === "number") {
     const requestCount = record.providerEvidence?.requestCount ?? 0;
     if (requestCount < thresholds.providerRequestCountMin) {
@@ -697,6 +743,13 @@ export function evaluateRecord(record, scenario, options = {}) {
     mediaStatusAfterTimeoutMs: mediaUnderstandingEvidence.mediaStatusAfterTimeoutMs,
     mediaGatewayStatusWorks: mediaUnderstandingEvidence.gatewayStatusWorks,
     mediaErrors: mediaUnderstandingEvidence.errors,
+    networkOfflineEvidence,
+    networkTurnMs: networkOfflineEvidence.networkTurnMs,
+    networkFailureObserved: networkOfflineEvidence.networkFailureObserved,
+    networkCommandTimedOut: networkOfflineEvidence.networkCommandTimedOut,
+    networkStatusAfterFailureMs: networkOfflineEvidence.networkStatusAfterFailureMs,
+    networkGatewayStatusWorks: networkOfflineEvidence.gatewayStatusWorks,
+    networkErrors: networkOfflineEvidence.errors,
     soakDurationMs: soakEvidence.durationMs,
     soakIterations: soakEvidence.iterations,
     soakCommandP95Ms: soakEvidence.commandP95Ms,
@@ -1981,6 +2034,62 @@ function parseMediaUnderstandingTimeoutOutput(result) {
   try {
     const parsed = JSON.parse(text.slice(jsonStart));
     return parsed?.schemaVersion === "kova.mediaUnderstandingTimeout.v1" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function collectNetworkOfflineEvidence(results) {
+  const smokes = results
+    .filter((result) => result.command?.includes("agent-network-offline.mjs"))
+    .map((result) => parseNetworkOfflineOutput(result))
+    .filter(Boolean);
+
+  if (smokes.length === 0) {
+    return {
+      schemaVersion: "kova.networkOfflineEvidence.v1",
+      available: false,
+      networkTurnMs: null,
+      networkFailureObserved: null,
+      networkCommandTimedOut: null,
+      networkStatusAfterFailureMs: null,
+      gatewayStatusWorks: null,
+      errors: [],
+      smokes: []
+    };
+  }
+
+  return {
+    schemaVersion: "kova.networkOfflineEvidence.v1",
+    available: true,
+    networkTurnMs: maxNullable(...smokes.map((smoke) => smoke.networkTurnMs)),
+    networkFailureObserved: smokes.every((smoke) => smoke.networkFailureObserved === true),
+    networkCommandTimedOut: smokes.some((smoke) => smoke.networkCommandTimedOut === true),
+    networkStatusAfterFailureMs: maxNullable(...smokes.map((smoke) => smoke.networkStatusAfterFailureMs)),
+    gatewayStatusWorks: smokes.every((smoke) => smoke.gatewayStatusWorks === true),
+    errors: smokes.flatMap((smoke) => smoke.errors ?? []),
+    smokes: smokes.map((smoke) => ({
+      durationMs: smoke.durationMs ?? null,
+      networkTurnMs: smoke.networkTurnMs ?? null,
+      networkFailureObserved: smoke.networkFailureObserved ?? null,
+      networkCommandTimedOut: smoke.networkCommandTimedOut ?? null,
+      networkCommandStatus: smoke.networkCommandStatus ?? null,
+      networkStatusAfterFailureMs: smoke.networkStatusAfterFailureMs ?? null,
+      gatewayStatusWorks: smoke.gatewayStatusWorks ?? null,
+      errors: smoke.errors ?? []
+    }))
+  };
+}
+
+function parseNetworkOfflineOutput(result) {
+  const text = result.stdout ?? "";
+  const jsonStart = text.indexOf("{");
+  if (jsonStart < 0) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(text.slice(jsonStart));
+    return parsed?.schemaVersion === "kova.agentNetworkOffline.v1" ? parsed : null;
   } catch {
     return null;
   }
