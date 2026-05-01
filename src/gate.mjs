@@ -116,6 +116,7 @@ export function evaluateGate(report, profile) {
     required: policy.blocking,
     warning: policy.warning,
     coverage: policy.coverage,
+    baseline: summarizeBaselineComparison(report.baseline?.comparison),
     subsystems,
     fixerSummaries,
     cards
@@ -354,6 +355,29 @@ function buildPerformanceRegressionCard(regression) {
       baselineP95: regression.baselineP95,
       currentP95: regression.currentP95
     }
+  };
+}
+
+function summarizeBaselineComparison(comparison) {
+  if (!comparison) {
+    return null;
+  }
+  return {
+    schemaVersion: "kova.gateBaselineSummary.v1",
+    ok: comparison.ok === true,
+    baselineEntryCount: comparison.baselineEntryCount ?? null,
+    regressionCount: comparison.regressionCount ?? 0,
+    missingBaselineCount: comparison.missingBaselineCount ?? 0,
+    regressedGroups: (comparison.groups ?? [])
+      .filter((group) => group.status === "REGRESSED")
+      .map((group) => ({
+        scenario: group.scenario,
+        state: group.state ?? null,
+        surface: group.surface ?? null,
+        regressionCount: group.regressions?.length ?? 0,
+        baselineSource: group.baselineSource ?? null
+      })),
+    missing: (comparison.missing ?? []).slice(0, 10)
   };
 }
 

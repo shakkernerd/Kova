@@ -650,7 +650,9 @@ function summarizeGateReceipt(gate) {
     warningCount: gate.warningCount,
     infoCount: gate.infoCount,
     subsystemCount: gate.subsystems?.length ?? 0,
-    fixerSummaryCount: gate.fixerSummaries?.length ?? 0
+    fixerSummaryCount: gate.fixerSummaries?.length ?? 0,
+    baselineRegressionCount: gate.baseline?.regressionCount ?? null,
+    missingBaselineCount: gate.baseline?.missingBaselineCount ?? null
   };
 }
 

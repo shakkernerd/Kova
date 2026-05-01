@@ -504,6 +504,8 @@ async function performanceBaselineCheck(tmp) {
       }
     });
     assertEqual(gate.verdict, "DO_NOT_SHIP", "performance regression gate verdict");
+    assertEqual(gate.baseline?.regressionCount, comparison.regressionCount, "gate baseline regression count");
+    assertEqual(gate.baseline?.regressedGroups?.[0]?.scenario, "fresh-install", "gate baseline group scenario");
     assertEqual(gate.cards.some((card) => card.kind === "performance-regression"), true, "performance regression gate card");
 
     return {

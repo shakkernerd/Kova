@@ -459,6 +459,10 @@ cards by likely OpenClaw subsystem and generate compact subsystem fixer briefs.
 The matrix receipt includes only the gate verdict/count summary; the full cards
 and subsystem briefs live in the JSON report.
 
+When `--baseline` is used, the gate also includes a compact historical baseline
+summary with regression count, missing baseline count, and regressed scenario
+groups. Baseline regressions remain blocking gate cards.
+
 For non-ship gate runs, Kova retains a durable copy under
 `artifacts/release-gates/<runId>/`:
 

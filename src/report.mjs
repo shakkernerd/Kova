@@ -882,6 +882,18 @@ function formatGateSection(gate) {
     `- Info: ${gate.infoCount ?? 0}`,
     ""
   ];
+  if (gate.baseline) {
+    lines.push("### Historical Baseline");
+    lines.push("");
+    lines.push(`- Regressions: ${gate.baseline.regressionCount}`);
+    lines.push(`- Missing baselines: ${gate.baseline.missingBaselineCount}`);
+    if (gate.baseline.regressedGroups?.length > 0) {
+      for (const group of gate.baseline.regressedGroups.slice(0, 4)) {
+        lines.push(`- ${group.scenario}/${group.state ?? "none"}: ${group.regressionCount} regression(s)`);
+      }
+    }
+    lines.push("");
+  }
   const visibleCards = (gate.cards ?? []).filter((card) => card.severity !== "info");
   if (gate.subsystems?.length > 0) {
     lines.push("### Subsystems");
