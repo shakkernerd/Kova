@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { repoRoot } from "../paths.mjs";
+import { ocmServiceStatusJson } from "../ocm/commands.mjs";
 
 export const RESOURCE_SAMPLES_SCHEMA = "kova.resourceSamples.v1";
 export const PROCESS_SNAPSHOT_SCHEMA = "kova.processSnapshot.v1";
@@ -422,7 +423,7 @@ function collectProcessTreePids(processes, rootPid) {
 }
 
 function resolveGatewayPid(envName) {
-  const result = spawnSync(process.env.SHELL || "/bin/sh", ["-lc", `ocm service status ${quoteShell(envName)} --json`], {
+  const result = spawnSync(process.env.SHELL || "/bin/sh", ["-lc", ocmServiceStatusJson(envName)], {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "ignore"],
@@ -542,8 +543,4 @@ function roundMb(kb) {
 
 function roundNumber(value) {
   return Math.round(value * 10) / 10;
-}
-
-function quoteShell(value) {
-  return `'${String(value).replaceAll("'", "'\\''")}'`;
 }

@@ -3,7 +3,7 @@ import { join, relative } from "node:path";
 import { bundleReport, retainGateArtifacts } from "./artifacts.mjs";
 import { authReportSummary, resolveRunAuthContext } from "./auth.mjs";
 import { runCleanupCommand } from "./cleanup.mjs";
-import { quoteShell, runCommand } from "./commands.mjs";
+import { runCommand } from "./commands.mjs";
 import { compareReports, renderCompareFixerSummary, renderCompareSummary } from "./compare.mjs";
 import { parseFlags, printHelp, required, resolveFromCwd } from "./cli.mjs";
 import { evaluateGate, preflightGateRun } from "./gate.mjs";
@@ -31,6 +31,7 @@ import { buildDryRunRecord, buildSkippedRecord, createRunId, executeScenario } f
 import { runSelfCheck } from "./selfcheck.mjs";
 import { runSetup } from "./setup.mjs";
 import { resolveTarget } from "./targets.mjs";
+import { ocmEnvDestroy, ocmEnvListJson, ocmRuntimeRemoveJson } from "./ocm/commands.mjs";
 
 const reportSchemaVersion = "kova.report.v1";
 
@@ -765,7 +766,7 @@ async function cleanupCommand(flags) {
 }
 
 async function cleanupEnvs(flags) {
-  const envList = await runCommand("ocm env list --json", { timeoutMs: 30000 });
+  const envList = await runCommand(ocmEnvListJson(), { timeoutMs: 30000 });
   if (envList.status !== 0) {
     throw new Error(`failed to list OCM envs: ${envList.stderr.trim() || envList.stdout.trim()}`);
   }
@@ -782,7 +783,7 @@ async function cleanupEnvs(flags) {
 
   if (flags.execute) {
     for (const env of envs) {
-      results.push(await runCleanupCommand(`ocm env destroy ${quoteShell(env)} --yes`, { timeoutMs: 120000 }));
+      results.push(await runCleanupCommand(ocmEnvDestroy(env), { timeoutMs: 120000 }));
     }
   }
 
@@ -1074,7 +1075,7 @@ async function cleanupTargetRuntimeIfNeeded(targetPlan, records, options) {
     return null;
   }
 
-  const command = `ocm runtime remove ${quoteShell(targetPlan.runtimeName)} --json`;
+  const command = ocmRuntimeRemoveJson(targetPlan.runtimeName);
   if (!options.execute) {
     return {
       status: "planned",

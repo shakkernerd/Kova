@@ -1,4 +1,5 @@
 import { runCommand } from "./commands.mjs";
+import { ocmServiceStatusJson } from "./ocm/commands.mjs";
 import { collectDiagnosticMetrics, collectOpenClawDiagnostics, triggerDiagnosticReport, triggerHeapSnapshot } from "./collectors/diagnostics.mjs";
 import { collectHealthSamples, collectReadinessMetrics, summarizeHealthSamples } from "./collectors/readiness.mjs";
 import { collectLogMetrics } from "./collectors/logs.mjs";
@@ -20,7 +21,7 @@ export async function collectEnvMetrics(envName, options = {}) {
   );
   const readinessIntervalMs = Math.max(50, Number(options.readinessIntervalMs ?? 250));
   const collectors = [];
-  const service = await runCommand(`ocm service status ${envName} --json`, { timeoutMs });
+  const service = await runCommand(ocmServiceStatusJson(envName), { timeoutMs });
   const metrics = {
     schemaVersion: ENV_METRICS_SCHEMA,
     collectedAt: new Date().toISOString(),

@@ -8,6 +8,7 @@ import {
 import { runCleanupCommand } from "./cleanup.mjs";
 import { materializeCommands } from "./registries/scenarios.mjs";
 import { quoteShell } from "./commands.mjs";
+import { ocmEnvDestroy, ocmRuntimeBuildLocal } from "./ocm/commands.mjs";
 import { captureProcessSnapshot, diffProcessSnapshots } from "./collectors/resources.mjs";
 import { collectEnvMetrics, collectNodeProfileMetrics } from "./metrics.mjs";
 import { collectorArtifactDirs, prepareCollectorArtifactDirs } from "./collectors/artifacts.mjs";
@@ -217,7 +218,7 @@ export async function executeScenario(scenario, context) {
       }
     }
     if (!shouldRetain) {
-      const cleanup = await runCleanupCommand(`ocm env destroy ${quoteShell(envName)} --yes`, { timeoutMs: context.timeoutMs });
+      const cleanup = await runCleanupCommand(ocmEnvDestroy(envName), { timeoutMs: context.timeoutMs });
       record.cleanup = classifyEnvDestroyCleanup(cleanup);
       record.cleanupResult = cleanup;
       if (record.cleanup === "destroy-failed" && record.status === "PASS") {
@@ -385,7 +386,7 @@ function buildPlannedPhases(scenario, context, envName, artifactDir, authPolicy)
       id: "env-cleanup",
       title: "Environment Cleanup",
       intent: "Destroy the disposable Kova env after the scenario finishes.",
-      commands: [`ocm env destroy ${quoteShell(envName)} --yes`],
+      commands: [ocmEnvDestroy(envName)],
       evidence: ["temporary env destroyed"]
     });
   }
@@ -578,7 +579,7 @@ async function executeTargetSetup(context, envName, artifactDir) {
 }
 
 function targetSetupCommand(targetPlan) {
-  return `ocm runtime build-local ${quoteShell(targetPlan.runtimeName)} --repo ${quoteShell(targetPlan.repoPath)} --force`;
+  return ocmRuntimeBuildLocal(targetPlan.runtimeName, targetPlan.repoPath);
 }
 
 async function runScenarioCommand(command, context, envName, artifactDir, phaseId, commandIndex, authPolicy = null) {

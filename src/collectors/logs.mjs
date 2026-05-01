@@ -1,11 +1,12 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { runCommand } from "../commands.mjs";
+import { ocmLogs } from "../ocm/commands.mjs";
 
 export const LOG_METRICS_SCHEMA = "kova.logMetrics.v1";
 
 export async function collectLogMetrics(envName, timeoutMs, artifactDir) {
-  const result = await runCommand(`ocm logs ${envName} --tail 200`, { timeoutMs });
+  const result = await runCommand(ocmLogs(envName, { tail: 200 }), { timeoutMs });
   const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
   const timestamps = collectTimestamps(text);
   const artifacts = [];

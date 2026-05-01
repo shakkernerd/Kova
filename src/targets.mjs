@@ -1,4 +1,4 @@
-import { quoteShell } from "./commands.mjs";
+import { ocmTargetSelector } from "./ocm/commands.mjs";
 
 export function resolveTarget(selector, role) {
   const [kind, ...rest] = selector.split(":");
@@ -9,44 +9,47 @@ export function resolveTarget(selector, role) {
   }
 
   if (kind === "npm") {
-    return {
+    const target = {
       kind,
-      value,
-      startSelector: `--version ${quoteShell(value)}`,
-      upgradeSelector: `--version ${quoteShell(value)}`
+      value
     };
+    return withOcmSelectors(target);
   }
 
   if (kind === "channel") {
-    return {
+    const target = {
       kind,
-      value,
-      startSelector: `--channel ${quoteShell(value)}`,
-      upgradeSelector: `--channel ${quoteShell(value)}`
+      value
     };
+    return withOcmSelectors(target);
   }
 
   if (kind === "runtime") {
-    return {
+    const target = {
       kind,
-      value,
-      startSelector: `--runtime ${quoteShell(value)}`,
-      upgradeSelector: `--runtime ${quoteShell(value)}`
+      value
     };
+    return withOcmSelectors(target);
   }
 
   if (kind === "local-build") {
     const runtimeName = `kova-local-${Date.now()}`;
-    return {
+    const target = {
       kind,
       value,
       repoPath: value,
-      runtimeName,
-      startSelector: `--runtime ${quoteShell(runtimeName)}`,
-      upgradeSelector: `--runtime ${quoteShell(runtimeName)}`
+      runtimeName
     };
+    return withOcmSelectors(target);
   }
 
   throw new Error(`unsupported ${role} selector kind: ${kind}`);
 }
 
+function withOcmSelectors(target) {
+  return {
+    ...target,
+    startSelector: ocmTargetSelector(target, "start"),
+    upgradeSelector: ocmTargetSelector(target, "upgrade")
+  };
+}

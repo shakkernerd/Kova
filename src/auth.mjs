@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { join } from "node:path";
 import { credentialsDir, liveEnvPath, providersPath, repoRoot } from "./paths.mjs";
 import { quoteShell } from "./commands.mjs";
+import { ocmAt, ocmEnvExec } from "./ocm/commands.mjs";
 import {
   externalCliVerificationSummary,
   resolveExternalCliName,
@@ -589,7 +590,12 @@ function mockProviderDisplay(policy) {
 }
 
 function configureMockAuthCommand(envName, dir) {
-  return `ocm env exec ${quoteShell(envName)} -- node ${quoteShell(join(repoRoot, "support/configure-openclaw-mock-auth.mjs"))} --port-file ${quoteShell(join(dir, "port"))}`;
+  return ocmEnvExec(envName, [
+    "node",
+    join(repoRoot, "support/configure-openclaw-mock-auth.mjs"),
+    "--port-file",
+    join(dir, "port")
+  ]);
 }
 
 function configureLiveAuthCommand(authPolicy, envName) {
@@ -597,10 +603,18 @@ function configureLiveAuthCommand(authPolicy, envName) {
     return configureLiveAuthViaOpenClawOnboardCommand(authPolicy, envName);
   }
   const envVar = authPolicy.summary.envVars?.[0] ?? defaultEnvVarForProvider(authPolicy.providerId);
-  const externalCliArgs = authPolicy.source === "external-cli" && authPolicy.externalCli
-    ? ` --auth-method external-cli --external-cli ${quoteShell(authPolicy.externalCli)}`
-    : "";
-  return `ocm env exec ${quoteShell(envName)} -- node ${quoteShell(join(repoRoot, "support/configure-openclaw-live-auth.mjs"))} --provider ${quoteShell(authPolicy.providerId)} --env-var ${quoteShell(envVar)}${externalCliArgs}`;
+  const args = [
+    "node",
+    join(repoRoot, "support/configure-openclaw-live-auth.mjs"),
+    "--provider",
+    authPolicy.providerId,
+    "--env-var",
+    envVar
+  ];
+  if (authPolicy.source === "external-cli" && authPolicy.externalCli) {
+    args.push("--auth-method", "external-cli", "--external-cli", authPolicy.externalCli);
+  }
+  return ocmEnvExec(envName, args);
 }
 
 function configureLiveAuthViaOpenClawOnboardCommand(authPolicy, envName) {
@@ -623,7 +637,7 @@ function configureLiveAuthViaOpenClawOnboardCommand(authPolicy, envName) {
   if (onboard.secretInputMode) {
     args.push("--secret-input-mode", onboard.secretInputMode);
   }
-  return `ocm @${quoteShell(envName)} -- ${args.map(quoteShell).join(" ")}`;
+  return ocmAt(envName, args);
 }
 
 function liveAuthSetupKind(live) {

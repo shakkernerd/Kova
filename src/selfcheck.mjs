@@ -34,6 +34,17 @@ import {
 import { captureProcessSnapshot, classifyRegistryRolesForProcess, diffProcessSnapshots } from "./collectors/resources.mjs";
 import { renderMarkdownReport, renderPasteSummary, renderReportSummary } from "./report.mjs";
 import { compareReports, renderCompareSummary } from "./compare.mjs";
+import {
+  ocmAt,
+  ocmEnvDestroy,
+  ocmEnvExec,
+  ocmEnvExecShell,
+  ocmLogs,
+  ocmRuntimeBuildLocal,
+  ocmRuntimeRemoveJson,
+  ocmServiceStatusJson,
+  ocmTargetSelector
+} from "./ocm/commands.mjs";
 
 export async function runSelfCheck(flags = {}) {
   const checks = [];
@@ -85,6 +96,7 @@ export async function runSelfCheck(flags = {}) {
       "external-cli codex is not usable"
     ));
     checks.push(await externalCliRunAuthVerificationCheck(tmp));
+    checks.push(ocmCommandBuildersCheck());
     checks.push(await jsonCommandCheck("plan-json", "node bin/kova.mjs plan --json", (data) => {
       assertEqual(data.schemaVersion, "kova.plan.v1", "plan schema");
       assertArrayNotEmpty(data.surfaces, "plan surfaces");
@@ -423,6 +435,53 @@ export async function runSelfCheck(flags = {}) {
 
   if (!ok) {
     throw new Error("self-check failed");
+  }
+}
+
+function ocmCommandBuildersCheck() {
+  try {
+    assertEqual(ocmTargetSelector({ kind: "npm", value: "2026.4.27" }), "--version '2026.4.27'", "npm selector");
+    assertEqual(ocmTargetSelector({ kind: "channel", value: "beta" }), "--channel 'beta'", "channel selector");
+    assertEqual(ocmTargetSelector({ kind: "runtime", value: "stable" }), "--runtime 'stable'", "runtime selector");
+    assertEqual(
+      ocmTargetSelector({ kind: "local-build", value: "/tmp/openclaw", runtimeName: "kova-local-test" }),
+      "--runtime 'kova-local-test'",
+      "local-build selector"
+    );
+    assertEqual(ocmServiceStatusJson("Team Env"), "ocm service status 'Team Env' --json", "quoted service status");
+    assertEqual(ocmLogs("Team Env", { tail: 25, raw: true }), "ocm logs 'Team Env' --tail '25' --raw", "quoted logs");
+    assertEqual(ocmEnvDestroy("Team Env"), "ocm env destroy 'Team Env' --yes", "quoted env destroy");
+    assertEqual(ocmAt("Team Env", ["status"]), "ocm @'Team Env' -- 'status'", "quoted at command");
+    assertEqual(
+      ocmEnvExec("Team Env", ["node", "support/script.mjs", "--name", "O'Hara"]),
+      "ocm env exec 'Team Env' -- 'node' 'support/script.mjs' '--name' 'O'\\''Hara'",
+      "quoted env exec args"
+    );
+    assertEqual(
+      ocmEnvExecShell("Team Env", "printf '%s\\n' ok"),
+      "ocm env exec 'Team Env' -- 'sh' '-lc' 'printf '\\''%s\\n'\\'' ok'",
+      "quoted env exec shell"
+    );
+    assertEqual(
+      ocmRuntimeBuildLocal("kova-local-test", "/tmp/Open Claw"),
+      "ocm runtime build-local 'kova-local-test' --repo '/tmp/Open Claw' --force",
+      "quoted local runtime build"
+    );
+    assertEqual(ocmRuntimeRemoveJson("kova-local-test"), "ocm runtime remove 'kova-local-test' --json", "quoted runtime remove");
+    return {
+      id: "ocm-command-builders",
+      status: "PASS",
+      command: "validate centralized OCM command builders",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "ocm-command-builders",
+      status: "FAIL",
+      command: "validate centralized OCM command builders",
+      durationMs: 0,
+      message: error.message
+    };
   }
 }
 
@@ -1274,7 +1333,7 @@ async function liveExternalCliDryRunCheck(tmp) {
     const authSetupCommand = record.phases
       ?.flatMap((phase) => phase.commands ?? [])
       ?.find((item) => item.includes("configure-openclaw-live-auth.mjs")) ?? "";
-    if (!authSetupCommand.includes("--auth-method external-cli") || !/--external-cli\s+'?codex'?/.test(authSetupCommand)) {
+    if (!/'?--auth-method'?\s+'?external-cli'?/.test(authSetupCommand) || !/'?--external-cli'?\s+'?codex'?/.test(authSetupCommand)) {
       throw new Error(`external-cli auth setup command missing expected args: ${authSetupCommand}`);
     }
     return {

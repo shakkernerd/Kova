@@ -2,6 +2,7 @@ import { cp, mkdir, readdir, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { basename, join } from "node:path";
 import { runCommand } from "../commands.mjs";
+import { ocmEnvExecShell } from "../ocm/commands.mjs";
 
 export const OPENCLAW_DIAGNOSTICS_SCHEMA = "kova.openclawDiagnostics.v1";
 export const DIAGNOSTIC_ARTIFACTS_SCHEMA = "kova.diagnosticArtifacts.v1";
@@ -33,7 +34,10 @@ export function collectOpenClawDiagnostics(logs) {
 }
 
 export async function collectDiagnosticMetrics(envName, timeoutMs, artifactDir) {
-  const command = "ocm env exec " + envName + " -- sh -lc 'find \"$OPENCLAW_HOME\" -maxdepth 6 -type f \\( -name \"report.*.json\" -o -name \"*.heapsnapshot\" -o -name \"*heap*.json\" -o -name \"*diagnostic*.json\" \\) -print 2>/dev/null | head -100'";
+  const command = ocmEnvExecShell(
+    envName,
+    'find "$OPENCLAW_HOME" -maxdepth 6 -type f \\( -name "report.*.json" -o -name "*.heapsnapshot" -o -name "*heap*.json" -o -name "*diagnostic*.json" \\) -print 2>/dev/null | head -100'
+  );
   const result = await runCommand(command, { timeoutMs, maxOutputChars: 100000 });
   const files = result.status === 0
     ? result.stdout.split("\n").map((line) => line.trim()).filter(Boolean)
@@ -73,7 +77,10 @@ export async function collectDiagnosticMetrics(envName, timeoutMs, artifactDir) 
 }
 
 export async function triggerHeapSnapshot(envName, pid, timeoutMs, artifactDir) {
-  const command = `ocm env exec ${envName} -- sh -lc 'kill -USR2 ${Number(pid)} 2>/dev/null || true; sleep 1; find "$OPENCLAW_HOME" -maxdepth 6 -type f -name "*.heapsnapshot" -print 2>/dev/null | head -25'`;
+  const command = ocmEnvExecShell(
+    envName,
+    `kill -USR2 ${Number(pid)} 2>/dev/null || true; sleep 1; find "$OPENCLAW_HOME" -maxdepth 6 -type f -name "*.heapsnapshot" -print 2>/dev/null | head -25`
+  );
   const result = await runCommand(command, { timeoutMs, maxOutputChars: 100000 });
   const files = result.status === 0
     ? result.stdout.split("\n").map((line) => line.trim()).filter(Boolean)
@@ -112,7 +119,10 @@ export async function triggerHeapSnapshot(envName, pid, timeoutMs, artifactDir) 
 
 export async function triggerDiagnosticReport(envName, pid, timeoutMs, artifactDir, options = {}) {
   const signalCommand = options.signalAlreadySent === true ? ":" : `kill -USR2 ${Number(pid)} 2>/dev/null || true`;
-  const command = `ocm env exec ${envName} -- sh -lc '${signalCommand}; sleep 1; find "$OPENCLAW_HOME" -maxdepth 6 -type f \\( -name "report.*.json" -o -name "*diagnostic*.json" \\) -print 2>/dev/null | head -25'`;
+  const command = ocmEnvExecShell(
+    envName,
+    `${signalCommand}; sleep 1; find "$OPENCLAW_HOME" -maxdepth 6 -type f \\( -name "report.*.json" -o -name "*diagnostic*.json" \\) -print 2>/dev/null | head -25`
+  );
   const result = await runCommand(command, { timeoutMs, maxOutputChars: 100000 });
   const files = result.status === 0
     ? result.stdout.split("\n").map((line) => line.trim()).filter(Boolean)
