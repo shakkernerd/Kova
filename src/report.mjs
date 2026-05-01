@@ -74,6 +74,9 @@ export function renderMarkdownReport(report) {
     }
     if (record.auth) {
       lines.push(`- Auth: ${record.auth.mode} (${record.auth.source}; provider ${record.auth.providerId ?? "none"})`);
+      if (record.auth.environmentDependent) {
+        lines.push("- Live provider lane: environment-dependent; compare separately from deterministic mock baselines.");
+      }
       if (record.auth.mockProvider) {
         lines.push(`- Mock provider mode: ${record.auth.mockProvider.mode}`);
       }
@@ -143,6 +146,8 @@ export function renderMarkdownReport(report) {
         lines.push(`- Provider evidence: ${record.measurements.agentProviderRequestCount ?? 0} request(s); provider work ${record.measurements.agentProviderFinalMs ?? "unknown"} ms; pre-provider ${record.measurements.agentPreProviderMs ?? "unknown"} ms; post-provider ${record.measurements.agentPostProviderMs ?? "unknown"} ms`);
       } else if (record.providerEvidence?.available) {
         lines.push(`- Provider evidence: ${record.providerEvidence.requestCount ?? 0} request(s); provider duration ${record.providerEvidence.providerDurationMs ?? "unknown"} ms`);
+      } else if (record.auth?.mode === "live") {
+        lines.push(`- Provider evidence: unavailable for live lane (${record.providerEvidence?.error ?? "no provider events captured"})`);
       }
       if (record.measurements.agentLatencyDiagnosis) {
         lines.push(`- Agent latency diagnosis: ${record.measurements.agentLatencyDiagnosis.summary}`);

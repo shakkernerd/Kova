@@ -215,6 +215,8 @@ export function authDisplay(policy) {
     source: policy.source,
     externalCli: policy.externalCli ?? null,
     setup: policy.setup === true,
+    deterministic: policy.mode === "mock",
+    environmentDependent: policy.mode === "live",
     envVars: policy.envVars ?? [],
     mockProvider: policy.mockProvider ? mockProviderDisplay(policy.mockProvider) : null,
     secretValues: "redacted"
@@ -233,7 +235,8 @@ export function authReportSummary(authContext) {
       externalCli: authContext.live.externalCli ?? null,
       verification: authContext.live.verification ?? null,
       envVars: authContext.live.envVars,
-      reason: authContext.live.reason
+      reason: authContext.live.reason,
+      environmentDependent: authContext.requestedMode === "live"
     }
   };
 }

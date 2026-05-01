@@ -179,7 +179,7 @@ export async function executeScenario(scenario, context) {
   } finally {
     record.finishedAt = new Date().toISOString();
     record.finalMetrics = await collectEnvMetrics(envName, metricOptions(context, scenario, null, artifactDir));
-    record.providerEvidence = await collectProviderEvidence(artifactDir);
+    record.providerEvidence = await collectProviderEvidence(artifactDir, { authPolicy });
     evaluateRecord(record, scenario, evaluatorContext(context, scenario));
 
     if (shouldCaptureFailureDiagnostics(record, context)) {

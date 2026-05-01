@@ -7,13 +7,20 @@ export const PROVIDER_EVIDENCE_SCHEMA = "kova.providerEvidence.v1";
 export async function collectProviderEvidence(artifactDir, options = {}) {
   const startedAt = Date.now();
   const requestLogPath = options.requestLogPath ?? join(artifactDir, "mock-openai", "requests.jsonl");
+  const timelinePath = options.timelinePath ?? join(artifactDir, "openclaw", "timeline.jsonl");
+  const authMode = options.authPolicy?.mode ?? options.authMode ?? null;
   const dirs = collectorArtifactDirs(artifactDir);
   const summaryPath = join(dirs.provider, "provider-evidence.json");
   const evidence = {
     schemaVersion: PROVIDER_EVIDENCE_SCHEMA,
     collectedAt: new Date().toISOString(),
     available: false,
+    source: null,
+    authMode,
+    deterministic: authMode === "mock",
+    environmentDependent: authMode === "live",
     requestLogPath,
+    timelinePath,
     summaryPath,
     requestCount: 0,
     firstRequestStartAt: null,
@@ -38,14 +45,13 @@ export async function collectProviderEvidence(artifactDir, options = {}) {
     const text = await readFile(requestLogPath, "utf8");
     const parsed = parseProviderRequestLog(text);
     Object.assign(evidence, parsed, {
+      source: "mock-provider-log",
       available: parsed.requestCount > 0,
       artifacts: [requestLogPath, summaryPath]
     });
   } catch (error) {
     if (error.code === "ENOENT") {
-      evidence.error = "provider request log not found";
-      evidence.statusLabel = "INFO";
-      evidence.artifacts = [];
+      await applyTimelineProviderEvidence(evidence, timelinePath, summaryPath);
     } else {
       evidence.error = error.message;
       evidence.commandStatus = 1;
@@ -60,6 +66,32 @@ export async function collectProviderEvidence(artifactDir, options = {}) {
     evidence.artifacts.push(summaryPath);
   }
   return evidence;
+}
+
+async function applyTimelineProviderEvidence(evidence, timelinePath, summaryPath) {
+  try {
+    const text = await readFile(timelinePath, "utf8");
+    const parsed = parseTimelineProviderRequestLog(text);
+    Object.assign(evidence, parsed, {
+      source: "openclaw-timeline",
+      available: parsed.requestCount > 0,
+      artifacts: parsed.requestCount > 0 ? [timelinePath, summaryPath] : []
+    });
+    if (parsed.requestCount === 0) {
+      evidence.error = "provider request log not found and OpenClaw timeline contained no provider.request events";
+      evidence.statusLabel = "INFO";
+    }
+  } catch (timelineError) {
+    if (timelineError.code === "ENOENT") {
+      evidence.error = "provider request log not found";
+      evidence.statusLabel = "INFO";
+      evidence.artifacts = [];
+      return;
+    }
+    evidence.error = timelineError.message;
+    evidence.commandStatus = 1;
+    evidence.statusLabel = "WARN";
+  }
 }
 
 export function parseProviderRequestLog(text) {
@@ -115,6 +147,40 @@ export function parseProviderRequestLog(text) {
     errorClasses: summarizeBy(requests, "errorClass"),
     statuses: summarizeBy(requests, "status"),
     errors: [...parseErrors, ...requestErrors(requests)],
+    requests
+  };
+}
+
+export function parseTimelineProviderRequestLog(text) {
+  const requests = [];
+  const parseErrors = [];
+  for (const [index, rawLine] of String(text ?? "").split(/\r?\n/).entries()) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+    try {
+      const event = JSON.parse(line);
+      if (!event || typeof event !== "object" || Array.isArray(event)) {
+        parseErrors.push({ kind: "parse", line: index + 1, error: "event is not an object" });
+        continue;
+      }
+      if (event.type !== "provider.request" && event.name !== "provider.request") {
+        continue;
+      }
+      requests.push(normalizeTimelineProviderRequest(event, index + 1));
+    } catch (error) {
+      parseErrors.push({
+        kind: "parse",
+        line: index + 1,
+        error: error.message
+      });
+    }
+  }
+  const summary = summarizeProviderRequests(requests);
+  return {
+    ...summary,
+    errors: [...parseErrors, ...summary.errors],
     requests
   };
 }
@@ -216,6 +282,84 @@ function requestsWithinCommand(requests, commandStartedAt, commandFinishedAt) {
       request.receivedAtEpochMs <= commandFinishedAt
     )
     .toSorted((left, right) => left.receivedAtEpochMs - right.receivedAtEpochMs);
+}
+
+function normalizeTimelineProviderRequest(event, line) {
+  const receivedAtEpochMs = numberOrParsedTime(event.receivedAtEpochMs, event.receivedAt ?? event.timestamp ?? event.time);
+  const durationMs = numberOrNull(event.durationMs ?? event.elapsedMs ?? event.ms);
+  const respondedAtEpochMs = numberOrParsedTime(event.respondedAtEpochMs, event.respondedAt) ??
+    (typeof receivedAtEpochMs === "number" && typeof durationMs === "number" ? receivedAtEpochMs + durationMs : null);
+  const provider = event.provider ?? event.attributes?.provider ?? null;
+  const operation = event.operation ?? event.attributes?.operation ?? null;
+  const route = event.route ?? event.path ?? operation ?? "provider.request";
+  const ok = typeof event.ok === "boolean" ? event.ok : event.status === undefined || Number(event.status) < 400;
+  return {
+    schemaVersion: "kova.provider.request.fromTimeline.v1",
+    line,
+    requestId: event.requestId ?? event.spanId ?? `timeline-provider-${line}`,
+    receivedAt: event.receivedAt ?? event.timestamp ?? isoOrNull(receivedAtEpochMs),
+    receivedAtEpochMs,
+    respondedAt: event.respondedAt ?? isoOrNull(respondedAtEpochMs),
+    respondedAtEpochMs,
+    durationMs: durationMs ?? durationBetween(receivedAtEpochMs, respondedAtEpochMs),
+    firstByteAt: null,
+    firstByteAtEpochMs: null,
+    firstByteLatencyMs: null,
+    firstChunkAt: null,
+    firstChunkAtEpochMs: null,
+    firstChunkLatencyMs: null,
+    method: event.method ?? null,
+    mode: event.mode ?? null,
+    behavior: event.behavior ?? event.mode ?? null,
+    outcome: event.outcome ?? (ok ? "completed" : "error"),
+    errorClass: event.errorClass ?? (ok ? null : "provider-error"),
+    providerCallIndex: numberOrNull(event.providerCallIndex),
+    route,
+    path: event.path ?? route,
+    operation,
+    provider,
+    model: event.model ?? event.modelId ?? event.attributes?.model ?? null,
+    stream: typeof event.stream === "boolean" ? event.stream : null,
+    status: numberOrNull(event.status),
+    statusClass: typeof event.status === "number" ? `${Math.floor(event.status / 100)}xx` : null,
+    bodyBytes: null,
+    parseError: null
+  };
+}
+
+function summarizeProviderRequests(requests) {
+  const sorted = requests
+    .filter((request) => typeof request.receivedAtEpochMs === "number")
+    .toSorted((left, right) => left.receivedAtEpochMs - right.receivedAtEpochMs);
+  const first = sorted[0] ?? null;
+  const last = sorted
+    .filter((request) => typeof request.respondedAtEpochMs === "number")
+    .toSorted((left, right) => left.respondedAtEpochMs - right.respondedAtEpochMs)
+    .at(-1) ?? null;
+  const firstByte = sorted
+    .filter((request) => typeof request.firstByteLatencyMs === "number")
+    .toSorted((left, right) => left.firstByteLatencyMs - right.firstByteLatencyMs)[0] ?? null;
+  const firstChunk = sorted
+    .filter((request) => typeof request.firstChunkLatencyMs === "number")
+    .toSorted((left, right) => left.firstChunkLatencyMs - right.firstChunkLatencyMs)[0] ?? null;
+
+  return {
+    requestCount: requests.length,
+    firstRequestStartAt: first?.receivedAt ?? null,
+    firstRequestStartEpochMs: first?.receivedAtEpochMs ?? null,
+    lastResponseEndAt: last?.respondedAt ?? null,
+    lastResponseEndEpochMs: last?.respondedAtEpochMs ?? null,
+    providerDurationMs: first && last ? Math.max(0, last.respondedAtEpochMs - first.receivedAtEpochMs) : null,
+    firstByteLatencyMs: firstByte?.firstByteLatencyMs ?? null,
+    firstChunkLatencyMs: firstChunk?.firstChunkLatencyMs ?? null,
+    routes: summarizeBy(requests, "route"),
+    models: summarizeBy(requests, "model"),
+    modes: summarizeBy(requests, "mode"),
+    outcomes: summarizeBy(requests, "outcome"),
+    errorClasses: summarizeBy(requests, "errorClass"),
+    statuses: summarizeBy(requests, "status"),
+    errors: requestErrors(requests)
+  };
 }
 
 function normalizeProviderRequest(raw, line) {
