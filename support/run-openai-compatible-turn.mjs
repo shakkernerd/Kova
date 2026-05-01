@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
+import fs from "node:fs";
+import path from "node:path";
 import {
   extractText,
   failJson,
   finishJson,
-  importOpenClawDistModule,
   parseSupportArgs,
+  prepareOpenClawRuntimeFromOcmEnv,
   readTimeoutMs
 } from "./openclaw-runtime.mjs";
 
@@ -13,14 +15,13 @@ const startedAtEpochMs = Date.now();
 
 try {
   const args = parseSupportArgs(process.argv.slice(2));
+  const runtimeContext = prepareOpenClawRuntimeFromOcmEnv(args.env);
   const message = args.message ?? "Reply with exact ASCII text KOVA_AGENT_OK only.";
   const expectedText = args["expected-text"] ?? "KOVA_AGENT_OK";
   const timeoutMs = readTimeoutMs(args.timeout, 120000);
   const model = args.model ?? "openai/gpt-5.5";
-  const { getRuntimeConfig } = await importOpenClawDistModule("config/io.js");
-  const { resolveGatewayPort } = await importOpenClawDistModule("config/paths.js");
-  const cfg = getRuntimeConfig();
-  const port = resolveGatewayPort(cfg, process.env);
+  const cfg = readConfig(runtimeContext.root);
+  const port = runtimeContext.gatewayPort;
   const token = readGatewayToken(cfg);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new Error(`OpenAI-compatible request timed out after ${timeoutMs}ms`)), timeoutMs);
@@ -54,6 +55,8 @@ try {
       ok: true,
       surface: "openai-compatible-turn",
       method: "POST /v1/chat/completions",
+      envName: runtimeContext.envName,
+      runtime: runtimeContext.runtime,
       model,
       startedAtEpochMs,
       requestStartedAtEpochMs,
@@ -77,4 +80,13 @@ function readGatewayToken(cfg) {
     cfg?.gateway?.token
   ];
   return candidates.find((value) => typeof value === "string" && value.trim().length > 0)?.trim() ?? "";
+}
+
+function readConfig(root) {
+  const configPath = path.join(root, ".openclaw", "openclaw.json");
+  try {
+    return JSON.parse(fs.readFileSync(configPath, "utf8"));
+  } catch {
+    return {};
+  }
 }

@@ -23,16 +23,23 @@
     {
       "id": "provision",
       "title": "Provision HTTP Env",
-      "intent": "Start a disposable OpenClaw gateway before sending an OpenAI-compatible HTTP request.",
-      "commands": ["ocm start {env} {startSelector} --json"],
-      "evidence": ["gateway port", "runtime binding", "startup readiness"]
+      "intent": "Create a disposable OpenClaw env without starting the gateway yet so Kova auth is applied before the gateway process boots.",
+      "commands": ["ocm start {env} {startSelector} --no-service --json"],
+      "evidence": ["gateway port", "runtime binding", "env created without service"]
+    },
+    {
+      "id": "gateway-start",
+      "title": "Start Gateway",
+      "intent": "Start the gateway after auth/provider config is already present in the OpenClaw home.",
+      "commands": ["ocm service install {env} --json", "ocm service start {env} --json"],
+      "evidence": ["gateway service installed", "gateway service started", "startup readiness"]
     },
     {
       "id": "openai-compatible-turn",
       "title": "OpenAI-Compatible Message",
       "intent": "Exercise the `/v1/chat/completions` user API and verify final assistant output.",
       "commands": [
-        "ocm @{env} -- node {kovaRoot}/support/run-openai-compatible-turn.mjs --model openai/gpt-5.5 --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --expected-text KOVA_AGENT_OK --timeout 120000"
+        "node {kovaRoot}/support/run-openai-compatible-turn.mjs --env {env} --model openai/gpt-5.5 --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --expected-text KOVA_AGENT_OK --timeout 120000"
       ],
       "evidence": ["HTTP status", "final assistant text", "mock provider request timing", "gateway health after turn", "role resource samples"]
     },

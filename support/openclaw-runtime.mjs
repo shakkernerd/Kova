@@ -1,5 +1,7 @@
 import { pathToFileURL } from "node:url";
 import path from "node:path";
+import { dirname } from "node:path";
+import { execFileSync } from "node:child_process";
 
 export async function importOpenClawDistModule(relativePath) {
   const packageRoot = process.cwd();
@@ -13,6 +15,38 @@ export async function importOpenClawDistModule(relativePath) {
         "Kova user-message scenarios require a built/release-shaped OpenClaw runtime."
     );
   }
+}
+
+export function prepareOpenClawRuntimeFromOcmEnv(envName) {
+  if (!envName) {
+    throw new Error("--env is required");
+  }
+  const status = runOcmJson(["env", "status", envName, "--json"]);
+  const resolved = runOcmJson(["env", "resolve", envName, "--json", "--", "status"]);
+  const root = readRequiredString(status.root, "ocm env status root");
+  const port = Number(status.gatewayPort);
+  const binaryPath = readRequiredString(resolved.binaryPath, "ocm env resolve binaryPath");
+  if (!Number.isInteger(port) || port <= 0) {
+    throw new Error(`invalid gateway port from OCM status: ${JSON.stringify(status.gatewayPort)}`);
+  }
+  const packageRoot = dirname(binaryPath);
+  process.env.OPENCLAW_HOME = root;
+  process.env.OPENCLAW_GATEWAY_PORT = String(port);
+  process.chdir(packageRoot);
+  return {
+    envName,
+    root,
+    gatewayPort: port,
+    binaryPath,
+    packageRoot,
+    runtime: {
+      bindingKind: resolved.bindingKind ?? null,
+      bindingName: resolved.bindingName ?? null,
+      releaseVersion: resolved.runtimeReleaseVersion ?? null,
+      releaseChannel: resolved.runtimeReleaseChannel ?? null,
+      sourceKind: resolved.runtimeSourceKind ?? null
+    }
+  };
 }
 
 export function parseSupportArgs(argv) {
@@ -42,6 +76,43 @@ export function readTimeoutMs(value, fallbackMs) {
     throw new Error(`invalid timeout: ${value}`);
   }
   return parsed;
+}
+
+export function runOcmJson(args) {
+  let stdout = "";
+  try {
+    stdout = execFileSync("ocm", args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+  } catch (error) {
+    const stderr = error?.stderr ? String(error.stderr) : "";
+    throw new Error(`ocm ${args.join(" ")} failed: ${stderr.trim() || error.message}`);
+  }
+  try {
+    return JSON.parse(stdout);
+  } catch {
+    throw new Error(`ocm ${args.join(" ")} did not return JSON: ${stdout.slice(0, 1000)}`);
+  }
+}
+
+export function runOcmText(args) {
+  try {
+    return execFileSync("ocm", args, {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+  } catch (error) {
+    const stderr = error?.stderr ? String(error.stderr) : "";
+    throw new Error(`ocm ${args.join(" ")} failed: ${stderr.trim() || error.message}`);
+  }
+}
+
+function readRequiredString(value, label) {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new Error(`${label} missing`);
+  }
+  return value;
 }
 
 export function extractText(value) {

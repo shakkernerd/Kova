@@ -205,8 +205,9 @@ export function renderMarkdownReport(report) {
           const route = turn.providerRoutes?.[0]?.value ?? "unknown";
           const status = turn.providerStatuses?.[0]?.value ?? "unknown";
           const issue = turn.providerErrorClasses?.[0]?.value ?? turn.providerOutcomes?.[0]?.value ?? "none";
+          const providerTiming = turn.providerAfterCommandEnd ? `; provider late ${turn.providerLateByMs} ms` : "";
           const expectedFailure = turn.expectedFailure ? "; expected failure observed " + turn.expectedFailureObserved : "";
-          lines.push(`  - ${turn.label}: total ${turn.totalTurnMs ?? "unknown"} ms; pre-provider ${turn.preProviderMs ?? "unknown"} ms; provider ${turn.providerFinalMs ?? "unknown"} ms; post-provider ${turn.postProviderMs ?? "unknown"} ms; route ${route}; status ${status}; issue ${issue}; response ${turn.responseOk}; leaks ${turn.processLeakCount ?? "unknown"}${expectedFailure}`);
+          lines.push(`  - ${turn.label}: total ${turn.totalTurnMs ?? "unknown"} ms; pre-provider ${turn.preProviderMs ?? "unknown"} ms; provider ${turn.providerFinalMs ?? "unknown"} ms; post-provider ${turn.postProviderMs ?? "unknown"} ms; route ${route}; status ${status}; issue ${issue}; response ${turn.responseOk}; leaks ${turn.processLeakCount ?? "unknown"}${providerTiming}${expectedFailure}`);
           const breakdown = summarizeAgentTurnBreakdownForMarkdown(turn.phaseBreakdown);
           if (breakdown) {
             lines.push(`    - breakdown: ${breakdown}`);

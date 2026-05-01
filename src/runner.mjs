@@ -528,8 +528,14 @@ function readinessThresholdForPhase(scenario, phase) {
   if (!phase) {
     return 0;
   }
+  if ((phase.commands ?? []).some((command) => /(?:^|\s)--no-service(?:\s|$)/.test(command))) {
+    return 0;
+  }
   if (phase.id === "cold-start" || phase.id === "provision" || phase.id === "baseline" || phase.id === "gateway" || phase.id === "start") {
     return thresholds.coldReadyMs ?? thresholds.gatewayReadyMs ?? defaultMs;
+  }
+  if (phase.id === "gateway-start") {
+    return thresholds.gatewayReadyMs ?? defaultMs;
   }
   if (phase.id === "warm-restart" || phase.id === "restart") {
     return thresholds.warmReadyMs ?? thresholds.restartReadyMs ?? thresholds.gatewayReadyMs ?? defaultMs;

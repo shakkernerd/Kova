@@ -193,9 +193,12 @@ export function computeProviderTurnAttribution(result, providerEvidence) {
   }
   const commandStartedAt = result.startedAtEpochMs;
   const commandFinishedAt = result.finishedAtEpochMs;
-  const requests = providerEvidence?.available === true
+  const requestsInCommand = providerEvidence?.available === true
     ? requestsWithinCommand(providerEvidence.requests ?? [], commandStartedAt, commandFinishedAt)
     : [];
+  const requests = requestsInCommand.length > 0
+    ? requestsInCommand
+    : requestsAfterCommandTimeout(providerEvidence?.requests ?? [], commandStartedAt, commandFinishedAt);
   const firstRequest = requests[0] ?? null;
   const lastResponse = requests
     .filter((request) => typeof request.respondedAtEpochMs === "number")
@@ -233,9 +236,15 @@ export function computeProviderTurnAttribution(result, providerEvidence) {
       providerDominates: null,
       preProviderDominates: null,
       missingProviderRequest: true,
+      providerRequestTiming: "missing",
+      providerAfterCommandEnd: false,
+      providerLateByMs: null,
       providerEvidenceAvailable: providerEvidence?.available === true
     };
   }
+  const attributionWindowEnd = Math.max(commandFinishedAt, lastProviderResponseAt);
+  const attributionTotalMs = Math.max(0, attributionWindowEnd - commandStartedAt);
+  const providerAfterCommandEnd = firstProviderRequestAt > commandFinishedAt;
   const firstByte = requests
     .filter((request) => typeof request.firstByteLatencyMs === "number")
     .toSorted((left, right) => left.firstByteLatencyMs - right.firstByteLatencyMs)[0] ?? null;
@@ -268,9 +277,12 @@ export function computeProviderTurnAttribution(result, providerEvidence) {
     errorClasses: summarizeBy(requests, "errorClass"),
     usage: summarizeUsage(requests),
     errors: requestErrors(requests),
-    providerDominates: dominanceRatio(Math.max(0, lastProviderResponseAt - firstProviderRequestAt), Math.max(0, commandFinishedAt - commandStartedAt)),
-    preProviderDominates: dominanceRatio(Math.max(0, firstProviderRequestAt - commandStartedAt), Math.max(0, commandFinishedAt - commandStartedAt)),
+    providerDominates: dominanceRatio(Math.max(0, lastProviderResponseAt - firstProviderRequestAt), attributionTotalMs),
+    preProviderDominates: dominanceRatio(Math.max(0, firstProviderRequestAt - commandStartedAt), attributionTotalMs),
     missingProviderRequest: false,
+    providerRequestTiming: requestsInCommand.length > 0 ? "within-command" : "after-command-timeout",
+    providerAfterCommandEnd,
+    providerLateByMs: providerAfterCommandEnd ? Math.max(0, firstProviderRequestAt - commandFinishedAt) : null,
     providerEvidenceAvailable: true
   };
 }
@@ -284,6 +296,21 @@ function requestsWithinCommand(requests, commandStartedAt, commandFinishedAt) {
       typeof request.receivedAtEpochMs === "number" &&
       request.receivedAtEpochMs >= commandStartedAt &&
       request.receivedAtEpochMs <= commandFinishedAt
+    )
+    .toSorted((left, right) => left.receivedAtEpochMs - right.receivedAtEpochMs);
+}
+
+function requestsAfterCommandTimeout(requests, commandStartedAt, commandFinishedAt) {
+  if (typeof commandStartedAt !== "number" || typeof commandFinishedAt !== "number") {
+    return [];
+  }
+  const graceMs = 60000;
+  return requests
+    .filter((request) =>
+      typeof request.receivedAtEpochMs === "number" &&
+      request.receivedAtEpochMs > commandFinishedAt &&
+      request.receivedAtEpochMs >= commandStartedAt &&
+      request.receivedAtEpochMs <= commandFinishedAt + graceMs
     )
     .toSorted((left, right) => left.receivedAtEpochMs - right.receivedAtEpochMs);
 }

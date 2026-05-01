@@ -5,9 +5,10 @@ import {
   extractText,
   failJson,
   finishJson,
-  importOpenClawDistModule,
   parseSupportArgs,
+  prepareOpenClawRuntimeFromOcmEnv,
   readTimeoutMs,
+  runOcmJson,
   sleep
 } from "./openclaw-runtime.mjs";
 
@@ -15,38 +16,30 @@ const startedAtEpochMs = Date.now();
 
 try {
   const args = parseSupportArgs(process.argv.slice(2));
+  const runtimeContext = prepareOpenClawRuntimeFromOcmEnv(args.env);
   const message = args.message ?? "Reply with exact ASCII text KOVA_AGENT_OK only.";
   const expectedText = args["expected-text"] ?? "KOVA_AGENT_OK";
   const timeoutMs = readTimeoutMs(args.timeout, 120000);
   const sessionKey = args["session-key"] ?? `kova-dashboard-${randomUUID()}`;
-  const { callGateway } = await importOpenClawDistModule("gateway/call.js");
 
-  const created = await callGateway({
-    method: "sessions.create",
-    params: {
+  const created = gatewayCall(runtimeContext.envName, "sessions.create", {
       agentId: "main",
       key: sessionKey,
       label: "Kova Dashboard Session Send"
-    },
-    timeoutMs: Math.min(timeoutMs, 30000)
-  });
+    }, Math.min(timeoutMs, 30000));
   const canonicalKey = created?.key ?? sessionKey;
   const sendStartedAtEpochMs = Date.now();
-  const sent = await callGateway({
-    method: "sessions.send",
-    params: {
+  const sent = gatewayCall(runtimeContext.envName, "sessions.send", {
       key: canonicalKey,
       message,
       thinking: "off",
       timeoutMs,
       idempotencyKey: `kova-dashboard-${randomUUID()}`
-    },
-    timeoutMs: Math.min(timeoutMs, 30000)
-  });
+    }, Math.min(timeoutMs, 30000));
   const runId = typeof sent?.runId === "string" ? sent.runId : null;
 
   const history = await waitForAssistantText({
-    callGateway,
+    envName: runtimeContext.envName,
     sessionKey: canonicalKey,
     expectedText,
     timeoutMs,
@@ -57,6 +50,8 @@ try {
     ok: true,
     surface: "dashboard-session-send-turn",
     method: "sessions.send",
+    envName: runtimeContext.envName,
+    runtime: runtimeContext.runtime,
     sessionKey: canonicalKey,
     runId,
     startedAtEpochMs,
@@ -71,29 +66,46 @@ try {
   failJson(error, { surface: "dashboard-session-send-turn", finishedAtEpochMs: Date.now() });
 }
 
-async function waitForAssistantText({ callGateway, sessionKey, expectedText, timeoutMs, minAssistantCount }) {
+async function waitForAssistantText({ envName, sessionKey, expectedText, timeoutMs, minAssistantCount }) {
   const deadline = Date.now() + timeoutMs;
   let lastAssistantText = "";
+  let lastHistoryError = null;
   let assistantTexts = [];
   while (Date.now() < deadline) {
-    const history = await callGateway({
-      method: "chat.history",
-      params: { sessionKey, limit: 16 },
-      timeoutMs: 15000
-    });
-    assistantTexts = extractAssistantTexts(history?.messages ?? []);
-    lastAssistantText = assistantTexts.at(-1) ?? "";
-    const matchedAssistantText = assistantTexts
-      .slice(Math.max(0, minAssistantCount - 1))
-      .find((text) => text.includes(expectedText));
-    if (matchedAssistantText) {
-      return { assistantTexts, lastAssistantText, matchedAssistantText };
+    try {
+      const history = gatewayCall(envName, "chat.history", { sessionKey, limit: 16 }, Math.min(15000, Math.max(1000, deadline - Date.now())));
+      lastHistoryError = null;
+      assistantTexts = extractAssistantTexts(history?.messages ?? []);
+      lastAssistantText = assistantTexts.at(-1) ?? "";
+      const matchedAssistantText = assistantTexts
+        .slice(Math.max(0, minAssistantCount - 1))
+        .find((text) => text.includes(expectedText));
+      if (matchedAssistantText) {
+        return { assistantTexts, lastAssistantText, matchedAssistantText };
+      }
+    } catch (error) {
+      lastHistoryError = error;
     }
     await sleep(500);
   }
   throw new Error(
-    `timed out waiting for dashboard assistant text ${JSON.stringify(expectedText)}; last=${JSON.stringify(lastAssistantText)}`
+    `timed out waiting for dashboard assistant text ${JSON.stringify(expectedText)}; last=${JSON.stringify(lastAssistantText)}; lastHistoryError=${JSON.stringify(lastHistoryError?.message ?? null)}`
   );
+}
+
+function gatewayCall(envName, method, params, timeoutMs) {
+  return runOcmJson([
+    `@${envName}`,
+    "--",
+    "gateway",
+    "call",
+    method,
+    "--params",
+    JSON.stringify(params),
+    "--timeout",
+    String(timeoutMs),
+    "--json"
+  ]);
 }
 
 function extractAssistantTexts(messages) {

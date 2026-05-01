@@ -23,9 +23,16 @@
     {
       "id": "provision",
       "title": "Provision Gateway Env",
-      "intent": "Start a disposable OpenClaw gateway before sending the Gateway RPC agent turn.",
-      "commands": ["ocm start {env} {startSelector} --json"],
-      "evidence": ["gateway port", "runtime binding", "startup readiness"]
+      "intent": "Create a disposable OpenClaw env without starting the gateway yet so Kova auth is applied before the gateway process boots.",
+      "commands": ["ocm start {env} {startSelector} --no-service --json"],
+      "evidence": ["gateway port", "runtime binding", "env created without service"]
+    },
+    {
+      "id": "gateway-start",
+      "title": "Start Gateway",
+      "intent": "Start the gateway after auth/provider config is already present in the OpenClaw home.",
+      "commands": ["ocm service install {env} --json", "ocm service start {env} --json"],
+      "evidence": ["gateway service installed", "gateway service started", "startup readiness"]
     },
     {
       "id": "gateway-agent-turn",

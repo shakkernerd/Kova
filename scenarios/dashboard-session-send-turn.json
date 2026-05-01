@@ -23,16 +23,23 @@
     {
       "id": "provision",
       "title": "Provision Dashboard Env",
-      "intent": "Start a disposable OpenClaw gateway before sending a dashboard session message.",
-      "commands": ["ocm start {env} {startSelector} --json"],
-      "evidence": ["gateway port", "runtime binding", "startup readiness"]
+      "intent": "Create a disposable OpenClaw env without starting the gateway yet so Kova auth is applied before the gateway process boots.",
+      "commands": ["ocm start {env} {startSelector} --no-service --json"],
+      "evidence": ["gateway port", "runtime binding", "env created without service"]
+    },
+    {
+      "id": "gateway-start",
+      "title": "Start Gateway",
+      "intent": "Start the gateway after auth/provider config is already present in the OpenClaw home.",
+      "commands": ["ocm service install {env} --json", "ocm service start {env} --json"],
+      "evidence": ["gateway service installed", "gateway service started", "startup readiness"]
     },
     {
       "id": "dashboard-session-turn",
       "title": "Dashboard Session Message",
       "intent": "Exercise Gateway `sessions.send` and verify the final assistant response is present in chat history.",
       "commands": [
-        "ocm @{env} -- node {kovaRoot}/support/run-dashboard-session-send-turn.mjs --session-key kova-dashboard-session-send --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --expected-text KOVA_AGENT_OK --timeout 120000"
+        "node {kovaRoot}/support/run-dashboard-session-send-turn.mjs --env {env} --session-key kova-dashboard-session-send --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --expected-text KOVA_AGENT_OK --timeout 120000"
       ],
       "evidence": ["sessions.send command duration", "chat history final assistant text", "mock provider request timing", "gateway health after turn", "role resource samples"]
     },
