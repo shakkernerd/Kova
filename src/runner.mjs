@@ -638,7 +638,8 @@ async function runScenarioCommand(command, context, envName, artifactDir, phaseI
 }
 
 function isAgentMessageCommand(command) {
-  return command.includes(" -- agent ") && command.includes("--message");
+  return (command.includes(" -- agent ") && command.includes("--message")) ||
+    command.includes("run-concurrent-agent-turns.mjs");
 }
 
 function agentLeakRoles() {

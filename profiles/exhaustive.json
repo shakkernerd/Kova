@@ -31,6 +31,7 @@
     { "scenario": "agent-provider-timeout", "state": "mock-openai-provider", "timeoutMs": 180000 },
     { "scenario": "agent-provider-malformed", "state": "mock-openai-provider", "timeoutMs": 180000 },
     { "scenario": "agent-provider-streaming-stall", "state": "mock-openai-provider", "timeoutMs": 180000 },
+    { "scenario": "agent-provider-concurrent", "state": "mock-openai-provider", "timeoutMs": 240000 },
     { "scenario": "agent-provider-recovery", "state": "mock-openai-provider", "timeoutMs": 240000 },
     { "scenario": "dashboard-readiness", "state": "fresh" },
     { "scenario": "tui-responsiveness", "state": "fresh" },

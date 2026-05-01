@@ -656,6 +656,27 @@ function summarizeNumericField(items, field) {
   };
 }
 
+function maxProviderRequestConcurrency(requests) {
+  const events = [];
+  for (const request of requests ?? []) {
+    if (typeof request.receivedAtEpochMs !== "number" || typeof request.respondedAtEpochMs !== "number") {
+      continue;
+    }
+    if (request.respondedAtEpochMs < request.receivedAtEpochMs) {
+      continue;
+    }
+    events.push({ time: request.receivedAtEpochMs, delta: 1 });
+    events.push({ time: request.respondedAtEpochMs, delta: -1 });
+  }
+  let current = 0;
+  let max = 0;
+  for (const event of events.toSorted((left, right) => left.time - right.time || right.delta - left.delta)) {
+    current += event.delta;
+    max = Math.max(max, current);
+  }
+  return max;
+}
+
 function percentile(sortedValues, percentileValue) {
   if (sortedValues.length === 0) {
     return null;
@@ -732,6 +753,15 @@ function evaluateProviderSimulation({ turns, scenario, record, thresholds }) {
   const slowObserved = mode === "slow"
     ? turns.some((turn) => typeof turn.providerFinalMs === "number" && typeof providerSlowMinMs === "number" && turn.providerFinalMs >= providerSlowMinMs)
     : null;
+  const providerRequestCount = record.providerEvidence?.requestCount ?? turns.reduce((total, turn) => total + (turn.requestCount ?? 0), 0);
+  const providerRequestCountMin = thresholds.providerRequestCountMin ?? scenario.mockProvider?.concurrency ?? null;
+  const providerMaxConcurrency = maxProviderRequestConcurrency(record.providerEvidence?.requests ?? []);
+  const providerConcurrencyMin = thresholds.providerConcurrencyMin ?? (typeof scenario.mockProvider?.concurrency === "number" ? Math.min(2, scenario.mockProvider.concurrency) : null);
+  const requestCountOk = typeof providerRequestCountMin === "number" ? providerRequestCount >= providerRequestCountMin : null;
+  const overlapObserved = typeof providerConcurrencyMin === "number" ? providerMaxConcurrency >= providerConcurrencyMin : null;
+  const concurrentObserved = mode === "concurrent-pressure"
+    ? requestCountOk === true && overlapObserved === true
+    : null;
 
   return {
     schemaVersion: "kova.agentProviderSimulation.v1",
@@ -748,7 +778,14 @@ function evaluateProviderSimulation({ turns, scenario, record, thresholds }) {
     finalGatewayState,
     healthFailures,
     healthLimit,
-    providerSlowMinMs
+    providerSlowMinMs,
+    providerRequestCount,
+    providerRequestCountMin,
+    providerMaxConcurrency,
+    providerConcurrencyMin,
+    requestCountOk,
+    overlapObserved,
+    concurrentObserved
   };
 }
 
@@ -801,6 +838,15 @@ function checkProviderSimulation(violations, simulation) {
       message: "mock provider error-then-recover mode did not prove agent recovery"
     });
   }
+  if (simulation.mode === "concurrent-pressure" && simulation.concurrentObserved !== true) {
+    violations.push({
+      kind: "provider-simulation",
+      metric: "providerConcurrentPressureObserved",
+      expected: `>= ${simulation.providerRequestCountMin ?? "configured concurrency"} provider requests and max in-flight >= ${simulation.providerConcurrencyMin ?? "configured overlap"}`,
+      actual: `requests=${simulation.providerRequestCount}, maxInFlight=${simulation.providerMaxConcurrency}`,
+      message: "mock provider concurrent-pressure mode did not produce enough overlapping provider work"
+    });
+  }
   if (simulation.containmentOk !== true) {
     violations.push({
       kind: "provider-containment",
@@ -840,6 +886,13 @@ function buildAgentFailureFixerSummary(latencyDiagnosis, providerSimulation, con
       kind: "provider-recovered",
       summary: "Provider failed and later recovered; verify retry/recovery behavior is intentional and latency remains acceptable.",
       likelyOwner: "provider retry / agent recovery"
+    });
+  }
+  if (providerSimulation?.mode === "concurrent-pressure") {
+    items.push({
+      kind: "provider-concurrent-pressure",
+      summary: `Concurrent provider pressure produced ${providerSimulation.providerRequestCount ?? "unknown"} provider request(s), max in-flight ${providerSimulation.providerMaxConcurrency ?? "unknown"}; verify OpenClaw keeps gateway and agent sessions responsive under overlapping turns.`,
+      likelyOwner: "agent concurrency / provider scheduling"
     });
   }
   if (latencyDiagnosis?.kind === "cold-pre-provider-stall" || latencyDiagnosis?.kind === "pre-provider-stall") {
@@ -1895,7 +1948,8 @@ function countDiagnosticMetric(record, key) {
 }
 
 function isAgentMessageCommand(command) {
-  return command.includes(" -- agent ") && command.includes("--message");
+  return (command.includes(" -- agent ") && command.includes("--message")) ||
+    command.includes("run-concurrent-agent-turns.mjs");
 }
 
 function extractAgentResponse(result) {

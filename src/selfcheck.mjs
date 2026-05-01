@@ -168,6 +168,8 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await mockProviderBehaviorCheck(tmp));
     checks.push(providerFailureEvaluationCheck());
     checks.push(agentColdWarmEvaluationCheck());
+    checks.push(await concurrentAgentRunnerCheck(tmp));
+    checks.push(providerConcurrentEvaluationCheck());
     checks.push(await jsonCommandCheck(
       "dry-run-state-lifecycle-json",
       `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --state missing-plugin-index --report-dir ${quoteShell(tmp)} --json`,
@@ -1352,6 +1354,45 @@ async function mockProviderBehaviorCheck(tmp) {
   }
 }
 
+async function concurrentAgentRunnerCheck(tmp) {
+  const fakeBin = join(tmp, "concurrent-agent-runner-bin");
+  const fakeOcm = join(fakeBin, "ocm");
+  await mkdir(fakeBin, { recursive: true });
+  await writeFile(fakeOcm, [
+    "#!/usr/bin/env node",
+    "process.stdout.write(JSON.stringify({ finalAssistantVisibleText: 'KOVA_AGENT_OK' }) + '\\n');"
+  ].join("\n"), "utf8");
+  await chmod(fakeOcm, 0o755);
+
+  const command = `PATH=${quoteShell(fakeBin)}:$PATH node support/run-concurrent-agent-turns.mjs --env kova-self-check --count 2 --session-prefix kova-self-check-concurrent --message hi --expected-text KOVA_AGENT_OK --timeout 5`;
+  const result = await runCommand(command, { timeoutMs: 10000 });
+  try {
+    if (result.status !== 0) {
+      throw new Error(`concurrent agent runner failed: ${result.stderr || result.stdout}`);
+    }
+    const summary = JSON.parse(result.stdout);
+    assertEqual(summary.schemaVersion, "kova.concurrentAgentTurns.v1", "concurrent runner schema");
+    assertEqual(summary.ok, true, "concurrent runner ok");
+    assertEqual(summary.count, 2, "concurrent runner count");
+    assertEqual(summary.successCount, 2, "concurrent runner success count");
+    assertEqual(summary.turns.every((turn) => turn.expectedTextPresent === true), true, "all concurrent turns included expected text");
+    return {
+      id: "concurrent-agent-runner",
+      status: "PASS",
+      command,
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "concurrent-agent-runner",
+      status: "FAIL",
+      command,
+      durationMs: result.durationMs,
+      message: error.message
+    };
+  }
+}
+
 function providerFailureEvaluationCheck() {
   try {
     const recoverCommand = "ocm @kova -- agent --local --agent main --session-id kova-agent-provider-recovery --message hi --json";
@@ -1459,6 +1500,102 @@ function providerFailureEvaluationCheck() {
       id: "provider-failure-evaluation",
       status: "FAIL",
       command: "evaluate synthetic provider failure containment",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function providerConcurrentEvaluationCheck() {
+  try {
+    const command = "node support/run-concurrent-agent-turns.mjs --env kova-self-check --count 3 --message hi --expected-text KOVA_AGENT_OK";
+    const record = {
+      scenario: "agent-provider-concurrent",
+      status: "PASS",
+      auth: { mode: "mock", source: "mock", providerId: "openai" },
+      phases: [
+        {
+          id: "concurrent-provider-turns",
+          results: [{
+            command,
+            status: 0,
+            timedOut: false,
+            startedAt: "2026-04-30T10:00:01.000Z",
+            startedAtEpochMs: 1777543201000,
+            finishedAt: "2026-04-30T10:00:05.000Z",
+            finishedAtEpochMs: 1777543205000,
+            durationMs: 4000,
+            stdout: "{\"finalAssistantVisibleText\":\"KOVA_AGENT_OK\",\"successCount\":3}",
+            stderr: "",
+            processSnapshots: {
+              leaks: {
+                schemaVersion: "kova.processLeakSummary.v1",
+                leakCount: 0,
+                leakedProcesses: [],
+                leaksByRole: {}
+              }
+            }
+          }],
+          metrics: { logs: zeroLogMetrics(), health: { ok: true } }
+        }
+      ],
+      providerEvidence: {
+        available: true,
+        requestCount: 3,
+        requests: [1, 2, 3].map((index) => ({
+          requestId: `concurrent-provider-${index}`,
+          mode: "concurrent-pressure",
+          outcome: "completed",
+          errorClass: null,
+          receivedAt: `2026-04-30T10:00:02.${index}00Z`,
+          receivedAtEpochMs: 1777543202000 + (index * 100),
+          respondedAt: `2026-04-30T10:00:03.${index}00Z`,
+          respondedAtEpochMs: 1777543203000 + (index * 100),
+          firstByteLatencyMs: 1000,
+          firstChunkLatencyMs: 1000,
+          route: "/v1/responses",
+          model: "gpt-5.5",
+          stream: true,
+          status: 200,
+          statusClass: "2xx"
+        }))
+      },
+      finalMetrics: {
+        service: { gatewayState: "running" },
+        logs: zeroLogMetrics()
+      }
+    };
+
+    evaluateRecord(record, {
+      id: "agent-provider-concurrent",
+      mockProvider: { mode: "concurrent-pressure", delayMs: 1500, concurrency: 3 },
+      agent: { expectedText: "KOVA_AGENT_OK" },
+      thresholds: {
+        providerRequestCountMin: 3,
+        providerConcurrencyMin: 2,
+        providerFailureHealthFailures: 0,
+        agentProcessLeaks: 0
+      }
+    }, { surface: { thresholds: {} }, targetPlan: { kind: "npm" } });
+
+    assertEqual(record.status, "PASS", "provider concurrent scenario status");
+    assertEqual(record.measurements.agentProviderSimulation.mode, "concurrent-pressure", "provider concurrent mode");
+    assertEqual(record.measurements.agentProviderSimulation.concurrentObserved, true, "provider concurrent observed");
+    assertEqual(record.measurements.agentProviderSimulation.providerRequestCount, 3, "provider concurrent request count");
+    assertEqual(record.measurements.agentProviderSimulation.providerMaxConcurrency, 3, "provider max concurrency");
+    assertEqual(record.measurements.agentTurns[0].requestCount, 3, "concurrent turn provider request count");
+    assertEqual(record.measurements.agentTurns[0].responseOk, true, "concurrent response ok");
+    return {
+      id: "provider-concurrent-evaluation",
+      status: "PASS",
+      command: "evaluate synthetic concurrent provider pressure",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "provider-concurrent-evaluation",
+      status: "FAIL",
+      command: "evaluate synthetic concurrent provider pressure",
       durationMs: 0,
       message: error.message
     };

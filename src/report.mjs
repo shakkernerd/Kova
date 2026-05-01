@@ -161,7 +161,10 @@ export function renderMarkdownReport(report) {
       }
       if (record.measurements.agentProviderSimulation?.expected) {
         const sim = record.measurements.agentProviderSimulation;
-        lines.push(`- Provider simulation: ${sim.mode}; observed ${sim.observedIssue}; containment ${sim.containmentOk}; recovery ${sim.recoveryOk ?? "n/a"}`);
+        const concurrent = sim.concurrentObserved === null || sim.concurrentObserved === undefined
+          ? ""
+          : `; concurrent requests ${sim.providerRequestCount}/${sim.providerRequestCountMin}, max in-flight ${sim.providerMaxConcurrency}/${sim.providerConcurrencyMin}, ok ${sim.concurrentObserved}`;
+        lines.push(`- Provider simulation: ${sim.mode}; observed ${sim.observedIssue}; containment ${sim.containmentOk}; recovery ${sim.recoveryOk ?? "n/a"}${concurrent}`);
       }
       if (record.measurements.agentFailureContainment) {
         const containment = record.measurements.agentFailureContainment;

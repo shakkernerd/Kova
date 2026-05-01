@@ -563,11 +563,14 @@ function mockProviderPolicy(scenario, state) {
     throw new Error(`mockProvider.mode must be one of ${[...mockProviderModes].join(", ")}`);
   }
   const policy = { mode };
-  for (const key of ["delayMs", "stallMs", "errorStatus"]) {
+  for (const key of ["delayMs", "stallMs", "errorStatus", "concurrency"]) {
     if (raw[key] !== undefined) {
       const value = Number(raw[key]);
-      if (!Number.isInteger(value) || value < 0) {
-        throw new Error(`mockProvider.${key} must be a non-negative integer`);
+      const valid = key === "concurrency"
+        ? Number.isInteger(value) && value > 0
+        : Number.isInteger(value) && value >= 0;
+      if (!valid) {
+        throw new Error(`mockProvider.${key} must be a ${key === "concurrency" ? "positive" : "non-negative"} integer`);
       }
       policy[key] = value;
     }
@@ -580,7 +583,8 @@ function mockProviderDisplay(policy) {
     mode: policy.mode,
     delayMs: policy.delayMs ?? null,
     stallMs: policy.stallMs ?? null,
-    errorStatus: policy.errorStatus ?? null
+    errorStatus: policy.errorStatus ?? null,
+    concurrency: policy.concurrency ?? null
   };
 }
 

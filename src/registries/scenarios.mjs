@@ -81,6 +81,9 @@ function validateMockProvider(mockProvider, prefix, errors) {
       errors.push(`${prefix}.${key} must be a non-negative integer when set`);
     }
   }
+  if (mockProvider.concurrency !== undefined && (!Number.isInteger(mockProvider.concurrency) || mockProvider.concurrency <= 0)) {
+    errors.push(`${prefix}.concurrency must be a positive integer when set`);
+  }
 }
 
 function validatePhases(phases, errors) {
