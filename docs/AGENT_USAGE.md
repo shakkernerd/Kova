@@ -99,6 +99,16 @@ approve the full release gate.
 Non-ship gates retain a durable artifact directory under
 `artifacts/release-gates/<runId>/`.
 
+Only update performance baselines from a reviewed-good run:
+
+```sh
+node bin/kova.mjs matrix run --profile smoke --target runtime:stable --repeat 3 --execute --save-baseline --reviewed-good --json
+```
+
+Do not pass `--reviewed-good` until the JSON/Markdown evidence is clean:
+records pass, violations are empty, performance groups are stable, and any gate
+or baseline comparison is not blocking.
+
 5. Read the generated JSON report first. Use the Markdown report for the human
 summary. For failures, start with `failureBrief` in `report summarize --json`
 or the `Failure Brief` section from `report paste`.

@@ -626,6 +626,12 @@ function formatPerformanceSection(performance, baseline) {
       lines.push(`- Regression: ${regression.scenario}/${regression.state ?? "none"} ${regression.message}`);
     }
   }
+  if (baseline?.review) {
+    lines.push(`- Baseline update review: ${baseline.review.ok ? "accepted" : "rejected"} (${baseline.review.blockerCount ?? 0} blocker(s))`);
+    for (const blocker of (baseline.review.blockers ?? []).slice(0, 4)) {
+      lines.push(`- Baseline blocker: ${blocker.message}`);
+    }
+  }
   if (baseline?.saved) {
     lines.push(`- Baseline saved: ${baseline.saved.path}`);
   }
@@ -652,6 +658,8 @@ function summarizePerformance(performance, baseline) {
     unstableGroupCount: performance.unstableGroupCount ?? 0,
     baselineRegressionCount: baseline?.comparison?.regressionCount ?? null,
     missingBaselineCount: baseline?.comparison?.missingBaselineCount ?? null,
+    baselineReviewOk: baseline?.review?.ok ?? null,
+    baselineReviewBlockerCount: baseline?.review?.blockerCount ?? null,
     savedBaselinePath: baseline?.saved?.path ?? null,
     regressions: baseline?.comparison?.regressions?.slice(0, 10) ?? []
   };

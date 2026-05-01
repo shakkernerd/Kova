@@ -265,9 +265,17 @@ staging.
 
 Baseline stores use schema `kova.baselines.v1`. Baseline read/write requires
 `--execute` so stored evidence comes from real OpenClaw runs, not dry-run plans.
-Entries are keyed by platform, target kind, surface, state, and scenario, so
-Kova can compare the same OpenClaw execution surface under the same user state
-instead of comparing unrelated commands.
+Baseline writes also require `--reviewed-good`; Kova rejects updates from
+failing records, record violations, unstable performance groups, failed gates,
+or reports that already regressed against an existing baseline. Entries are
+keyed by platform, target kind, surface, state, and scenario, so Kova can
+compare the same OpenClaw execution surface under the same user state instead
+of comparing unrelated commands.
+
+Baseline update review uses schema `kova.baselineReview.v1` and is stored under
+`baseline.review` when `--save-baseline` is used. It records whether the
+operator marked the evidence reviewed, the blockers Kova checked, and whether
+the baseline write was accepted. A rejected review blocks the write.
 
 Baseline comparison uses schema `kova.baselineComparison.v1`. Regressions are
 reported by metric with baseline median, current median, p95 values, threshold
@@ -292,6 +300,8 @@ blocking performance regressions, so a functional pass can still become
     "unstableGroupCount": 0,
     "baselineRegressionCount": 0,
     "missingBaselineCount": 0,
+    "baselineReviewOk": true,
+    "baselineReviewBlockerCount": 0,
     "savedBaselinePath": "/path/to/baselines.json"
   },
   "summary": {

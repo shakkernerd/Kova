@@ -9,6 +9,7 @@ import { evaluateGate } from "./gate.mjs";
 import {
   comparePerformanceToBaseline,
   loadBaselineStore,
+  reviewBaselineUpdate,
   saveBaselineStore,
   updateBaselineStore
 } from "./performance/baselines.mjs";
@@ -154,6 +155,11 @@ export async function runSelfCheck(flags = {}) {
       "baseline-requires-execute",
       "node bin/kova.mjs run --target runtime:stable --scenario fresh-install --baseline --json",
       "--baseline and --save-baseline require --execute"
+    ));
+    checks.push(await failingCommandCheck(
+      "save-baseline-requires-reviewed-good",
+      "node bin/kova.mjs run --target runtime:stable --scenario fresh-install --execute --save-baseline --json",
+      "--save-baseline requires --reviewed-good"
     ));
     checks.push(await jsonCommandCheck("cleanup-json", "node bin/kova.mjs cleanup envs --json", (data) => {
       assertEqual(data.schemaVersion, "kova.cleanup.envs.v1", "cleanup schema");
@@ -541,7 +547,28 @@ async function performanceBaselineCheck(tmp) {
     baselineReport.performance = buildPerformanceSummary(baselineReport.records, { repeat: 3 });
 
     const baselinePath = join(tmp, "baselines.json");
-    const savedStore = updateBaselineStore(await loadBaselineStore(baselinePath), baselineReport, { targetPlan });
+    const unreviewed = reviewBaselineUpdate(baselineReport, { reviewedGood: false });
+    assertEqual(unreviewed.ok, false, "baseline update requires review");
+    assertEqual(unreviewed.blockers.some((blocker) => blocker.kind === "review-required"), true, "baseline review-required blocker");
+
+    const failingReport = syntheticPerformanceReport({
+      runId: "failing",
+      platform,
+      target: "local-build:/tmp/openclaw",
+      records: [
+        {
+          ...syntheticPerformanceRecord(1, { timeToHealthReadyMs: 1000, peakRssMb: 400 }),
+          status: "FAIL",
+          violations: [{ message: "gateway readiness exceeded threshold" }]
+        }
+      ]
+    });
+    failingReport.performance = buildPerformanceSummary(failingReport.records, { repeat: 1 });
+    const failingReview = reviewBaselineUpdate(failingReport, { reviewedGood: true });
+    assertEqual(failingReview.ok, false, "failing report rejected for baseline");
+    assertEqual(failingReview.blockers.some((blocker) => blocker.kind === "non-passing-records"), true, "non-passing blocker");
+
+    const savedStore = updateBaselineStore(await loadBaselineStore(baselinePath), baselineReport, { targetPlan, reviewedGood: true });
     await saveBaselineStore(baselinePath, savedStore);
     const loadedStore = await loadBaselineStore(baselinePath);
     assertEqual(Object.keys(loadedStore.entries).length, 1, "baseline entry count");
@@ -572,6 +599,12 @@ async function performanceBaselineCheck(tmp) {
     });
     assertEqual(comparison.ok, false, "baseline comparison regression");
     assertEqual(comparison.regressions.some((regression) => regression.metric === "timeToHealthReadyMs"), true, "startup regression present");
+    const regressedReview = reviewBaselineUpdate({
+      ...currentReport,
+      baseline: { path: baselinePath, comparison }
+    }, { reviewedGood: true });
+    assertEqual(regressedReview.ok, false, "regressed current report rejected for baseline update");
+    assertEqual(regressedReview.blockers.some((blocker) => blocker.kind === "baseline-regression"), true, "baseline-regression blocker");
 
     const gate = evaluateGate({
       mode: "execution",

@@ -39,9 +39,9 @@ Usage:
   kova setup auth [--provider <id>] [--method <mock|api-key|env-only|external-cli|oauth|skip>] [--env-var <name>] [--value <secret>] [--fallback-policy <mock|external-cli|none>] [--json]
   kova self-check [--json]
   kova plan [--scenario <id>] [--json]
-  kova run --target <selector> [--from <selector>] [--scenario <id>] [--state <id>] [--auth <mock|live|skip>] [--repeat <n>] [--baseline [path]] [--save-baseline [path]] [--regression-thresholds <json>] [--report-dir <path>] [--health-samples <n>] [--readiness-interval-ms <n>] [--resource-sample-interval-ms <n>] [--deep-profile] [--node-profile] [--heap-snapshot] [--profile-on-failure] [--execute] [--keep-env] [--retain-on-failure] [--json]
+  kova run --target <selector> [--from <selector>] [--scenario <id>] [--state <id>] [--auth <mock|live|skip>] [--repeat <n>] [--baseline [path]] [--save-baseline [path] --reviewed-good] [--regression-thresholds <json>] [--report-dir <path>] [--health-samples <n>] [--readiness-interval-ms <n>] [--resource-sample-interval-ms <n>] [--deep-profile] [--node-profile] [--heap-snapshot] [--profile-on-failure] [--execute] [--keep-env] [--retain-on-failure] [--json]
   kova matrix plan --profile <id> --target <selector> [--from <selector>] [--include <filter>] [--exclude <filter>] [--parallel <n>] [--json]
-  kova matrix run --profile <id> --target <selector> [--from <selector>] [--include <filter>] [--exclude <filter>] [--auth <mock|live|skip>] [--parallel <n>] [--repeat <n>] [--baseline [path]] [--save-baseline [path]] [--regression-thresholds <json>] [--fail-fast] [--gate] [--report-dir <path>] [--health-samples <n>] [--readiness-interval-ms <n>] [--resource-sample-interval-ms <n>] [--deep-profile] [--node-profile] [--heap-snapshot] [--profile-on-failure] [--execute] [--keep-env] [--retain-on-failure] [--json]
+  kova matrix run --profile <id> --target <selector> [--from <selector>] [--include <filter>] [--exclude <filter>] [--auth <mock|live|skip>] [--parallel <n>] [--repeat <n>] [--baseline [path]] [--save-baseline [path] --reviewed-good] [--regression-thresholds <json>] [--fail-fast] [--gate] [--report-dir <path>] [--health-samples <n>] [--readiness-interval-ms <n>] [--resource-sample-interval-ms <n>] [--deep-profile] [--node-profile] [--heap-snapshot] [--profile-on-failure] [--execute] [--keep-env] [--retain-on-failure] [--json]
   kova report summarize <report.json> [--json]
   kova report paste <report.json>
   kova report compare <baseline.json> <current.json> [--thresholds <json>] [--fixer] [--json]
@@ -67,7 +67,7 @@ Notes:
   external-cli setup derives Codex for OpenAI and Claude CLI for Anthropic, then verifies the CLI and auth evidence.
   external CLI fallback is only used when explicitly configured with --fallback-policy external-cli.
   --baseline compares executed aggregates against a Kova baseline store; without a path it uses the default store.
-  --save-baseline writes executed aggregates into the selected baseline store.
+  --save-baseline writes only reviewed, passing, stable execution aggregates into the selected baseline store.
   --deep-profile enables Node CPU/heap/trace profiling, OpenClaw timeline envs,
   heap snapshots, diagnostic reports, and denser resource sampling.
   setup includes auth. Use --non-interactive or --ci for scripts and agents.

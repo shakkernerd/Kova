@@ -11,6 +11,7 @@ import {
   comparePerformanceToBaseline,
   loadBaselineStore,
   resolveBaselinePath,
+  reviewBaselineUpdate,
   saveBaselineStore,
   updateBaselineStore
 } from "./performance/baselines.mjs";
@@ -412,9 +413,11 @@ async function matrixRun(flags) {
   };
   if (saveBaselinePath) {
     const existingStore = await loadBaselineStore(saveBaselinePath);
-    const updatedStore = updateBaselineStore(existingStore, report, { targetPlan });
+    const review = reviewBaselineUpdate(report, { reviewedGood: flags.reviewed_good === true });
+    const updatedStore = updateBaselineStore(existingStore, report, { targetPlan, reviewedGood: flags.reviewed_good === true });
     report.baseline = {
       ...(report.baseline ?? {}),
+      review,
       saved: await saveBaselineStore(saveBaselinePath, updatedStore)
     };
   }
@@ -613,6 +616,7 @@ function matrixControlSummary(flags, targetPlan) {
     baseline: flags.baseline ? resolveBaselinePath(flags.baseline) : null,
     saveBaseline: flags.save_baseline ? resolveBaselinePath(flags.save_baseline) : null,
     gate: flags.gate === true,
+    reviewedGood: flags.reviewed_good === true,
     bundle: true
   };
 }
@@ -673,6 +677,8 @@ function summarizePerformanceReceipt(performance, baseline) {
     unstableGroupCount: performance.unstableGroupCount,
     baselineRegressionCount: baseline?.comparison?.regressionCount ?? null,
     missingBaselineCount: baseline?.comparison?.missingBaselineCount ?? null,
+    baselineReviewOk: baseline?.review?.ok ?? null,
+    baselineReviewBlockerCount: baseline?.review?.blockerCount ?? null,
     savedBaselinePath: baseline?.saved?.path ?? null
   };
 }
@@ -908,9 +914,11 @@ async function run(flags) {
   }
   if (saveBaselinePath) {
     const existingStore = await loadBaselineStore(saveBaselinePath);
-    const updatedStore = updateBaselineStore(existingStore, report, { targetPlan });
+    const review = reviewBaselineUpdate(report, { reviewedGood: flags.reviewed_good === true });
+    const updatedStore = updateBaselineStore(existingStore, report, { targetPlan, reviewedGood: flags.reviewed_good === true });
     report.baseline = {
       ...(report.baseline ?? {}),
+      review,
       saved: await saveBaselineStore(saveBaselinePath, updatedStore)
     };
   }
@@ -949,6 +957,9 @@ function resolveRunTimeout(scenarios, flags) {
 function validateBaselineExecutionFlags(flags) {
   if ((flags.baseline || flags.save_baseline) && flags.execute !== true) {
     throw new Error("--baseline and --save-baseline require --execute so baseline evidence comes from real OpenClaw runs");
+  }
+  if (flags.save_baseline && flags.reviewed_good !== true) {
+    throw new Error("--save-baseline requires --reviewed-good after reviewing a passing, stable execution report");
   }
 }
 

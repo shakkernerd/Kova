@@ -10,6 +10,7 @@ import {
 
 export const BASELINE_SCHEMA = "kova.baselines.v1";
 export const BASELINE_COMPARISON_SCHEMA = "kova.baselineComparison.v1";
+export const BASELINE_REVIEW_SCHEMA = "kova.baselineReview.v1";
 
 export function defaultBaselinePath() {
   return join(baselinesDir, "baselines.json");
@@ -69,6 +70,11 @@ export async function saveBaselineStore(path, store) {
 }
 
 export function updateBaselineStore(store, report, options = {}) {
+  const review = reviewBaselineUpdate(report, options);
+  if (!review.ok) {
+    throw new Error(`baseline update rejected: ${review.blockers.map((blocker) => blocker.message).join("; ")}`);
+  }
+
   const next = {
     schemaVersion: BASELINE_SCHEMA,
     createdAt: store?.createdAt ?? new Date().toISOString(),
@@ -100,6 +106,121 @@ export function updateBaselineStore(store, report, options = {}) {
   }
 
   return next;
+}
+
+export function reviewBaselineUpdate(report, options = {}) {
+  const blockers = [];
+  const warnings = [];
+
+  if (options.reviewedGood !== true) {
+    blockers.push({
+      kind: "review-required",
+      message: "--reviewed-good is required with --save-baseline"
+    });
+  }
+
+  if (report?.mode !== "execution") {
+    blockers.push({
+      kind: "not-execution",
+      message: "baseline updates require execution reports"
+    });
+  }
+
+  const records = Array.isArray(report?.records) ? report.records : [];
+  if (records.length === 0) {
+    blockers.push({
+      kind: "no-records",
+      message: "baseline updates require at least one scenario record"
+    });
+  }
+
+  const nonPassingRecords = records.filter((record) => record.status !== "PASS");
+  if (nonPassingRecords.length > 0) {
+    blockers.push({
+      kind: "non-passing-records",
+      count: nonPassingRecords.length,
+      examples: nonPassingRecords.slice(0, 5).map((record) => ({
+        scenario: record.scenario ?? null,
+        state: record.state?.id ?? null,
+        status: record.status ?? null
+      })),
+      message: `baseline updates require all records to PASS (${nonPassingRecords.length} did not)`
+    });
+  }
+
+  const violatingRecords = records.filter((record) => Array.isArray(record.violations) && record.violations.length > 0);
+  if (violatingRecords.length > 0) {
+    blockers.push({
+      kind: "record-violations",
+      count: violatingRecords.length,
+      examples: violatingRecords.slice(0, 5).map((record) => ({
+        scenario: record.scenario ?? null,
+        state: record.state?.id ?? null,
+        violations: record.violations.slice(0, 3).map((violation) => violation.message ?? String(violation))
+      })),
+      message: `baseline updates require zero record violations (${violatingRecords.length} records had violations)`
+    });
+  }
+
+  const performance = report?.performance;
+  const groups = Array.isArray(performance?.groups) ? performance.groups : [];
+  if (groups.length === 0) {
+    blockers.push({
+      kind: "no-performance-groups",
+      message: "baseline updates require performance groups"
+    });
+  }
+
+  const unstableGroups = groups.filter(hasUnstableMetric);
+  if ((performance?.unstableGroupCount ?? unstableGroups.length) > 0) {
+    blockers.push({
+      kind: "unstable-performance",
+      count: performance?.unstableGroupCount ?? unstableGroups.length,
+      examples: unstableGroups.slice(0, 5).map((group) => ({
+        scenario: group.scenario ?? null,
+        surface: group.surface ?? null,
+        state: group.state ?? null,
+        unstableMetrics: unstableMetricIds(group)
+      })),
+      message: `baseline updates require stable performance samples (${performance?.unstableGroupCount ?? unstableGroups.length} unstable groups)`
+    });
+  }
+
+  const comparison = report?.baseline?.comparison;
+  if (comparison && comparison.ok !== true) {
+    blockers.push({
+      kind: "baseline-regression",
+      regressionCount: comparison.regressionCount ?? 0,
+      missingBaselineCount: comparison.missingBaselineCount ?? 0,
+      message: `baseline update would overwrite evidence with a regressed run (${comparison.regressionCount ?? 0} regressions)`
+    });
+  }
+
+  if (report?.gate && report.gate.ok !== true) {
+    blockers.push({
+      kind: "gate-not-ok",
+      verdict: report.gate.verdict ?? null,
+      message: `baseline updates require a passing gate when a gate was evaluated (${report.gate.verdict ?? "unknown"})`
+    });
+  }
+
+  if (options.reviewedGood === true && blockers.length === 0) {
+    warnings.push({
+      kind: "operator-review",
+      message: "baseline accepted because operator supplied --reviewed-good"
+    });
+  }
+
+  return {
+    schemaVersion: BASELINE_REVIEW_SCHEMA,
+    generatedAt: new Date().toISOString(),
+    ok: blockers.length === 0,
+    reviewedGood: options.reviewedGood === true,
+    blockerCount: blockers.length,
+    warningCount: warnings.length,
+    blockers,
+    warnings
+  };
 }
 
 export function comparePerformanceToBaseline(report, store, options = {}) {
@@ -218,6 +339,16 @@ function metricRegressions(baselineMetrics, currentMetrics, thresholds) {
     });
   }
   return regressions;
+}
+
+function hasUnstableMetric(group) {
+  return Object.values(group.metrics ?? {}).some((metric) => metric?.classification === "unstable");
+}
+
+function unstableMetricIds(group) {
+  return Object.entries(group.metrics ?? {})
+    .filter(([, metric]) => metric?.classification === "unstable")
+    .map(([id]) => id);
 }
 
 function round(value) {
