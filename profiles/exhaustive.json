@@ -38,6 +38,7 @@
     { "scenario": "tui-responsiveness", "state": "fresh" },
     { "scenario": "mcp-runtime-start-stop", "state": "fresh" },
     { "scenario": "browser-automation-smoke", "state": "fresh", "timeoutMs": 180000 },
+    { "scenario": "media-understanding-timeout", "state": "fresh", "timeoutMs": 180000 },
     { "scenario": "gateway-performance", "state": "many-bundled-plugins" },
     { "scenario": "gateway-performance", "state": "gateway-already-running" },
     { "scenario": "gateway-performance", "state": "stale-service-state" },

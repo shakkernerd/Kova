@@ -79,6 +79,7 @@ export function evaluateRecord(record, scenario, options = {}) {
   const soakEvidence = collectSoakEvidence(allResults);
   const mcpBridgeEvidence = collectMcpBridgeEvidence(allResults);
   const browserAutomationEvidence = collectBrowserAutomationEvidence(allResults);
+  const mediaUnderstandingEvidence = collectMediaUnderstandingEvidence(allResults);
   const listeningFailures = countListeningFailures(record);
   const tcpConnectMaxMs = collectTcpConnectMax(record);
   const timeToListeningMs = collectTimeToListening(record);
@@ -341,6 +342,64 @@ export function evaluateRecord(record, scenario, options = {}) {
         expected: "0",
         actual: browserAutomationEvidence.errors.length,
         message: `Browser automation smoke reported ${browserAutomationEvidence.errors.length} error(s): ${browserAutomationEvidence.errors[0]}`
+      });
+    }
+  }
+
+  if (mediaUnderstandingEvidence.available) {
+    checkEvidenceThreshold(violations, "media-understanding", "mediaDescribeMs", mediaUnderstandingEvidence.mediaDescribeMs, thresholds.mediaDescribeMs, "Media understanding image describe");
+    checkEvidenceThreshold(violations, "media-understanding", "mediaStatusAfterTimeoutMs", mediaUnderstandingEvidence.mediaStatusAfterTimeoutMs, thresholds.mediaStatusAfterTimeoutMs, "Post-media status");
+
+    if (typeof thresholds.mediaTimeoutObserved === "number" && mediaUnderstandingEvidence.mediaTimeoutObserved !== true) {
+      violations.push({
+        kind: "media-understanding",
+        metric: "mediaTimeoutObserved",
+        expected: true,
+        actual: mediaUnderstandingEvidence.mediaTimeoutObserved,
+        message: "Media understanding provider timeout was not observed as a bounded command failure"
+      });
+    }
+
+    if (mediaUnderstandingEvidence.mediaCommandTimedOut === true) {
+      violations.push({
+        kind: "media-understanding",
+        metric: "mediaCommandTimedOut",
+        expected: false,
+        actual: true,
+        message: "Media understanding command hit Kova's outer timeout instead of OpenClaw's provider timeout"
+      });
+    }
+
+    if (mediaUnderstandingEvidence.gatewayStatusWorks === false) {
+      violations.push({
+        kind: "media-understanding",
+        metric: "mediaGatewayStatusWorks",
+        expected: true,
+        actual: false,
+        message: "Gateway status did not work after media understanding timeout"
+      });
+    }
+
+    if (mediaUnderstandingEvidence.errors.length > 0) {
+      violations.push({
+        kind: "media-understanding",
+        metric: "mediaUnderstandingErrors",
+        expected: "0",
+        actual: mediaUnderstandingEvidence.errors.length,
+        message: `Media understanding timeout smoke reported ${mediaUnderstandingEvidence.errors.length} error(s): ${mediaUnderstandingEvidence.errors[0]}`
+      });
+    }
+  }
+
+  if (typeof thresholds.providerRequestCountMin === "number") {
+    const requestCount = record.providerEvidence?.requestCount ?? 0;
+    if (requestCount < thresholds.providerRequestCountMin) {
+      violations.push({
+        kind: "provider",
+        metric: "providerRequestCountMin",
+        expected: `>= ${thresholds.providerRequestCountMin}`,
+        actual: requestCount,
+        message: `Provider saw ${requestCount} request(s), below required ${thresholds.providerRequestCountMin}`
       });
     }
   }
@@ -631,6 +690,13 @@ export function evaluateRecord(record, scenario, options = {}) {
     browserStopped: browserAutomationEvidence.browserStopped,
     browserProcessLeaks: browserAutomationEvidence.available ? (browserAutomationEvidence.browserStopped === false ? 1 : 0) : null,
     browserErrors: browserAutomationEvidence.errors,
+    mediaUnderstandingEvidence,
+    mediaDescribeMs: mediaUnderstandingEvidence.mediaDescribeMs,
+    mediaTimeoutObserved: mediaUnderstandingEvidence.mediaTimeoutObserved,
+    mediaCommandTimedOut: mediaUnderstandingEvidence.mediaCommandTimedOut,
+    mediaStatusAfterTimeoutMs: mediaUnderstandingEvidence.mediaStatusAfterTimeoutMs,
+    mediaGatewayStatusWorks: mediaUnderstandingEvidence.gatewayStatusWorks,
+    mediaErrors: mediaUnderstandingEvidence.errors,
     soakDurationMs: soakEvidence.durationMs,
     soakIterations: soakEvidence.iterations,
     soakCommandP95Ms: soakEvidence.commandP95Ms,
@@ -1020,7 +1086,7 @@ function checkAgentTurnCorrectness(violations, turns, expectedText) {
 
 function evaluateProviderSimulation({ turns, scenario, record, thresholds }) {
   const mode = scenario.mockProvider?.mode ?? "normal";
-  const expected = mode !== "normal";
+  const expected = mode !== "normal" && scenario.agent !== undefined;
   const issue = classifyProviderIssue(turns);
   const expectedFailureTurns = turns.filter((turn) => turn.expectedFailure === true);
   const normalTurns = turns.filter((turn) => turn.expectedFailure !== true);
@@ -1146,35 +1212,35 @@ function checkProviderSimulation(violations, simulation) {
 
 function buildAgentFailureFixerSummary(latencyDiagnosis, cleanupDiagnosis, providerSimulation, containment) {
   const items = [];
-  if (providerSimulation?.mode === "timeout" || providerSimulation?.observedIssue === "provider-timeout") {
+  if (providerSimulation?.expected === true && (providerSimulation.mode === "timeout" || providerSimulation.observedIssue === "provider-timeout")) {
     items.push({
       kind: "provider-timeout",
       summary: "Provider timed out; verify OpenClaw surfaces the timeout clearly, cancels the turn, and leaves the gateway responsive.",
       likelyOwner: "provider / agent timeout handling"
     });
   }
-  if (providerSimulation?.mode === "streaming-stall" || providerSimulation?.observedIssue === "streaming-stall") {
+  if (providerSimulation?.expected === true && (providerSimulation.mode === "streaming-stall" || providerSimulation.observedIssue === "streaming-stall")) {
     items.push({
       kind: "streaming-stall",
       summary: "Provider stream stalled; verify OpenClaw applies stream idle timeouts and does not freeze gateway/TUI/dashboard.",
       likelyOwner: "provider streaming / agent turn cancellation"
     });
   }
-  if (providerSimulation?.mode === "malformed" || providerSimulation?.observedIssue === "malformed-response") {
+  if (providerSimulation?.expected === true && (providerSimulation.mode === "malformed" || providerSimulation.observedIssue === "malformed-response")) {
     items.push({
       kind: "malformed-response",
       summary: "Provider returned malformed output; verify OpenClaw reports a clear provider parse error and keeps the session usable.",
       likelyOwner: "provider response parsing"
     });
   }
-  if (providerSimulation?.recoveryOk === true) {
+  if (providerSimulation?.expected === true && providerSimulation.recoveryOk === true) {
     items.push({
       kind: "provider-recovered",
       summary: "Provider failed and later recovered; verify retry/recovery behavior is intentional and latency remains acceptable.",
       likelyOwner: "provider retry / agent recovery"
     });
   }
-  if (providerSimulation?.mode === "concurrent-pressure") {
+  if (providerSimulation?.expected === true && providerSimulation.mode === "concurrent-pressure") {
     items.push({
       kind: "provider-concurrent-pressure",
       summary: `Concurrent provider pressure produced ${providerSimulation.providerRequestCount ?? "unknown"} provider request(s), max in-flight ${providerSimulation.providerMaxConcurrency ?? "unknown"}; verify OpenClaw keeps gateway and agent sessions responsive under overlapping turns.`,
@@ -1859,6 +1925,62 @@ function parseBrowserAutomationSmokeOutput(result) {
   try {
     const parsed = JSON.parse(text.slice(jsonStart));
     return parsed?.schemaVersion === "kova.browserAutomationSmoke.v1" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function collectMediaUnderstandingEvidence(results) {
+  const smokes = results
+    .filter((result) => result.command?.includes("media-understanding-timeout.mjs"))
+    .map((result) => parseMediaUnderstandingTimeoutOutput(result))
+    .filter(Boolean);
+
+  if (smokes.length === 0) {
+    return {
+      schemaVersion: "kova.mediaUnderstandingEvidence.v1",
+      available: false,
+      mediaDescribeMs: null,
+      mediaTimeoutObserved: null,
+      mediaCommandTimedOut: null,
+      mediaStatusAfterTimeoutMs: null,
+      gatewayStatusWorks: null,
+      errors: [],
+      smokes: []
+    };
+  }
+
+  return {
+    schemaVersion: "kova.mediaUnderstandingEvidence.v1",
+    available: true,
+    mediaDescribeMs: maxNullable(...smokes.map((smoke) => smoke.mediaDescribeMs)),
+    mediaTimeoutObserved: smokes.every((smoke) => smoke.mediaTimeoutObserved === true),
+    mediaCommandTimedOut: smokes.some((smoke) => smoke.mediaCommandTimedOut === true),
+    mediaStatusAfterTimeoutMs: maxNullable(...smokes.map((smoke) => smoke.mediaStatusAfterTimeoutMs)),
+    gatewayStatusWorks: smokes.every((smoke) => smoke.gatewayStatusWorks === true),
+    errors: smokes.flatMap((smoke) => smoke.errors ?? []),
+    smokes: smokes.map((smoke) => ({
+      durationMs: smoke.durationMs ?? null,
+      mediaDescribeMs: smoke.mediaDescribeMs ?? null,
+      mediaTimeoutObserved: smoke.mediaTimeoutObserved ?? null,
+      mediaCommandTimedOut: smoke.mediaCommandTimedOut ?? null,
+      mediaCommandStatus: smoke.mediaCommandStatus ?? null,
+      mediaStatusAfterTimeoutMs: smoke.mediaStatusAfterTimeoutMs ?? null,
+      gatewayStatusWorks: smoke.gatewayStatusWorks ?? null,
+      errors: smoke.errors ?? []
+    }))
+  };
+}
+
+function parseMediaUnderstandingTimeoutOutput(result) {
+  const text = result.stdout ?? "";
+  const jsonStart = text.indexOf("{");
+  if (jsonStart < 0) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(text.slice(jsonStart));
+    return parsed?.schemaVersion === "kova.mediaUnderstandingTimeout.v1" ? parsed : null;
   } catch {
     return null;
   }

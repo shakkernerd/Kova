@@ -202,6 +202,19 @@ export async function runSelfCheck(flags = {}) {
       assertEqual(browserCommand.includes("--artifact-dir '"), true, "browser helper receives quoted artifact dir");
       assertEqual(record?.thresholds?.browserProcessLeaks, 0, "browser process leak threshold");
     }));
+    checks.push(await jsonCommandCheck("media-understanding-dry-run-json", `node bin/kova.mjs run --target runtime:stable --scenario media-understanding-timeout --state fresh --report-dir ${quoteShell(tmp)} --json`, async (data) => {
+      const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
+      const record = report.records?.[0];
+      assertEqual(record?.surface, "media-understanding", "media understanding surface");
+      const commands = record?.phases?.flatMap((phase) => phase.commands ?? []) ?? [];
+      const mediaCommand = commands.find((command) => command.includes("media-understanding-timeout.mjs")) ?? "";
+      assertEqual(mediaCommand.includes("--artifact-dir '"), true, "media helper receives quoted artifact dir");
+      assertEqual(mediaCommand.includes("--timeout-ms 1200"), true, "media helper receives provider timeout");
+      assertEqual(mediaCommand.includes("--max-command-ms 45000"), true, "media helper allows cold CLI evidence before outer timeout");
+      assertEqual(record?.auth?.mockProvider?.mode, "timeout", "media scenario mock timeout mode");
+      assertEqual(record?.thresholds?.mediaTimeoutObserved, 1, "media timeout threshold");
+      assertEqual(record?.thresholds?.providerRequestCountMin, 1, "media provider request threshold");
+    }));
     checks.push(await jsonCommandCheck("diagnostic-profile-plan-json", "node bin/kova.mjs matrix plan --profile diagnostic --target local-build:/tmp/openclaw --include scenario:release-runtime-startup --json", (data) => {
       assertEqual(data.schemaVersion, "kova.matrix.plan.v1", "diagnostic matrix plan schema");
       assertEqual(data.profile?.id, "diagnostic", "diagnostic profile id");
@@ -278,6 +291,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(soakTrendEvaluationCheck());
     checks.push(mcpBridgeEvidenceEvaluationCheck());
     checks.push(browserAutomationEvidenceEvaluationCheck());
+    checks.push(mediaUnderstandingEvidenceEvaluationCheck());
     checks.push(await jsonCommandCheck(
       "dry-run-state-lifecycle-json",
       `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --state missing-plugin-index --report-dir ${quoteShell(tmp)} --json`,
@@ -2437,6 +2451,116 @@ function browserAutomationEvidenceEvaluationCheck() {
       id: "browser-automation-evidence-evaluation",
       status: "FAIL",
       command: "evaluate synthetic browser automation evidence",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function mediaUnderstandingEvidenceEvaluationCheck() {
+  try {
+    const smoke = {
+      schemaVersion: "kova.mediaUnderstandingTimeout.v1",
+      ok: true,
+      durationMs: 1600,
+      mediaDescribeMs: 1250,
+      mediaTimeoutObserved: true,
+      mediaCommandTimedOut: false,
+      mediaCommandStatus: 1,
+      mediaStatusAfterTimeoutMs: 180,
+      gatewayStatusWorks: true,
+      errors: []
+    };
+    const record = {
+      scenario: "media-understanding-timeout",
+      status: "PASS",
+      providerEvidence: { requestCount: 1 },
+      phases: [{
+        id: "media-timeout",
+        results: [{
+          command: "node support/media-understanding-timeout.mjs --env kova-self-check --artifact-dir /tmp/kova",
+          status: 0,
+          timedOut: false,
+          durationMs: 1600,
+          stdout: JSON.stringify(smoke),
+          stderr: ""
+        }],
+        metrics: { service: { gatewayState: "running" }, logs: zeroLogMetrics() }
+      }],
+      finalMetrics: { service: { gatewayState: "running" }, logs: zeroLogMetrics() }
+    };
+    evaluateRecord(record, {
+      id: "media-understanding-timeout",
+      thresholds: {
+        mediaDescribeMs: 10000,
+        mediaTimeoutObserved: 1,
+        mediaStatusAfterTimeoutMs: 10000,
+        providerRequestCountMin: 1
+      }
+    }, { surface: { thresholds: {} }, targetPlan: { kind: "npm" } });
+
+    assertEqual(record.status, "PASS", "media understanding record status");
+    assertEqual(record.measurements.mediaDescribeMs, 1250, "media describe ms");
+    assertEqual(record.measurements.mediaTimeoutObserved, true, "media timeout observed");
+    assertEqual(record.measurements.mediaCommandTimedOut, false, "media command did not hit outer timeout");
+    assertEqual(record.measurements.mediaStatusAfterTimeoutMs, 180, "post-media status ms");
+    assertEqual(record.measurements.mediaGatewayStatusWorks, true, "gateway status after media timeout");
+
+    const failed = {
+      ...record,
+      status: "PASS",
+      providerEvidence: { requestCount: 0 },
+      violations: [],
+      measurements: undefined,
+      phases: [{
+        id: "media-timeout",
+        results: [{
+          command: "node support/media-understanding-timeout.mjs --env kova-self-check --artifact-dir /tmp/kova",
+          status: 0,
+          timedOut: false,
+          durationMs: 1600,
+          stdout: JSON.stringify({
+            ...smoke,
+            ok: false,
+            mediaTimeoutObserved: false,
+            gatewayStatusWorks: false,
+            errors: ["media timeout not observed"]
+          }),
+          stderr: ""
+        }],
+        metrics: { service: { gatewayState: "running" }, logs: zeroLogMetrics() }
+      }]
+    };
+    evaluateRecord(failed, {
+      id: "media-understanding-timeout",
+      thresholds: {
+        mediaTimeoutObserved: 1,
+        providerRequestCountMin: 1
+      }
+    }, { surface: { thresholds: {} }, targetPlan: { kind: "npm" } });
+    assertEqual(failed.status, "FAIL", "media failure status");
+    assertEqual(
+      failed.violations.some((violation) => violation.metric === "mediaTimeoutObserved"),
+      true,
+      "media timeout observed violation"
+    );
+    assertEqual(
+      failed.violations.some((violation) => violation.metric === "providerRequestCountMin"),
+      true,
+      "media provider request count violation"
+    );
+
+    return {
+      id: "media-understanding-evidence-evaluation",
+      status: "PASS",
+      command: "evaluate synthetic media understanding timeout evidence",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "media-understanding-evidence-evaluation",
+      status: "FAIL",
+      command: "evaluate synthetic media understanding timeout evidence",
       durationMs: 0,
       message: error.message
     };

@@ -23,7 +23,8 @@
     "dashboard",
     "tui",
     "mcp-runtime",
-    "browser-automation"
+    "browser-automation",
+    "media-understanding"
   ],
   "incompatibleSurfaces": [
     "upgrade-existing-user"

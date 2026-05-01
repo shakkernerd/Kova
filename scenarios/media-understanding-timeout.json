@@ -1,0 +1,48 @@
+{
+  "id": "media-understanding-timeout",
+  "surface": "media-understanding",
+  "title": "Media Understanding Timeout",
+  "objective": "Run OpenClaw's packaged image media-understanding capability against a deterministic mock provider timeout and prove the command fails quickly while the gateway remains healthy.",
+  "tags": ["media", "image", "timeout", "provider", "gateway", "capability-cli"],
+  "timeoutMs": 180000,
+  "mockProvider": {
+    "mode": "timeout",
+    "stallMs": 65000
+  },
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "mediaDescribeMs": 10000,
+    "mediaTimeoutObserved": 1,
+    "mediaStatusAfterTimeoutMs": 10000,
+    "providerRequestCountMin": 1,
+    "statusMs": 10000,
+    "peakRssMb": 900,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision Media Env",
+      "intent": "Start a disposable OpenClaw gateway before wiring mock auth and running media understanding.",
+      "commands": ["ocm start {env} {startSelector} --json"],
+      "evidence": ["gateway port", "runtime binding", "startup readiness"]
+    },
+    {
+      "id": "media-timeout",
+      "title": "Image Understanding Timeout",
+      "intent": "Run OpenClaw capability image describe through the real packaged media-understanding CLI with a provider timeout.",
+      "commands": [
+        "node {kovaRoot}/support/media-understanding-timeout.mjs --env {env} --artifact-dir {artifactDir} --timeout-ms 1200 --max-command-ms 45000"
+      ],
+      "evidence": ["image describe command duration", "provider timeout observed", "gateway status after timeout", "mock provider request log"]
+    },
+    {
+      "id": "post-media-health",
+      "title": "Post-Media Gateway Health",
+      "intent": "Verify the gateway remains responsive and collect logs after the media timeout path.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["gateway status", "provider timeout logs", "plugin errors", "memory after media timeout"]
+    }
+  ]
+}

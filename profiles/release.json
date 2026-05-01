@@ -104,6 +104,16 @@
           "statusMs": 10000,
           "pluginLoadFailures": 0
         }
+      },
+      "media-understanding": {
+        "thresholds": {
+          "mediaDescribeMs": 10000,
+          "mediaTimeoutObserved": 1,
+          "mediaStatusAfterTimeoutMs": 10000,
+          "providerRequestCountMin": 1,
+          "statusMs": 10000,
+          "pluginLoadFailures": 0
+        }
       }
     }
   },
@@ -152,6 +162,7 @@
           "workspace-scan:large-workspace",
           "mcp-runtime:fresh",
           "browser-automation:fresh",
+          "media-understanding:fresh",
           "cross-platform-smoke:slow-filesystem"
         ]
       },
@@ -174,7 +185,7 @@
           "tui",
           "gateway-performance"
         ],
-        "warning": ["failure-containment", "soak", "workspace-scan", "mcp-runtime", "browser-automation", "cross-platform-smoke"]
+        "warning": ["failure-containment", "soak", "workspace-scan", "mcp-runtime", "browser-automation", "media-understanding", "cross-platform-smoke"]
       },
       "scenarios": {
         "blocking": [
@@ -193,7 +204,8 @@
         "warning": [
           "workspace-scan-pressure",
           "mcp-runtime-start-stop",
-          "browser-automation-smoke"
+          "browser-automation-smoke",
+          "media-understanding-timeout"
         ]
       }
     },
@@ -233,6 +245,7 @@
       { "scenario": "workspace-scan-pressure", "state": "large-workspace" },
       { "scenario": "mcp-runtime-start-stop", "state": "fresh" },
       { "scenario": "browser-automation-smoke", "state": "fresh", "timeoutMs": 180000 },
+      { "scenario": "media-understanding-timeout", "state": "fresh", "timeoutMs": 180000 },
       { "scenario": "cross-platform-smoke", "state": "slow-filesystem" }
     ]
   },
@@ -381,6 +394,11 @@
     },
     {
       "scenario": "browser-automation-smoke",
+      "state": "fresh",
+      "timeoutMs": 180000
+    },
+    {
+      "scenario": "media-understanding-timeout",
       "state": "fresh",
       "timeoutMs": 180000
     },
