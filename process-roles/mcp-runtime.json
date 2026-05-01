@@ -2,6 +2,12 @@
   "id": "mcp-runtime",
   "title": "MCP Runtime",
   "description": "MCP server and transport subprocesses started by OpenClaw or plugins.",
-  "commandPatterns": ["mcp"],
-  "processPatterns": ["mcp", "modelcontextprotocol"]
+  "commandPatterns": [
+    "(^|\\s)mcp\\s+serve(\\s|$)",
+    "mcp-bridge-smoke\\.mjs"
+  ],
+  "processPatterns": [
+    "(^|\\s)mcp\\s+serve(\\s|$)",
+    "mcp-bridge-smoke\\.mjs"
+  ]
 }

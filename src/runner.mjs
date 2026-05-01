@@ -125,7 +125,7 @@ export async function executeScenario(scenario, context) {
           continue;
         }
 
-        const commands = materializeCommands(phase.commands ?? [], commandValues(context, envName));
+        const commands = materializeScenarioPhaseCommands(phase, context, envName, artifactDir);
         const results = [];
         for (const [commandIndex, command] of commands.entries()) {
           const result = await runScenarioCommand(command, context, envName, artifactDir, phase.id, commandIndex, authPolicy);
@@ -347,7 +347,7 @@ function buildPlannedPhases(scenario, context, envName, artifactDir, authPolicy)
       title: phase.title,
       intent: phase.intent,
       expectedAgentFailure: phase.expectedAgentFailure === true,
-      commands: materializeCommands(phase.commands ?? [], commandValues(context, envName, artifactDir)),
+      commands: materializeScenarioPhaseCommands(phase, context, envName, artifactDir),
       evidence: phase.evidence ?? []
     });
 
@@ -427,6 +427,10 @@ function buildStateLifecyclePhase(context, envName, scenario, kind, steps, artif
     evidence,
     scenario: scenario.id
   };
+}
+
+function materializeScenarioPhaseCommands(phase, context, envName, artifactDir) {
+  return materializeCommands(phase.commands ?? [], commandValues(context, envName, artifactDir));
 }
 
 async function executeStateLifecycleSteps(context, envName, scenario, kind, steps, artifactDir, phaseId = null, authPolicy = null) {
@@ -726,7 +730,7 @@ function commandValues(context, envName, artifactDir = "") {
     target: context.target,
     from: context.from ?? "",
     sourceEnv: quoteShell(context.sourceEnv ?? ""),
-    artifactDir,
+    artifactDir: artifactDir ? quoteShell(artifactDir) : "",
     kovaRoot: quoteShell(repoRoot),
     startSelector: context.targetPlan.startSelector,
     upgradeSelector: context.targetPlan.upgradeSelector,

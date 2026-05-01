@@ -77,6 +77,7 @@ export function evaluateRecord(record, scenario, options = {}) {
   const healthFailures = countHealthFailures(record);
   const healthP95Ms = collectHealthP95(record);
   const soakEvidence = collectSoakEvidence(allResults);
+  const mcpBridgeEvidence = collectMcpBridgeEvidence(allResults);
   const listeningFailures = countListeningFailures(record);
   const tcpConnectMaxMs = collectTcpConnectMax(record);
   const timeToListeningMs = collectTimeToListening(record);
@@ -228,6 +229,69 @@ export function evaluateRecord(record, scenario, options = {}) {
       actual: soakEvidence.healthFailures,
       message: `${soakEvidence.healthFailures} soak health check(s) failed during repeated OpenClaw usage`
     });
+  }
+
+  if (mcpBridgeEvidence.available) {
+    if (typeof thresholds.mcpInitializeMs === "number" && mcpBridgeEvidence.initializeMs !== null && mcpBridgeEvidence.initializeMs > thresholds.mcpInitializeMs) {
+      violations.push({
+        kind: "mcp",
+        metric: "mcpInitializeMs",
+        expected: `<= ${thresholds.mcpInitializeMs}`,
+        actual: mcpBridgeEvidence.initializeMs,
+        message: `MCP bridge initialize took ${mcpBridgeEvidence.initializeMs}ms, over threshold ${thresholds.mcpInitializeMs}ms`
+      });
+    }
+
+    if (typeof thresholds.mcpToolsListMs === "number" && mcpBridgeEvidence.toolsListMs !== null && mcpBridgeEvidence.toolsListMs > thresholds.mcpToolsListMs) {
+      violations.push({
+        kind: "mcp",
+        metric: "mcpToolsListMs",
+        expected: `<= ${thresholds.mcpToolsListMs}`,
+        actual: mcpBridgeEvidence.toolsListMs,
+        message: `MCP tools/list took ${mcpBridgeEvidence.toolsListMs}ms, over threshold ${thresholds.mcpToolsListMs}ms`
+      });
+    }
+
+    if (typeof thresholds.mcpShutdownMs === "number" && mcpBridgeEvidence.shutdownMs !== null && mcpBridgeEvidence.shutdownMs > thresholds.mcpShutdownMs) {
+      violations.push({
+        kind: "mcp",
+        metric: "mcpShutdownMs",
+        expected: `<= ${thresholds.mcpShutdownMs}`,
+        actual: mcpBridgeEvidence.shutdownMs,
+        message: `MCP bridge shutdown took ${mcpBridgeEvidence.shutdownMs}ms, over threshold ${thresholds.mcpShutdownMs}ms`
+      });
+    }
+
+    if (typeof thresholds.mcpToolCountMin === "number" && mcpBridgeEvidence.toolCount !== null && mcpBridgeEvidence.toolCount < thresholds.mcpToolCountMin) {
+      violations.push({
+        kind: "mcp",
+        metric: "mcpToolCountMin",
+        expected: `>= ${thresholds.mcpToolCountMin}`,
+        actual: mcpBridgeEvidence.toolCount,
+        message: `MCP bridge exposed ${mcpBridgeEvidence.toolCount} tool(s), below required ${thresholds.mcpToolCountMin}`
+      });
+    }
+
+    const leakCount = mcpBridgeEvidence.processExited === false ? 1 : 0;
+    if (typeof thresholds.mcpProcessLeaks === "number" && leakCount > thresholds.mcpProcessLeaks) {
+      violations.push({
+        kind: "mcp",
+        metric: "mcpProcessLeaks",
+        expected: `<= ${thresholds.mcpProcessLeaks}`,
+        actual: leakCount,
+        message: "MCP bridge process did not exit cleanly after the smoke"
+      });
+    }
+
+    if (mcpBridgeEvidence.errors.length > 0) {
+      violations.push({
+        kind: "mcp",
+        metric: "mcpBridgeErrors",
+        expected: "0",
+        actual: mcpBridgeEvidence.errors.length,
+        message: `MCP bridge smoke reported ${mcpBridgeEvidence.errors.length} error(s): ${mcpBridgeEvidence.errors[0]}`
+      });
+    }
   }
 
   if (typeof thresholds.rssGrowthMb === "number" && rssGrowthMb !== null && rssGrowthMb > thresholds.rssGrowthMb) {
@@ -495,6 +559,15 @@ export function evaluateRecord(record, scenario, options = {}) {
     healthFailures,
     healthP95Ms,
     soakEvidence,
+    mcpBridgeEvidence,
+    mcpInitializeMs: mcpBridgeEvidence.initializeMs,
+    mcpToolsListMs: mcpBridgeEvidence.toolsListMs,
+    mcpShutdownMs: mcpBridgeEvidence.shutdownMs,
+    mcpToolCount: mcpBridgeEvidence.toolCount,
+    mcpToolNames: mcpBridgeEvidence.toolNames,
+    mcpProcessExited: mcpBridgeEvidence.processExited,
+    mcpProcessLeaks: mcpBridgeEvidence.available ? (mcpBridgeEvidence.processExited === false ? 1 : 0) : null,
+    mcpErrors: mcpBridgeEvidence.errors,
     soakDurationMs: soakEvidence.durationMs,
     soakIterations: soakEvidence.iterations,
     soakCommandP95Ms: soakEvidence.commandP95Ms,
@@ -1597,6 +1670,65 @@ function parseSoakLoopOutput(result) {
   try {
     const parsed = JSON.parse(text.slice(jsonStart));
     return parsed?.schemaVersion === "kova.soakLoop.v1" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function collectMcpBridgeEvidence(results) {
+  const smokes = results
+    .filter((result) => result.command?.includes("mcp-bridge-smoke.mjs"))
+    .map((result) => parseMcpBridgeSmokeOutput(result))
+    .filter(Boolean);
+
+  if (smokes.length === 0) {
+    return {
+      schemaVersion: "kova.mcpBridgeEvidence.v1",
+      available: false,
+      initializeMs: null,
+      toolsListMs: null,
+      shutdownMs: null,
+      toolCount: null,
+      toolNames: [],
+      processExited: null,
+      errors: [],
+      smokes: []
+    };
+  }
+
+  return {
+    schemaVersion: "kova.mcpBridgeEvidence.v1",
+    available: true,
+    initializeMs: maxNullable(...smokes.map((smoke) => smoke.initializeMs)),
+    toolsListMs: maxNullable(...smokes.map((smoke) => smoke.toolsListMs)),
+    shutdownMs: maxNullable(...smokes.map((smoke) => smoke.shutdownMs)),
+    toolCount: maxNullable(...smokes.map((smoke) => smoke.toolCount)),
+    toolNames: [...new Set(smokes.flatMap((smoke) => smoke.toolNames ?? []))].sort(),
+    processExited: smokes.every((smoke) => smoke.processExited === true),
+    errors: smokes.flatMap((smoke) => smoke.errors ?? []),
+    smokes: smokes.map((smoke) => ({
+      durationMs: smoke.durationMs ?? null,
+      initializeMs: smoke.initializeMs ?? null,
+      toolsListMs: smoke.toolsListMs ?? null,
+      shutdownMs: smoke.shutdownMs ?? null,
+      toolCount: smoke.toolCount ?? null,
+      processExited: smoke.processExited ?? null,
+      exitStatus: smoke.exitStatus ?? null,
+      exitSignal: smoke.exitSignal ?? null,
+      errors: smoke.errors ?? []
+    }))
+  };
+}
+
+function parseMcpBridgeSmokeOutput(result) {
+  const text = result.stdout ?? "";
+  const jsonStart = text.indexOf("{");
+  if (jsonStart < 0) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(text.slice(jsonStart));
+    return parsed?.schemaVersion === "kova.mcpBridgeSmoke.v1" ? parsed : null;
   } catch {
     return null;
   }

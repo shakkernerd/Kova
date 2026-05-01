@@ -31,7 +31,7 @@ import {
   parseProviderRequestLog,
   parseTimelineProviderRequestLog
 } from "./collectors/provider.mjs";
-import { captureProcessSnapshot, diffProcessSnapshots } from "./collectors/resources.mjs";
+import { captureProcessSnapshot, classifyRegistryRolesForProcess, diffProcessSnapshots } from "./collectors/resources.mjs";
 import { renderMarkdownReport, renderPasteSummary, renderReportSummary } from "./report.mjs";
 import { compareReports, renderCompareSummary } from "./compare.mjs";
 
@@ -179,6 +179,20 @@ export async function runSelfCheck(flags = {}) {
       assertEqual(commands.some((command) => command.includes("ocm service restart")), true, "workspace restart command");
       assertEqual(commands.some((command) => command.includes("run-soak-loop.mjs") && command.includes("--duration-ms 15000")), true, "workspace repeated command loop");
     }));
+    checks.push(await jsonCommandCheck("mcp-runtime-dry-run-json", `node bin/kova.mjs run --target runtime:stable --scenario mcp-runtime-start-stop --state fresh --report-dir ${quoteShell(tmp)} --json`, async (data) => {
+      const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
+      const record = report.records?.[0];
+      assertEqual(record?.surface, "mcp-runtime", "MCP runtime surface");
+      const commands = record?.phases?.flatMap((phase) => phase.commands ?? []) ?? [];
+      const bridgeCommand = commands.find((command) => command.includes("mcp-bridge-smoke.mjs")) ?? "";
+      assertEqual(bridgeCommand.includes("--artifact-dir '"), true, "MCP bridge helper receives quoted artifact dir");
+      assertEqual(commands.some((command) => command.includes("ocm start") && command.includes("--json")), true, "MCP gateway start command");
+      assertEqual(record?.thresholds?.mcpProcessLeaks, 0, "MCP process leak threshold");
+    }));
+    checks.push(await commandCheck(
+      "mcp-runtime-role-patterns",
+      "node -e \"const role=require('./process-roles/mcp-runtime.json'); if (role.commandPatterns.includes('mcp') || role.processPatterns.includes('mcp') || role.processPatterns.some((p)=>p.includes('modelcontextprotocol'))) process.exit(1);\""
+    ));
     checks.push(await jsonCommandCheck("diagnostic-profile-plan-json", "node bin/kova.mjs matrix plan --profile diagnostic --target local-build:/tmp/openclaw --include scenario:release-runtime-startup --json", (data) => {
       assertEqual(data.schemaVersion, "kova.matrix.plan.v1", "diagnostic matrix plan schema");
       assertEqual(data.profile?.id, "diagnostic", "diagnostic profile id");
@@ -231,6 +245,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(reportRecommendedNextScenarioCheck());
     checks.push(readinessClassificationCheck());
     checks.push(await resourceRoleAttributionCheck(tmp));
+    checks.push(await resourceRootCommandRoleBoundaryCheck());
     checks.push(await processSnapshotCheck(tmp));
     checks.push(roleThresholdEvaluationCheck());
     checks.push(thresholdPolicyCalibrationCheck());
@@ -251,6 +266,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(agentAuthFailureEvaluationCheck());
     checks.push(await soakLoopRunnerCheck(tmp));
     checks.push(soakTrendEvaluationCheck());
+    checks.push(mcpBridgeEvidenceEvaluationCheck());
     checks.push(await jsonCommandCheck(
       "dry-run-state-lifecycle-json",
       `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --state missing-plugin-index --report-dir ${quoteShell(tmp)} --json`,
@@ -2219,6 +2235,103 @@ function soakTrendEvaluationCheck() {
   }
 }
 
+function mcpBridgeEvidenceEvaluationCheck() {
+  try {
+    const smoke = {
+      schemaVersion: "kova.mcpBridgeSmoke.v1",
+      durationMs: 1800,
+      initializeMs: 120,
+      toolsListMs: 90,
+      shutdownMs: 45,
+      toolCount: 8,
+      toolNames: ["conversations_list", "messages_read"],
+      processExited: true,
+      exitStatus: 0,
+      exitSignal: null,
+      errors: []
+    };
+    const record = {
+      scenario: "mcp-runtime-start-stop",
+      status: "PASS",
+      phases: [{
+        id: "mcp-bridge",
+        results: [{
+          command: "node support/mcp-bridge-smoke.mjs --env kova-self-check --artifact-dir /tmp/kova",
+          status: 0,
+          timedOut: false,
+          durationMs: 1800,
+          stdout: JSON.stringify(smoke),
+          stderr: ""
+        }],
+        metrics: { service: { gatewayState: "running" }, logs: zeroLogMetrics() }
+      }],
+      finalMetrics: { service: { gatewayState: "running" }, logs: zeroLogMetrics() }
+    };
+    evaluateRecord(record, {
+      id: "mcp-runtime-start-stop",
+      thresholds: {
+        mcpInitializeMs: 10000,
+        mcpToolsListMs: 10000,
+        mcpShutdownMs: 5000,
+        mcpToolCountMin: 1,
+        mcpProcessLeaks: 0,
+        pluginLoadFailures: 0
+      }
+    }, { surface: { thresholds: {} }, targetPlan: { kind: "npm" } });
+
+    assertEqual(record.status, "PASS", "MCP bridge record status");
+    assertEqual(record.measurements.mcpInitializeMs, 120, "MCP initialize ms");
+    assertEqual(record.measurements.mcpToolsListMs, 90, "MCP tools/list ms");
+    assertEqual(record.measurements.mcpShutdownMs, 45, "MCP shutdown ms");
+    assertEqual(record.measurements.mcpToolCount, 8, "MCP tool count");
+    assertEqual(record.measurements.mcpProcessLeaks, 0, "MCP process leak count");
+
+    const leaked = {
+      ...record,
+      status: "PASS",
+      violations: [],
+      measurements: undefined,
+      phases: [{
+        id: "mcp-bridge",
+        results: [{
+          command: "node support/mcp-bridge-smoke.mjs --env kova-self-check --artifact-dir /tmp/kova",
+          status: 0,
+          timedOut: false,
+          durationMs: 1800,
+          stdout: JSON.stringify({ ...smoke, processExited: false }),
+          stderr: ""
+        }],
+        metrics: { service: { gatewayState: "running" }, logs: zeroLogMetrics() }
+      }]
+    };
+    evaluateRecord(leaked, {
+      id: "mcp-runtime-start-stop",
+      thresholds: { mcpProcessLeaks: 0 }
+    }, { surface: { thresholds: {} }, targetPlan: { kind: "npm" } });
+    assertEqual(leaked.status, "FAIL", "MCP leaked process status");
+    assertEqual(
+      leaked.violations.some((violation) => violation.metric === "mcpProcessLeaks"),
+      true,
+      "MCP process leak violation"
+    );
+
+    return {
+      id: "mcp-bridge-evidence-evaluation",
+      status: "PASS",
+      command: "evaluate synthetic MCP bridge evidence",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "mcp-bridge-evidence-evaluation",
+      status: "FAIL",
+      command: "evaluate synthetic MCP bridge evidence",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
 function agentColdWarmEvaluationCheck() {
   try {
     const coldCommand = "ocm @kova -- agent --local --agent main --session-id kova-agent-cold-warm --message hi --json";
@@ -2926,6 +3039,45 @@ async function resourceRoleAttributionCheck(tmp) {
       status: "FAIL",
       command,
       durationMs: result.durationMs,
+      message: error.message
+    };
+  }
+}
+
+async function resourceRootCommandRoleBoundaryCheck() {
+  try {
+    const processRoles = await loadProcessRoles();
+    const gatewayRoles = classifyRegistryRolesForProcess(
+      { command: "openclaw-gateway" },
+      {
+        processRoles,
+        rootCommand: "node support/mcp-bridge-smoke.mjs --env kova-mcp-runtime-start-stop",
+        existingRoles: ["gateway", "gateway-tree"]
+      }
+    );
+    const commandRoles = classifyRegistryRolesForProcess(
+      { command: "node support/mcp-bridge-smoke.mjs --env kova-mcp-runtime-start-stop" },
+      {
+        processRoles,
+        rootCommand: "node support/mcp-bridge-smoke.mjs --env kova-mcp-runtime-start-stop",
+        existingRoles: ["command-tree"]
+      }
+    );
+
+    assertEqual(gatewayRoles.includes("mcp-runtime"), false, "root command role must not tag gateway process");
+    assertEqual(commandRoles.includes("mcp-runtime"), true, "root command role tags command tree process");
+    return {
+      id: "resource-root-command-role-boundary",
+      status: "PASS",
+      command: "classify synthetic gateway and command-tree roles",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "resource-root-command-role-boundary",
+      status: "FAIL",
+      command: "classify synthetic gateway and command-tree roles",
+      durationMs: 0,
       message: error.message
     };
   }

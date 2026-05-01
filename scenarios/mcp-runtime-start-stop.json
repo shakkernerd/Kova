@@ -1,0 +1,44 @@
+{
+  "id": "mcp-runtime-start-stop",
+  "surface": "mcp-runtime",
+  "title": "MCP Runtime Start/Stop",
+  "objective": "Start OpenClaw's real MCP stdio bridge against the disposable gateway, perform a JSON-RPC initialize and tools/list smoke, then verify the bridge exits without leaking a runtime process.",
+  "tags": ["mcp", "stdio", "gateway", "runtime", "start-stop"],
+  "timeoutMs": 120000,
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "gatewayReadyHardTimeoutMs": 120000,
+    "statusMs": 10000,
+    "mcpInitializeMs": 10000,
+    "mcpToolsListMs": 10000,
+    "mcpShutdownMs": 5000,
+    "mcpToolCountMin": 1,
+    "mcpProcessLeaks": 0,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0,
+    "peakRssMb": 900
+  },
+  "phases": [
+    {
+      "id": "gateway",
+      "title": "Gateway Start",
+      "intent": "Start the gateway and confirm it is healthy before opening the MCP stdio bridge.",
+      "commands": ["ocm start {env} {startSelector} --json", "ocm @{env} -- status"],
+      "evidence": ["gateway status", "gateway port", "readiness classification"]
+    },
+    {
+      "id": "mcp-bridge",
+      "title": "MCP Bridge Smoke",
+      "intent": "Spawn the real OpenClaw MCP stdio bridge, initialize it, list tools, and close it cleanly.",
+      "commands": ["node {kovaRoot}/support/mcp-bridge-smoke.mjs --env {env} --artifact-dir {artifactDir} --timeout-ms 30000"],
+      "evidence": ["MCP initialize timing", "tools/list timing", "tool count", "bridge process exit"]
+    },
+    {
+      "id": "post-mcp-health",
+      "title": "Post-MCP Gateway Health",
+      "intent": "Verify the gateway remains responsive after the MCP bridge starts and exits.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["status after MCP bridge", "MCP bridge errors", "gateway errors"]
+    }
+  ]
+}

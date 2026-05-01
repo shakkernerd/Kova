@@ -61,7 +61,7 @@ export function startResourceSampler(rootPid, options = {}) {
         roles.add("gateway-tree");
       }
       if (roles.size > 0) {
-        for (const role of matchingRegistryRoles(process, options.rootCommand, roleMatchers)) {
+        for (const role of matchingRegistryRoles(process, options.rootCommand, roleMatchers, roles)) {
           roles.add(role);
         }
       }
@@ -290,6 +290,12 @@ export function diffProcessSnapshots(before, after, options = {}) {
   };
 }
 
+export function classifyRegistryRolesForProcess(process, options = {}) {
+  const roleMatchers = compileRoleMatchers(options.processRoles ?? []);
+  const existingRoles = new Set(options.existingRoles ?? []);
+  return matchingRegistryRoles(process, options.rootCommand, roleMatchers, existingRoles);
+}
+
 function compileRoleMatchers(roles) {
   return roles.map((role) => ({
     id: role.id,
@@ -310,13 +316,14 @@ function compilePatterns(patterns) {
     });
 }
 
-function matchingRegistryRoles(process, rootCommand, roleMatchers) {
+function matchingRegistryRoles(process, rootCommand, roleMatchers, existingRoles = new Set()) {
   const roles = [];
+  const isCommandTree = existingRoles.has("command-tree");
   for (const role of roleMatchers) {
     if (role.id === "command-tree" || role.id === "gateway" || role.id === "gateway-tree") {
       continue;
     }
-    if (matchesAny(role.processPatterns, process.command) || matchesAny(role.commandPatterns, rootCommand) ||
+    if (matchesAny(role.processPatterns, process.command) || (isCommandTree && matchesAny(role.commandPatterns, rootCommand)) ||
       matchesAny(role.commandPatterns, process.command)) {
       roles.push(role.id);
     }

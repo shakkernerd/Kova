@@ -36,6 +36,7 @@
     { "scenario": "agent-provider-recovery", "state": "mock-openai-provider", "timeoutMs": 240000 },
     { "scenario": "dashboard-readiness", "state": "fresh" },
     { "scenario": "tui-responsiveness", "state": "fresh" },
+    { "scenario": "mcp-runtime-start-stop", "state": "fresh" },
     { "scenario": "gateway-performance", "state": "many-bundled-plugins" },
     { "scenario": "gateway-performance", "state": "gateway-already-running" },
     { "scenario": "gateway-performance", "state": "stale-service-state" },

@@ -21,7 +21,8 @@
     "plugin-bad-manifest",
     "plugin-missing-runtime-deps",
     "dashboard",
-    "tui"
+    "tui",
+    "mcp-runtime"
   ],
   "incompatibleSurfaces": [
     "upgrade-existing-user"
