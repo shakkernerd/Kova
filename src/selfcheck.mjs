@@ -3079,6 +3079,8 @@ function markdownFailureCardsCheck() {
     assertEqual(rendered.includes("FAIL gateway-performance: gateway readiness exceeded threshold"), true, "failure card summary");
     assertEqual(rendered.includes("likely owner: gateway-runtime"), true, "failure card owner");
     assertEqual(rendered.includes("evidence: timeToHealthReadyMs: 45000"), true, "failure card evidence");
+    assertEqual(rendered.includes("## Resource Roles"), true, "markdown resource roles section");
+    assertEqual(rendered.includes("gateway: RSS 1100 MB; CPU 220%"), true, "markdown resource role summary");
     return {
       id: "markdown-failure-cards",
       status: "PASS",

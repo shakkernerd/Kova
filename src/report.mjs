@@ -43,6 +43,7 @@ export function renderMarkdownReport(report) {
   if (report.performance) {
     lines.push(...formatPerformanceSection(report.performance, report.baseline));
   }
+  lines.push(...formatResourceRoleSection(report.records));
 
   if (report.targetCleanup) {
     lines.push("## Target Cleanup");
@@ -491,6 +492,51 @@ function formatRecordFailureCards(records = []) {
   }
   lines.push("");
   return lines;
+}
+
+function formatResourceRoleSection(records = []) {
+  const roles = summarizeResourceRoles(records).slice(0, 8);
+  if (roles.length === 0) {
+    return [];
+  }
+
+  const lines = ["## Resource Roles", ""];
+  for (const role of roles) {
+    lines.push(`- ${role.role}: RSS ${role.peakRssMb ?? "unknown"} MB; CPU ${role.maxCpuPercent ?? "unknown"}%; scenario ${role.scenario}${role.state ? `/${role.state}` : ""}`);
+  }
+  lines.push("");
+  return lines;
+}
+
+function summarizeResourceRoles(records = []) {
+  const byRole = new Map();
+  for (const record of records) {
+    for (const role of compactRolePeaks(record.measurements).slice(0, 8)) {
+      const existing = byRole.get(role.role) ?? {
+        role: role.role,
+        peakRssMb: null,
+        maxCpuPercent: null,
+        scenario: record.scenario,
+        state: record.state?.id ?? null
+      };
+      const rss = role.peakRssMb ?? null;
+      const cpu = role.maxCpuPercent ?? null;
+      if (rss !== null && (existing.peakRssMb === null || rss > existing.peakRssMb)) {
+        existing.peakRssMb = rss;
+        existing.scenario = record.scenario;
+        existing.state = record.state?.id ?? null;
+      }
+      if (cpu !== null && (existing.maxCpuPercent === null || cpu > existing.maxCpuPercent)) {
+        existing.maxCpuPercent = cpu;
+      }
+      byRole.set(role.role, existing);
+    }
+  }
+  return [...byRole.values()].toSorted((left, right) => {
+    const leftScore = Math.max(left.peakRssMb ?? 0, left.maxCpuPercent ?? 0);
+    const rightScore = Math.max(right.peakRssMb ?? 0, right.maxCpuPercent ?? 0);
+    return rightScore - leftScore;
+  });
 }
 
 function recordFailureCard(record) {
