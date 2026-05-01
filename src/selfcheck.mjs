@@ -92,8 +92,11 @@ export async function runSelfCheck(flags = {}) {
       assertEqual(data.coverage?.schemaVersion, "kova.coverage.v1", "coverage schema");
       assertArrayNotEmpty(data.coverage?.scenarioSurfaceMap, "scenario surface map");
       const releaseCoverage = data.coverage?.profiles?.find((profile) => profile.id === "release");
+      const releaseProfile = data.profiles?.find((profile) => profile.id === "release");
       assertArrayNotEmpty(releaseCoverage?.required?.platforms, "release required platform coverage");
       assertArrayNotEmpty(releaseCoverage?.currentPlatformKeys, "current platform coverage keys");
+      assertEqual((releaseProfile?.calibration?.surfaceCount ?? 0) > 0, true, "release profile calibrated surfaces");
+      assertEqual((releaseProfile?.calibration?.roleCount ?? 0) > 0, true, "release profile calibrated roles");
       if (data.scenarios.some((scenario) => typeof scenario.surface !== "string" || scenario.surface.length === 0)) {
         throw new Error("every scenario must expose a surface");
       }
@@ -167,6 +170,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await resourceRoleAttributionCheck(tmp));
     checks.push(await processSnapshotCheck(tmp));
     checks.push(roleThresholdEvaluationCheck());
+    checks.push(thresholdPolicyCalibrationCheck());
     checks.push(stateRegistryValidationCheck());
     checks.push(scenarioStateCompatibilityCheck());
     checks.push(await cpuProfileParserCheck());
@@ -2751,6 +2755,99 @@ function roleThresholdEvaluationCheck() {
   }
 }
 
+function thresholdPolicyCalibrationCheck() {
+  try {
+    const record = {
+      scenario: "synthetic-threshold-policy",
+      title: "Synthetic Threshold Policy",
+      status: "PASS",
+      phases: [{
+        id: "sample",
+        results: [{
+          command: "ocm start kova-threshold-test",
+          status: 0,
+          durationMs: 150,
+          resourceSamples: {
+            schemaVersion: "kova.resourceSamples.v1",
+            sampleCount: 1,
+            peakTotalRssMb: 250,
+            maxTotalCpuPercent: 80,
+            byRole: {
+              gateway: {
+                peakRssMb: 250,
+                maxCpuPercent: 80,
+                peakRssAtMs: 10,
+                peakCpuAtMs: 10,
+                peakProcessCount: 1
+              }
+            },
+            topRolesByRss: [{ role: "gateway", peakRssMb: 250, maxCpuPercent: 80 }],
+            topRolesByCpu: [{ role: "gateway", peakRssMb: 250, maxCpuPercent: 80 }],
+            topByRss: [],
+            topByCpu: []
+          }
+        }],
+        metrics: { logs: zeroLogMetrics() }
+      }],
+      finalMetrics: {
+        service: { gatewayState: "running" },
+        logs: zeroLogMetrics()
+      }
+    };
+    evaluateRecord(record, {
+      id: "synthetic-threshold-policy",
+      thresholds: {}
+    }, {
+      profile: {
+        id: "release",
+        calibration: {
+          roles: {
+            gateway: { peakRssMb: 200 }
+          },
+          surfaces: {
+            "release-runtime-startup": {
+              thresholds: { coldReadyMs: 100 }
+            }
+          }
+        }
+      },
+      surface: {
+        id: "release-runtime-startup",
+        thresholds: { coldReadyMs: 1000 },
+        roleThresholds: {}
+      }
+    });
+    assertEqual(record.status, "FAIL", "profile calibration threshold should fail record");
+    assertEqual(record.thresholdPolicy?.profileId, "release", "threshold policy profile id");
+    assertEqual(record.thresholdPolicy?.thresholds?.coldReadyMs, 100, "profile surface threshold override");
+    assertEqual(record.thresholdPolicy?.roleThresholds?.gateway?.peakRssMb, 200, "profile role threshold");
+    assertEqual(
+      record.violations.some((violation) => violation.metric === "coldReadyMs"),
+      true,
+      "profile calibrated duration violation"
+    );
+    assertEqual(
+      record.violations.some((violation) => violation.metric === "resourceByRole.gateway.peakRssMb"),
+      true,
+      "profile calibrated role violation"
+    );
+    return {
+      id: "threshold-policy-calibration",
+      status: "PASS",
+      command: "evaluate synthetic profile threshold calibration",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "threshold-policy-calibration",
+      status: "FAIL",
+      command: "evaluate synthetic profile threshold calibration",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
 function stateRegistryValidationCheck() {
   try {
     let rejectedTrait = false;
@@ -2903,6 +3000,47 @@ function stateRegistryValidationCheck() {
       rejectedMetric = /unknown metric 'madeUpMetric'/.test(error.message);
     }
     assertEqual(rejectedMetric, true, "unknown scenario metric rejected");
+
+    let rejectedCalibration = false;
+    try {
+      validateRegistryReferences({
+        scenarios: [],
+        states: [],
+        profiles: [{
+          id: "profile",
+          entries: [],
+          calibration: {
+            roles: {
+              missingRole: { peakRssMb: 100 }
+            },
+            surfaces: {
+              missingSurface: {
+                thresholds: { peakRssMb: 100 }
+              },
+              knownSurface: {
+                thresholds: { madeUpMetric: 1 },
+                roleThresholds: {
+                  knownRole: { peakRssMb: 100 }
+                }
+              }
+            }
+          }
+        }],
+        surfaces: [{
+          id: "knownSurface",
+          processRoles: [],
+          requiredStates: [],
+          targetKinds: []
+        }],
+        processRoles: [{ id: "knownRole" }],
+        metrics: [{ id: "peakRssMb" }]
+      });
+    } catch (error) {
+      rejectedCalibration = /calibration\.roles references unknown process role/.test(error.message) &&
+        /calibration\.surfaces references unknown surface/.test(error.message) &&
+        /unknown metric 'madeUpMetric'/.test(error.message);
+    }
+    assertEqual(rejectedCalibration, true, "invalid profile calibration rejected");
 
     let rejectedPlatform = false;
     try {

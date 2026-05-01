@@ -24,6 +24,7 @@ export function validateProfileShape(profile, sourceName = "profile") {
   requireArray(profile, "entries", errors);
   validateStringArray(profile.targetKinds, "targetKinds", errors, { optional: true });
   validateDiagnostics(profile.diagnostics, "diagnostics", errors);
+  validateCalibration(profile.calibration, "calibration", errors);
   validateEntries(profile.entries, errors);
 
   if (profile.gate !== undefined) {
@@ -31,6 +32,50 @@ export function validateProfileShape(profile, sourceName = "profile") {
   }
 
   assertNoShapeErrors(errors, sourceName);
+}
+
+function validateCalibration(calibration, prefix, errors) {
+  if (calibration === undefined) {
+    return;
+  }
+  if (!calibration || typeof calibration !== "object" || Array.isArray(calibration)) {
+    errors.push(`${prefix} must be an object when set`);
+    return;
+  }
+  validateThresholdMap(calibration.roles, `${prefix}.roles`, errors, { keyed: true });
+  if (calibration.surfaces !== undefined) {
+    if (!calibration.surfaces || typeof calibration.surfaces !== "object" || Array.isArray(calibration.surfaces)) {
+      errors.push(`${prefix}.surfaces must be an object when set`);
+    } else {
+      for (const [surfaceId, surfaceCalibration] of Object.entries(calibration.surfaces)) {
+        if (!surfaceCalibration || typeof surfaceCalibration !== "object" || Array.isArray(surfaceCalibration)) {
+          errors.push(`${prefix}.surfaces.${surfaceId} must be an object`);
+          continue;
+        }
+        validateThresholdMap(surfaceCalibration.thresholds, `${prefix}.surfaces.${surfaceId}.thresholds`, errors);
+        validateThresholdMap(surfaceCalibration.roleThresholds, `${prefix}.surfaces.${surfaceId}.roleThresholds`, errors, { keyed: true });
+      }
+    }
+  }
+}
+
+function validateThresholdMap(map, prefix, errors, options = {}) {
+  if (map === undefined) {
+    return;
+  }
+  if (!map || typeof map !== "object" || Array.isArray(map)) {
+    errors.push(`${prefix} must be an object when set`);
+    return;
+  }
+  for (const [key, value] of Object.entries(map)) {
+    if (options.keyed) {
+      validateThresholdMap(value, `${prefix}.${key}`, errors);
+      continue;
+    }
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      errors.push(`${prefix}.${key} must be a finite number`);
+    }
+  }
 }
 
 function validateDiagnostics(diagnostics, prefix, errors) {

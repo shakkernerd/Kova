@@ -1,11 +1,17 @@
 import { buildAgentTurnBreakdown } from "./collectors/agent-turns.mjs";
 import { computeProviderTurnAttribution } from "./collectors/provider.mjs";
 import { summarizeRuntimeDepsLogs } from "./collectors/logs.mjs";
+import { resolveThresholdPolicy } from "./evaluation/thresholds.mjs";
 
 export function evaluateRecord(record, scenario, options = {}) {
   const originalStatus = record.status;
-  const thresholds = { ...(options.surface?.thresholds ?? {}), ...(scenario.thresholds ?? {}) };
-  const roleThresholds = mergeRoleThresholds(options.surface?.roleThresholds, scenario.thresholds?.roleThresholds);
+  const thresholdPolicy = resolveThresholdPolicy({
+    profile: options.profile,
+    surface: options.surface,
+    scenario
+  });
+  const thresholds = thresholdPolicy.thresholds;
+  const roleThresholds = thresholdPolicy.roleThresholds;
   const violations = [];
   const allResults = collectResults(record);
   const resourceSummary = collectResourceSummary(allResults);
@@ -580,6 +586,7 @@ export function evaluateRecord(record, scenario, options = {}) {
       providerModelTimingMs
     })
   };
+  record.thresholdPolicy = thresholdPolicy.report;
 
   if (violations.length > 0) {
     if (originalStatus === "PASS") {
@@ -1646,17 +1653,6 @@ function checkRoleThresholds(violations, byRole, roleThresholds) {
       });
     }
   }
-}
-
-function mergeRoleThresholds(base, override) {
-  const merged = {};
-  for (const [sourceRole, sourceThresholds] of Object.entries(base ?? {})) {
-    merged[sourceRole] = { ...sourceThresholds };
-  }
-  for (const [sourceRole, sourceThresholds] of Object.entries(override ?? {})) {
-    merged[sourceRole] = { ...(merged[sourceRole] ?? {}), ...sourceThresholds };
-  }
-  return merged;
 }
 
 function collectResults(record) {

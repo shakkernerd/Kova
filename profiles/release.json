@@ -2,6 +2,74 @@
   "id": "release",
   "title": "Release Matrix",
   "objective": "Broad OpenClaw release confidence across install, upgrade, bundled plugins, model/provider, UI, failure, soak, and platform smoke scenarios.",
+  "calibration": {
+    "roles": {
+      "gateway": { "peakRssMb": 900, "maxCpuPercent": 300 },
+      "command-tree": { "peakRssMb": 1200, "maxCpuPercent": 400 },
+      "runtime-management": { "peakRssMb": 900, "maxCpuPercent": 350 },
+      "package-manager": { "peakRssMb": 900, "maxCpuPercent": 350 },
+      "agent-cli": { "peakRssMb": 1100, "maxCpuPercent": 350 },
+      "agent-process": { "peakRssMb": 900, "maxCpuPercent": 300 },
+      "plugin-cli": { "peakRssMb": 650, "maxCpuPercent": 250 },
+      "model-cli": { "peakRssMb": 650, "maxCpuPercent": 250 },
+      "doctor-cli": { "peakRssMb": 700, "maxCpuPercent": 300 },
+      "tui-cli": { "peakRssMb": 650, "maxCpuPercent": 250 },
+      "dashboard-cli": { "peakRssMb": 650, "maxCpuPercent": 250 },
+      "browser-sidecar": { "peakRssMb": 500, "maxCpuPercent": 250 },
+      "mock-provider": { "peakRssMb": 300, "maxCpuPercent": 150 }
+    },
+    "surfaces": {
+      "release-runtime-startup": {
+        "thresholds": {
+          "gatewayReadyMs": 45000,
+          "gatewayReadyHardTimeoutMs": 120000,
+          "runtimeDepsStagingMs": 30000,
+          "missingDependencyErrors": 0,
+          "pluginLoadFailures": 0,
+          "peakRssMb": 950
+        }
+      },
+      "upgrade-existing-user": {
+        "thresholds": {
+          "upgradeMs": 180000,
+          "gatewayReadyMs": 60000,
+          "statusMs": 10000,
+          "missingDependencyErrors": 0,
+          "pluginLoadFailures": 0
+        }
+      },
+      "agent-message": {
+        "thresholds": {
+          "coldAgentTurnMs": 45000,
+          "warmAgentTurnMs": 15000,
+          "coldPreProviderMs": 10000,
+          "warmPreProviderMs": 2500,
+          "providerFinalMs": 3000,
+          "agentCleanupMs": 5000,
+          "agentProcessLeaks": 0
+        }
+      },
+      "bundled-runtime-deps": {
+        "thresholds": {
+          "runtimeDepsStagingMs": 30000,
+          "warmRuntimeDepsRestageCount": 0,
+          "warmRuntimeDepsStagingMs": 1000,
+          "missingDependencyErrors": 0,
+          "pluginLoadFailures": 0
+        }
+      },
+      "soak": {
+        "thresholds": {
+          "soakMinDurationMs": 60000,
+          "soakCommandFailures": 0,
+          "soakHealthFailures": 0,
+          "soakCommandP95Ms": 10000,
+          "soakHealthP95Ms": 1000,
+          "gatewayRssGrowthMb": 250
+        }
+      }
+    }
+  },
   "gate": {
     "id": "openclaw-release",
     "coverage": {

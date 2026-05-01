@@ -18,6 +18,52 @@
       "agent.cleanup"
     ]
   },
+  "calibration": {
+    "roles": {
+      "gateway": { "peakRssMb": 1000, "maxCpuPercent": 350 },
+      "command-tree": { "peakRssMb": 1400, "maxCpuPercent": 450 },
+      "runtime-staging": { "peakRssMb": 900, "maxCpuPercent": 350 },
+      "package-manager": { "peakRssMb": 900, "maxCpuPercent": 350 },
+      "agent-cli": { "peakRssMb": 1200, "maxCpuPercent": 350 },
+      "mock-provider": { "peakRssMb": 300, "maxCpuPercent": 150 }
+    },
+    "surfaces": {
+      "release-runtime-startup": {
+        "thresholds": {
+          "gatewayReadyMs": 60000,
+          "gatewayReadyHardTimeoutMs": 180000,
+          "runtimeDepsStagingMs": 45000,
+          "openclawTimelineParseErrors": 0,
+          "openclawSlowestSpanMs": 45000
+        }
+      },
+      "agent-message": {
+        "thresholds": {
+          "coldAgentTurnMs": 60000,
+          "warmAgentTurnMs": 15000,
+          "coldPreProviderMs": 15000,
+          "providerFinalMs": 3000,
+          "agentCleanupMs": 5000,
+          "openclawSlowestSpanMs": 45000
+        }
+      },
+      "bundled-runtime-deps": {
+        "thresholds": {
+          "runtimeDepsStagingMs": 45000,
+          "warmRuntimeDepsRestageCount": 0,
+          "openclawSlowestSpanMs": 45000
+        }
+      },
+      "gateway-performance": {
+        "thresholds": {
+          "gatewayReadyMs": 60000,
+          "healthP95Ms": 1000,
+          "peakRssMb": 1000,
+          "openclawSlowestSpanMs": 45000
+        }
+      }
+    }
+  },
   "gate": {
     "id": "openclaw-diagnostic",
     "coverage": {

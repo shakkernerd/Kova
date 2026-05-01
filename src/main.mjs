@@ -712,6 +712,10 @@ function profileSummary(profile) {
     entryCount: profile.entries.length,
     targetKinds: profile.targetKinds ?? null,
     diagnostics: profile.diagnostics ?? null,
+    calibration: profile.calibration ? {
+      surfaceCount: Object.keys(profile.calibration.surfaces ?? {}).length,
+      roleCount: Object.keys(profile.calibration.roles ?? {}).length
+    } : null,
     gate: profile.gate ? {
       id: profile.gate.id ?? `${profile.id}-gate`,
       blockingCount: Array.isArray(profile.gate.blocking) ? profile.gate.blocking.length : profile.entries.length,

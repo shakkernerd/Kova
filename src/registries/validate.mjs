@@ -83,7 +83,7 @@ export function validateRegistryReferences({ scenarios, states, profiles, surfac
   }
 
   for (const profile of profiles) {
-    validateProfileReferences(profile, { scenarioIds, stateIds, surfaceIds, traitIds, scenarioById, stateById, surfaceById }, errors);
+    validateProfileReferences(profile, { scenarioIds, stateIds, surfaceIds, processRoleIds, metricIds, traitIds, scenarioById, stateById, surfaceById }, errors);
   }
 
   if (errors.length > 0) {
@@ -178,6 +178,35 @@ function validateProfileReferences(profile, refs, errors) {
   validateCoverageRefs(profile, refs, errors, "traits", refs.traitIds);
   validatePlatformCoverageRefs(profile, errors);
   validateStateSurfaceCoverageRefs(profile, refs, errors);
+  validateCalibrationRefs(profile, refs, errors);
+}
+
+function validateCalibrationRefs(profile, refs, errors) {
+  const calibration = profile.calibration;
+  if (!calibration) {
+    return;
+  }
+  for (const role of Object.keys(calibration.roles ?? {})) {
+    if (!refs.processRoleIds.has(role)) {
+      errors.push(`profile '${profile.id}' calibration.roles references unknown process role '${role}'`);
+      continue;
+    }
+    validateThresholdMetrics(calibration.roles[role], refs.metricIds, errors, `profile '${profile.id}' calibration.roles.${role}`);
+  }
+  for (const [surfaceId, surfaceCalibration] of Object.entries(calibration.surfaces ?? {})) {
+    if (!refs.surfaceIds.has(surfaceId)) {
+      errors.push(`profile '${profile.id}' calibration.surfaces references unknown surface '${surfaceId}'`);
+      continue;
+    }
+    validateThresholdMetrics(surfaceCalibration.thresholds ?? {}, refs.metricIds, errors, `profile '${profile.id}' calibration.surfaces.${surfaceId}.thresholds`);
+    for (const [role, thresholds] of Object.entries(surfaceCalibration.roleThresholds ?? {})) {
+      if (!refs.processRoleIds.has(role)) {
+        errors.push(`profile '${profile.id}' calibration.surfaces.${surfaceId}.roleThresholds references unknown process role '${role}'`);
+        continue;
+      }
+      validateThresholdMetrics(thresholds, refs.metricIds, errors, `profile '${profile.id}' calibration.surfaces.${surfaceId}.roleThresholds.${role}`);
+    }
+  }
 }
 
 function validatePlatformCoverageRefs(profile, errors) {

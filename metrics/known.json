@@ -32,6 +32,8 @@
     "maxCpuPercent",
     "missingDependencyErrors",
     "modelsListMs",
+    "openclawSlowestSpanMs",
+    "openclawTimelineParseErrors",
     "peakRssMb",
     "pluginIndexPresent",
     "pluginLoadFailures",
