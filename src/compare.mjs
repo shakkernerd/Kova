@@ -115,13 +115,16 @@ export function compareReports(baseline, current, options = {}) {
   }
 
   const regressionCount = scenarios.reduce((count, scenario) => count + scenario.regressions.length, 0);
+  const sourceRelease = compareSourceReleaseDiagnostics(baseline, current);
+  const sourceReleaseBlockingCount = sourceRelease?.blockingCount ?? 0;
   return {
     schemaVersion: "kova.compare.v1",
     generatedAt: new Date().toISOString(),
     baseline: reportSummary(baseline),
     current: reportSummary(current),
     thresholds,
-    ok: regressionCount === 0,
+    sourceRelease,
+    ok: regressionCount === 0 && sourceReleaseBlockingCount === 0,
     regressionCount,
     scenarios
   };
@@ -140,6 +143,14 @@ export function renderCompareFixerSummary(comparison) {
   if (comparison.ok) {
     lines.push("No blocking regressions were detected.");
     return lines.join("\n");
+  }
+
+  if (comparison.sourceRelease && comparison.sourceRelease.blockingCount > 0) {
+    lines.push("Source/release diagnostic comparison:");
+    for (const finding of comparison.sourceRelease.findings.filter((item) => item.severity === "blocking")) {
+      lines.push(`- ${finding.message}`);
+    }
+    lines.push("");
   }
 
   for (const scenario of comparison.scenarios.filter((item) => item.regressions.length > 0)) {
@@ -172,6 +183,17 @@ export function renderCompareSummary(comparison) {
     }
   }
 
+  if (comparison.sourceRelease) {
+    lines.push("");
+    lines.push("Source/release diagnostics:");
+    lines.push(`- Status: ${comparison.sourceRelease.ok ? "OK" : "NEEDS_WORK"}`);
+    lines.push(`- Pairs: ${comparison.sourceRelease.pairCount}`);
+    lines.push(`- Blocking: ${comparison.sourceRelease.blockingCount}`);
+    for (const finding of comparison.sourceRelease.findings.slice(0, 8)) {
+      lines.push(`- ${finding.severity.toUpperCase()} ${finding.key ?? "comparison"}: ${finding.message}`);
+    }
+  }
+
   return lines.join("\n");
 }
 
@@ -193,9 +215,128 @@ function reportSummary(report) {
     mode: report.mode ?? null,
     profile: report.profile?.id ?? null,
     target: report.target ?? null,
+    targetKind: targetKind(report.target),
     generatedAt: report.generatedAt ?? null,
     statuses: report.summary?.statuses ?? {}
   };
+}
+
+function compareSourceReleaseDiagnostics(leftReport, rightReport) {
+  const leftLane = targetLane(leftReport.target);
+  const rightLane = targetLane(rightReport.target);
+  if (!leftLane || !rightLane || leftLane === rightLane) {
+    return null;
+  }
+
+  const sourceReport = leftLane === "source-build" ? leftReport : rightReport;
+  const releaseReport = leftLane === "release-runtime" ? leftReport : rightReport;
+  const sourceRecords = indexRecords(sourceReport.records ?? []);
+  const releaseRecords = indexRecords(releaseReport.records ?? []);
+  const keys = [...sourceRecords.keys()].filter((key) => releaseRecords.has(key)).sort();
+  const findings = [];
+  const pairs = [];
+
+  if (keys.length === 0) {
+    findings.push({
+      severity: "blocking",
+      key: null,
+      message: "source-build and release-runtime reports have no shared scenario/state records, so diagnostic parity cannot be evaluated"
+    });
+  }
+
+  for (const key of keys) {
+    const source = sourceRecords.get(key);
+    const release = releaseRecords.get(key);
+    const pair = sourceReleasePair(key, source, release);
+    pairs.push(pair);
+    if (!pair.source.timelineAvailable) {
+      findings.push({
+        severity: "blocking",
+        key,
+        message: `${key} source-build report did not include OpenClaw timeline diagnostics`
+      });
+    }
+    if (!pair.release.timelineAvailable) {
+      findings.push({
+        severity: "info",
+        key,
+        message: `${key} release-runtime report has no timeline; use outside-in timings for released packages`
+      });
+    }
+    if (typeof pair.source.agentPreProviderMs === "number" && typeof pair.release.agentPreProviderMs === "number") {
+      const delta = pair.release.agentPreProviderMs - pair.source.agentPreProviderMs;
+      if (delta > defaultThresholds.coldPreProviderMs) {
+        findings.push({
+          severity: "warning",
+          key,
+          message: `${key} release pre-provider latency exceeded source-build by ${delta}ms (${pair.source.agentPreProviderMs}ms -> ${pair.release.agentPreProviderMs}ms)`
+        });
+      }
+    }
+  }
+
+  const blockingCount = findings.filter((finding) => finding.severity === "blocking").length;
+  const warningCount = findings.filter((finding) => finding.severity === "warning").length;
+  const infoCount = findings.filter((finding) => finding.severity === "info").length;
+  return {
+    schemaVersion: "kova.sourceReleaseComparison.v1",
+    sourceTarget: sourceReport.target ?? null,
+    releaseTarget: releaseReport.target ?? null,
+    ok: blockingCount === 0,
+    pairCount: pairs.length,
+    blockingCount,
+    warningCount,
+    infoCount,
+    pairs,
+    findings
+  };
+}
+
+function sourceReleasePair(key, source, release) {
+  return {
+    key,
+    scenario: source.scenario ?? release.scenario ?? null,
+    state: source.state?.id ?? release.state?.id ?? null,
+    surface: source.surface ?? release.surface ?? source.measurements?.surface ?? release.measurements?.surface ?? null,
+    source: diagnosticRecordSummary(source),
+    release: diagnosticRecordSummary(release)
+  };
+}
+
+function diagnosticRecordSummary(record) {
+  const measurements = record?.measurements ?? {};
+  return {
+    status: record?.status ?? null,
+    timelineAvailable: measurements.openclawTimelineAvailable === true,
+    timelineEventCount: measurements.openclawTimelineEventCount ?? null,
+    slowestSpanName: measurements.openclawSlowestSpanName ?? null,
+    slowestSpanMs: measurements.openclawSlowestSpanMs ?? null,
+    openRequiredSpanCount: measurements.openclawOpenRequiredSpanCount ?? null,
+    agentTurnMs: measurements.agentTurnMs ?? measurements.coldAgentTurnMs ?? null,
+    agentPreProviderMs: measurements.agentPreProviderMs ?? measurements.coldPreProviderMs ?? null,
+    providerFinalMs: measurements.agentProviderFinalMs ?? measurements.coldProviderFinalMs ?? null,
+    runtimeDepsStagingMs: measurements.runtimeDepsStagingMs ?? null,
+    timeToHealthReadyMs: measurements.timeToHealthReadyMs ?? null,
+    peakRssMb: measurements.peakRssMb ?? null
+  };
+}
+
+function targetLane(target) {
+  const kind = targetKind(target);
+  if (kind === "local-build") {
+    return "source-build";
+  }
+  if (["npm", "channel", "runtime"].includes(kind)) {
+    return "release-runtime";
+  }
+  return null;
+}
+
+function targetKind(target) {
+  if (typeof target !== "string" || !target.includes(":")) {
+    return null;
+  }
+  return target.split(":", 1)[0];
 }
 
 function statusRank(status) {

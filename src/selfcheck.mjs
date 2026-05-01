@@ -30,6 +30,7 @@ import {
 } from "./collectors/provider.mjs";
 import { captureProcessSnapshot, diffProcessSnapshots } from "./collectors/resources.mjs";
 import { renderMarkdownReport, renderPasteSummary, renderReportSummary } from "./report.mjs";
+import { compareReports, renderCompareSummary } from "./compare.mjs";
 
 export async function runSelfCheck(flags = {}) {
   const checks = [];
@@ -175,6 +176,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await mockProviderBehaviorCheck(tmp));
     checks.push(providerFailureEvaluationCheck());
     checks.push(agentColdWarmEvaluationCheck());
+    checks.push(sourceReleaseCompareCheck());
     checks.push(await concurrentAgentRunnerCheck(tmp));
     checks.push(providerConcurrentEvaluationCheck());
     checks.push(agentAuthFailureEvaluationCheck());
@@ -2105,6 +2107,92 @@ function agentColdWarmEvaluationCheck() {
       message: error.message
     };
   }
+}
+
+function sourceReleaseCompareCheck() {
+  try {
+    const releaseReport = syntheticCompareReport({
+      runId: "release-run",
+      target: "npm:2026.4.27",
+      timelineAvailable: false,
+      preProviderMs: 62000,
+      slowestSpanMs: null
+    });
+    const sourceReport = syntheticCompareReport({
+      runId: "source-run",
+      target: "local-build:/tmp/openclaw",
+      timelineAvailable: true,
+      preProviderMs: 4000,
+      slowestSpanMs: 3200
+    });
+    const comparison = compareReports(releaseReport, sourceReport);
+    assertEqual(comparison.ok, true, "source/release comparison with source timeline should pass");
+    assertEqual(comparison.sourceRelease?.pairCount, 1, "source/release pair count");
+    assertEqual(comparison.sourceRelease?.infoCount, 1, "release missing timeline should be informational");
+    assertEqual(comparison.sourceRelease?.pairs?.[0]?.source?.timelineAvailable, true, "source timeline available");
+    assertEqual(comparison.sourceRelease?.pairs?.[0]?.release?.timelineAvailable, false, "release timeline missing");
+
+    const missingTimelineComparison = compareReports(releaseReport, syntheticCompareReport({
+      runId: "source-no-timeline",
+      target: "local-build:/tmp/openclaw",
+      timelineAvailable: false,
+      preProviderMs: 4000,
+      slowestSpanMs: null
+    }));
+    assertEqual(missingTimelineComparison.ok, false, "source missing timeline should fail comparison");
+    assertEqual(missingTimelineComparison.sourceRelease?.blockingCount, 1, "source missing timeline blocking count");
+    assertEqual(
+      renderCompareSummary(missingTimelineComparison).includes("source-build report did not include OpenClaw timeline diagnostics"),
+      true,
+      "compare summary includes source timeline blocker"
+    );
+
+    return {
+      id: "source-release-compare",
+      status: "PASS",
+      command: "evaluate synthetic source-build versus release-runtime comparison",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "source-release-compare",
+      status: "FAIL",
+      command: "evaluate synthetic source-build versus release-runtime comparison",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function syntheticCompareReport({ runId, target, timelineAvailable, preProviderMs, slowestSpanMs }) {
+  return {
+    runId,
+    mode: "execution",
+    target,
+    generatedAt: "2026-05-01T00:00:00.000Z",
+    platform: { os: "darwin", arch: "arm64", release: "test", node: "test" },
+    summary: { statuses: { PASS: 1 } },
+    records: [{
+      scenario: "agent-cold-warm-message",
+      surface: "agent-message",
+      state: { id: "mock-openai-provider" },
+      status: "PASS",
+      measurements: {
+        openclawTimelineAvailable: timelineAvailable,
+        openclawTimelineEventCount: timelineAvailable ? 20 : 0,
+        openclawSlowestSpanName: timelineAvailable ? "agent.prepare" : null,
+        openclawSlowestSpanMs: slowestSpanMs,
+        coldAgentTurnMs: preProviderMs + 800,
+        coldPreProviderMs: preProviderMs,
+        coldProviderFinalMs: 800,
+        agentTurnMs: preProviderMs + 800,
+        agentPreProviderMs: preProviderMs,
+        agentProviderFinalMs: 800,
+        runtimeDepsStagingMs: 0,
+        peakRssMb: 100
+      }
+    }]
+  };
 }
 
 async function diagnosticsTimelineCheck() {
