@@ -29,7 +29,7 @@
       "timeoutMs": 120000
     },
     {
-      "scenario": "agent-message-latency",
+      "scenario": "agent-cold-warm-message",
       "state": "mock-openai-provider",
       "timeoutMs": 180000
     }

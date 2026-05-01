@@ -87,7 +87,7 @@
       { "scenario": "bundled-plugin-startup", "state": "fresh" },
       { "scenario": "plugin-lifecycle", "state": "external-plugin" },
       { "scenario": "provider-models", "state": "model-auth-missing" },
-      { "scenario": "agent-message-latency", "state": "mock-openai-provider" },
+      { "scenario": "agent-cold-warm-message", "state": "mock-openai-provider" },
       { "scenario": "dashboard-readiness", "state": "fresh" },
       { "scenario": "tui-responsiveness", "state": "fresh" },
       { "scenario": "gateway-performance", "state": "many-bundled-plugins" }
@@ -157,7 +157,7 @@
       "state": "model-auth-missing"
     },
     {
-      "scenario": "agent-message-latency",
+      "scenario": "agent-cold-warm-message",
       "state": "mock-openai-provider",
       "timeoutMs": 180000
     },

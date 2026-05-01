@@ -149,6 +149,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await cpuProfileParserCheck());
     checks.push(await heapProfileParserCheck());
     checks.push(await providerEvidenceParserCheck());
+    checks.push(agentColdWarmEvaluationCheck());
     checks.push(await jsonCommandCheck(
       "dry-run-state-lifecycle-json",
       `node bin/kova.mjs run --target runtime:stable --scenario fresh-install --state missing-plugin-index --report-dir ${quoteShell(tmp)} --json`,
@@ -705,6 +706,139 @@ async function providerEvidenceParserCheck() {
       id: "provider-evidence-parser",
       status: "FAIL",
       command: "parse fixtures/provider/mock-requests.jsonl",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function agentColdWarmEvaluationCheck() {
+  try {
+    const coldCommand = "ocm @kova -- agent --local --agent main --session-id kova-agent-cold-warm --message hi --json";
+    const warmCommand = "ocm @kova -- agent --local --agent main --session-id kova-agent-cold-warm --message hi --json";
+    const record = {
+      scenario: "agent-cold-warm-message",
+      status: "PASS",
+      auth: { mode: "mock", source: "mock", providerId: "openai" },
+      phases: [
+        {
+          id: "cold-agent-turn",
+          results: [{
+            command: coldCommand,
+            status: 0,
+            timedOut: false,
+            startedAt: "2026-04-30T10:00:01.000Z",
+            startedAtEpochMs: 1777543201000,
+            finishedAt: "2026-04-30T10:01:03.000Z",
+            finishedAtEpochMs: 1777543263000,
+            durationMs: 62000,
+            stdout: "{\"finalAssistantVisibleText\":\"KOVA_AGENT_OK\"}",
+            stderr: ""
+          }],
+          metrics: { logs: zeroLogMetrics(), health: { ok: true } }
+        },
+        {
+          id: "warm-agent-turn",
+          results: [{
+            command: warmCommand,
+            status: 0,
+            timedOut: false,
+            startedAt: "2026-04-30T10:01:10.000Z",
+            startedAtEpochMs: 1777543270000,
+            finishedAt: "2026-04-30T10:01:12.000Z",
+            finishedAtEpochMs: 1777543272000,
+            durationMs: 2000,
+            stdout: "{\"finalAssistantVisibleText\":\"KOVA_AGENT_OK\"}",
+            stderr: ""
+          }],
+          metrics: { logs: zeroLogMetrics(), health: { ok: true } }
+        }
+      ],
+      providerEvidence: {
+        available: true,
+        requestCount: 2,
+        requests: [
+          {
+            requestId: "cold-provider",
+            receivedAt: "2026-04-30T10:01:02.000Z",
+            receivedAtEpochMs: 1777543262000,
+            respondedAt: "2026-04-30T10:01:02.800Z",
+            respondedAtEpochMs: 1777543262800,
+            firstByteLatencyMs: 50,
+            firstChunkLatencyMs: 50,
+            route: "/v1/responses",
+            model: "gpt-5.5",
+            stream: true,
+            status: 200,
+            statusClass: "2xx"
+          },
+          {
+            requestId: "warm-provider",
+            receivedAt: "2026-04-30T10:01:10.500Z",
+            receivedAtEpochMs: 1777543270500,
+            respondedAt: "2026-04-30T10:01:11.300Z",
+            respondedAtEpochMs: 1777543271300,
+            firstByteLatencyMs: 40,
+            firstChunkLatencyMs: 40,
+            route: "/v1/responses",
+            model: "gpt-5.5",
+            stream: true,
+            status: 200,
+            statusClass: "2xx"
+          }
+        ]
+      },
+      finalMetrics: {
+        service: { gatewayState: "running" },
+        logs: zeroLogMetrics()
+      }
+    };
+
+    evaluateRecord(record, {
+      id: "agent-cold-warm-message",
+      agent: { expectedText: "KOVA_AGENT_OK" },
+      thresholds: {
+        preProviderMs: 10000,
+        coldWarmDeltaMs: 30000,
+        providerFinalMs: 3000,
+        preProviderDominanceRatio: 0.8
+      }
+    }, { surface: { thresholds: {} }, targetPlan: { kind: "npm" } });
+
+    assertEqual(record.status, "FAIL", "cold pre-provider stall should fail");
+    assertEqual(record.measurements.agentTurnCount, 2, "agent turn count");
+    assertEqual(record.measurements.coldAgentTurnMs, 62000, "cold turn duration");
+    assertEqual(record.measurements.warmAgentTurnMs, 2000, "warm turn duration");
+    assertEqual(record.measurements.agentColdWarmDeltaMs, 60000, "cold warm delta");
+    assertEqual(record.measurements.coldPreProviderMs, 61000, "cold pre-provider latency");
+    assertEqual(record.measurements.warmPreProviderMs, 500, "warm pre-provider latency");
+    assertEqual(record.measurements.coldProviderFinalMs, 800, "cold provider final");
+    assertEqual(record.measurements.agentLatencyDiagnosis.kind, "cold-pre-provider-stall", "latency diagnosis kind");
+    assertEqual(record.measurements.agentTurns[0].responseOk, true, "cold response ok");
+    assertEqual(record.measurements.agentTurns[1].providerRoutes[0].value, "/v1/responses", "warm provider route evidence");
+    assertEqual(
+      renderPasteSummary({
+        runId: "self-check-cold-warm",
+        target: "runtime:stable",
+        mode: "self-check",
+        platform: { os: "test", release: "test", arch: "test" },
+        records: [record]
+      }).includes("cold-warm delta 60000ms"),
+      true,
+      "paste summary includes cold/warm evidence"
+    );
+
+    return {
+      id: "agent-cold-warm-evaluation",
+      status: "PASS",
+      command: "evaluate synthetic cold/warm agent provider attribution",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "agent-cold-warm-evaluation",
+      status: "FAIL",
+      command: "evaluate synthetic cold/warm agent provider attribution",
       durationMs: 0,
       message: error.message
     };

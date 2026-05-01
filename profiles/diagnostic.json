@@ -36,14 +36,14 @@
         ]
       },
       "scenarios": {
-        "blocking": ["release-runtime-startup", "gateway-performance", "bundled-runtime-deps", "agent-message-latency"]
+        "blocking": ["release-runtime-startup", "gateway-performance", "bundled-runtime-deps", "agent-cold-warm-message"]
       }
     },
     "blocking": [
       { "scenario": "release-runtime-startup", "state": "fresh" },
       { "scenario": "gateway-performance", "state": "many-bundled-plugins" },
       { "scenario": "bundled-runtime-deps", "state": "missing-plugin-index" },
-      { "scenario": "agent-message-latency", "state": "mock-openai-provider" }
+      { "scenario": "agent-cold-warm-message", "state": "mock-openai-provider" }
     ]
   },
   "entries": [
@@ -63,7 +63,7 @@
       "timeoutMs": 180000
     },
     {
-      "scenario": "agent-message-latency",
+      "scenario": "agent-cold-warm-message",
       "state": "mock-openai-provider",
       "timeoutMs": 240000
     }

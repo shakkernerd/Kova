@@ -1,0 +1,62 @@
+{
+  "id": "agent-cold-warm-message",
+  "surface": "agent-message",
+  "title": "Agent Cold/Warm Message",
+  "objective": "Send cold and warm simple messages through OpenClaw's real local agent path, verify mock-provider responses, and attribute latency before, during, and after provider work.",
+  "tags": ["agent", "message", "latency", "providers", "gateway", "cold-warm"],
+  "timeoutMs": 240000,
+  "agent": {
+    "expectedText": "KOVA_AGENT_OK"
+  },
+  "thresholds": {
+    "gatewayReadyMs": 30000,
+    "agentTurnMs": 45000,
+    "coldAgentTurnMs": 45000,
+    "warmAgentTurnMs": 15000,
+    "coldWarmDeltaMs": 30000,
+    "preProviderMs": 10000,
+    "coldPreProviderMs": 10000,
+    "warmPreProviderMs": 5000,
+    "providerFinalMs": 3000,
+    "preProviderDominanceRatio": 0.8,
+    "statusMs": 10000,
+    "peakRssMb": 900,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0,
+    "providerTimeoutMentions": 0
+  },
+  "phases": [
+    {
+      "id": "provision",
+      "title": "Provision Agent Env",
+      "intent": "Start a disposable OpenClaw gateway before wiring the model provider and sending messages.",
+      "commands": ["ocm start {env} {startSelector} --json"],
+      "evidence": ["gateway port", "runtime binding", "startup readiness"]
+    },
+    {
+      "id": "cold-agent-turn",
+      "title": "Cold Agent Turn",
+      "intent": "Send the first simple message through OpenClaw's real local embedded agent CLI command in a fresh session.",
+      "commands": [
+        "ocm @{env} -- agent --local --agent main --session-id kova-agent-cold-warm --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 120 --json"
+      ],
+      "evidence": ["cold command duration", "final assistant text", "mock provider request timing", "gateway health after cold turn", "role resource samples"]
+    },
+    {
+      "id": "warm-agent-turn",
+      "title": "Warm Agent Turn",
+      "intent": "Send the same simple message in the same session to prove whether cold discovery/cache work disappears.",
+      "commands": [
+        "ocm @{env} -- agent --local --agent main --session-id kova-agent-cold-warm --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --thinking off --timeout 120 --json"
+      ],
+      "evidence": ["warm command duration", "final assistant text", "mock provider request timing", "cold/warm delta", "role resource samples"]
+    },
+    {
+      "id": "post-agent-health",
+      "title": "Post-Agent Gateway Health",
+      "intent": "Verify the gateway remains responsive after both agent turns and capture provider/plugin diagnostics.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["gateway status", "provider logs", "plugin errors", "memory after agent turns"]
+    }
+  ]
+}

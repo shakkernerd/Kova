@@ -28,7 +28,7 @@
       "state": "many-bundled-plugins"
     },
     {
-      "scenario": "agent-message-latency",
+      "scenario": "agent-cold-warm-message",
       "state": "mock-openai-provider",
       "timeoutMs": 180000
     }

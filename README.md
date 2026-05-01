@@ -102,7 +102,7 @@ node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --state st
 node bin/kova.mjs run --target npm:2026.4.27 --scenario gateway-performance --execute --node-profile
 node bin/kova.mjs run --target local-build:/path/to/openclaw --scenario release-runtime-startup --execute
 node bin/kova.mjs run --target npm:2026.4.27 --scenario plugin-external-install --execute
-node bin/kova.mjs run --target npm:2026.4.27 --scenario agent-message-latency --auth live --execute
+node bin/kova.mjs run --target npm:2026.4.27 --scenario agent-cold-warm-message --auth live --execute
 node bin/kova.mjs matrix run --profile smoke --target npm:2026.4.27 --execute
 node bin/kova.mjs matrix run --profile release --target npm:2026.4.27 --include tag:plugins --exclude state:broken-plugin-deps --parallel 2 --execute
 ```

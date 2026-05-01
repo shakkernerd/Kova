@@ -39,9 +39,13 @@ export function evaluateRecord(record, scenario, options = {}) {
   const runtimeDepsStagingMs = maxNullable(openclawDiagnostics.runtimeDepsStagingMs, timelineSummary.runtimeDepsStageMaxMs);
   const eventLoopDelayMs = maxNullable(openclawDiagnostics.eventLoopDelayMs, timelineSummary.eventLoopMaxMs);
   const providerModelTimingMs = maxNullable(openclawDiagnostics.providerModelTimingMs, timelineSummary.providerRequestMaxMs);
-  const agentTurnMs = maxDurationWhere(allResults, isAgentMessageCommand);
-  const agentResponseOk = agentTurnMs === null ? null : allResults.filter((result) => isAgentMessageCommand(result.command)).every(agentResultHasUsableResponse);
-  const providerTurn = collectProviderTurnAttribution(allResults, record.providerEvidence);
+  const agentTurns = collectAgentTurns(record, record.providerEvidence, scenario.agent?.expectedText ?? null);
+  const coldAgentTurn = selectAgentTurn(agentTurns, "cold") ?? agentTurns[0] ?? null;
+  const warmAgentTurn = selectAgentTurn(agentTurns, "warm") ?? agentTurns[1] ?? null;
+  const providerTurn = collectSlowestProviderTurn(agentTurns);
+  const agentTurnMs = maxNullable(maxDurationWhere(allResults, isAgentMessageCommand), maxTurnDuration(agentTurns));
+  const agentResponseOk = agentTurns.length === 0 ? null : agentTurns.every((turn) => turn.responseOk === true);
+  const agentLatencyDiagnosis = diagnoseAgentLatency({ coldAgentTurn, warmAgentTurn, providerTurn, thresholds, timelineSummary });
   const finalGatewayState = record.finalMetrics?.service?.gatewayState ?? null;
   const healthFailures = countHealthFailures(record);
   const healthP95Ms = collectHealthP95(record);
@@ -285,7 +289,8 @@ export function evaluateRecord(record, scenario, options = {}) {
       message: "agent message command finished without a usable assistant response"
     });
   }
-  checkProviderTurnAttribution(violations, providerTurn, thresholds, record);
+  checkAgentTurnCorrectness(violations, agentTurns, scenario.agent?.expectedText ?? null);
+  checkAgentTurnThresholds(violations, agentTurns, { coldAgentTurn, warmAgentTurn, providerTurn, agentLatencyDiagnosis }, thresholds, record);
 
   record.measurements = {
     peakRssMb,
@@ -298,6 +303,19 @@ export function evaluateRecord(record, scenario, options = {}) {
     modelsListMs,
     agentTurnMs,
     agentResponseOk,
+    agentTurnCount: agentTurns.length,
+    agentTurns,
+    coldAgentTurnMs: coldAgentTurn?.totalTurnMs ?? null,
+    warmAgentTurnMs: warmAgentTurn?.totalTurnMs ?? null,
+    agentColdWarmDeltaMs: delta(coldAgentTurn?.totalTurnMs, warmAgentTurn?.totalTurnMs),
+    coldPreProviderMs: coldAgentTurn?.preProviderMs ?? null,
+    warmPreProviderMs: warmAgentTurn?.preProviderMs ?? null,
+    agentColdWarmPreProviderDeltaMs: delta(coldAgentTurn?.preProviderMs, warmAgentTurn?.preProviderMs),
+    coldProviderFinalMs: coldAgentTurn?.providerFinalMs ?? null,
+    warmProviderFinalMs: warmAgentTurn?.providerFinalMs ?? null,
+    coldFirstByteLatencyMs: coldAgentTurn?.firstByteLatencyMs ?? null,
+    warmFirstByteLatencyMs: warmAgentTurn?.firstByteLatencyMs ?? null,
+    agentLatencyDiagnosis,
     providerRequestCount: record.providerEvidence?.requestCount ?? null,
     providerFirstRequestAt: record.providerEvidence?.firstRequestStartAt ?? null,
     providerLastResponseAt: record.providerEvidence?.lastResponseEndAt ?? null,
@@ -404,56 +422,267 @@ export function evaluateRecord(record, scenario, options = {}) {
   return record;
 }
 
-function collectProviderTurnAttribution(results, providerEvidence) {
-  const agentResults = results.filter((result) => isAgentMessageCommand(result.command));
-  if (agentResults.length === 0) {
-    return null;
+function collectAgentTurns(record, providerEvidence, expectedText) {
+  const turns = [];
+  let index = 0;
+  for (const phase of record.phases ?? []) {
+    for (const result of phase.results ?? []) {
+      if (!isAgentMessageCommand(result.command)) {
+        continue;
+      }
+      index += 1;
+      const attribution = computeProviderTurnAttribution(result, providerEvidence);
+      const response = extractAgentResponse(result);
+      const expectedTextPresent = typeof expectedText === "string" && expectedText.length > 0
+        ? responseContainsExpectedText(response, result, expectedText)
+        : null;
+      turns.push({
+        schemaVersion: "kova.agentTurnEvidence.v1",
+        index,
+        phaseId: phase.id,
+        label: agentTurnLabel(phase.id, index),
+        command: result.command,
+        status: result.status,
+        timedOut: result.timedOut === true,
+        totalTurnMs: result.durationMs ?? attribution?.totalTurnMs ?? null,
+        commandStartedAt: result.startedAt ?? null,
+        commandStartedAtEpochMs: result.startedAtEpochMs ?? null,
+        commandFinishedAt: result.finishedAt ?? null,
+        commandFinishedAtEpochMs: result.finishedAtEpochMs ?? null,
+        responseText: response.text,
+        responseOk: result.status === 0 && result.timedOut !== true && response.usable === true && (expectedTextPresent !== false),
+        expectedTextPresent,
+        preProviderMs: attribution?.preProviderMs ?? null,
+        providerFinalMs: attribution?.providerFinalMs ?? null,
+        postProviderMs: attribution?.postProviderMs ?? null,
+        firstByteLatencyMs: attribution?.firstByteLatencyMs ?? null,
+        firstChunkLatencyMs: attribution?.firstChunkLatencyMs ?? null,
+        preProviderDominance: attribution?.preProviderDominates ?? null,
+        providerDominance: attribution?.providerDominates ?? null,
+        requestCount: attribution?.requestCount ?? 0,
+        missingProviderRequest: attribution?.missingProviderRequest ?? true,
+        providerRoutes: attribution?.routes ?? [],
+        providerModels: attribution?.models ?? [],
+        providerStatuses: attribution?.statuses ?? [],
+        providerErrors: attribution?.errors ?? [],
+        healthOk: phase.metrics?.health?.ok ?? null,
+        healthP95Ms: phase.metrics?.healthSummary?.p95Ms ?? null,
+        resourceSamples: summarizeTurnResources(result.resourceSamples)
+      });
+    }
   }
-  const attributions = agentResults
-    .map((result) => computeProviderTurnAttribution(result, providerEvidence))
-    .filter(Boolean);
-  if (attributions.length === 0) {
-    return null;
-  }
-  return attributions.toSorted((left, right) => (right.totalTurnMs ?? -1) - (left.totalTurnMs ?? -1))[0];
+  return turns;
 }
 
-function checkProviderTurnAttribution(violations, providerTurn, thresholds, record) {
+function selectAgentTurn(turns, label) {
+  return turns.find((turn) => turn.label === label) ?? null;
+}
+
+function collectSlowestProviderTurn(turns) {
+  if (turns.length === 0) {
+    return null;
+  }
+  return turns.toSorted((left, right) => (right.totalTurnMs ?? -1) - (left.totalTurnMs ?? -1))[0];
+}
+
+function maxTurnDuration(turns) {
+  const durations = turns.map((turn) => turn.totalTurnMs).filter((value) => typeof value === "number");
+  return durations.length === 0 ? null : Math.max(...durations);
+}
+
+function checkAgentTurnCorrectness(violations, turns, expectedText) {
+  for (const turn of turns) {
+    if (turn.responseOk !== true) {
+      violations.push({
+        kind: "agent",
+        metric: "agentTurn.responseOk",
+        phaseId: turn.phaseId,
+        expected: "usable assistant response",
+        actual: turn.responseText ?? "none",
+        message: `${turn.label} agent turn did not produce the expected assistant response`
+      });
+    }
+    if (typeof expectedText === "string" && expectedText.length > 0 && turn.expectedTextPresent !== true) {
+      violations.push({
+        kind: "agent",
+        metric: "agentTurn.expectedTextPresent",
+        phaseId: turn.phaseId,
+        expected: expectedText,
+        actual: turn.responseText ?? "none",
+        message: `${turn.label} agent turn response did not include expected marker ${expectedText}`
+      });
+    }
+  }
+}
+
+function checkAgentTurnThresholds(violations, turns, selected, thresholds, record) {
+  for (const turn of turns) {
+    if (turn.missingProviderRequest === true && record.auth?.mode === "mock") {
+      violations.push({
+        kind: "provider",
+        metric: "agentProviderRequestMissing",
+        phaseId: turn.phaseId,
+        expected: "provider request during agent command",
+        actual: "none",
+        message: `${turn.label} agent turn ran with mock auth but no mock provider request was captured`
+      });
+      continue;
+    }
+    checkTurnThreshold(violations, turn, "preProviderMs", thresholds.preProviderMs, `${turn.label} agent spent ${turn.preProviderMs}ms before provider work`);
+    checkTurnThreshold(violations, turn, "providerFinalMs", thresholds.providerFinalMs, `${turn.label} provider work took ${turn.providerFinalMs}ms`);
+    if (typeof thresholds.preProviderDominanceRatio === "number" &&
+      typeof turn.preProviderDominance === "number" &&
+      turn.preProviderDominance > thresholds.preProviderDominanceRatio) {
+      violations.push({
+        kind: "agent-latency",
+        metric: "preProviderDominanceRatio",
+        phaseId: turn.phaseId,
+        expected: `<= ${thresholds.preProviderDominanceRatio}`,
+        actual: turn.preProviderDominance,
+        message: `${turn.label} pre-provider work dominated agent turn (${Math.round(turn.preProviderDominance * 100)}% of ${turn.totalTurnMs}ms)`
+      });
+    }
+  }
+
+  checkTurnThreshold(violations, selected.coldAgentTurn, "totalTurnMs", thresholds.coldAgentTurnMs, `cold agent turn took ${selected.coldAgentTurn?.totalTurnMs}ms`);
+  checkTurnThreshold(violations, selected.warmAgentTurn, "totalTurnMs", thresholds.warmAgentTurnMs, `warm agent turn took ${selected.warmAgentTurn?.totalTurnMs}ms`);
+  checkTurnThreshold(violations, selected.coldAgentTurn, "preProviderMs", thresholds.coldPreProviderMs, `cold pre-provider latency was ${selected.coldAgentTurn?.preProviderMs}ms`);
+  checkTurnThreshold(violations, selected.warmAgentTurn, "preProviderMs", thresholds.warmPreProviderMs, `warm pre-provider latency was ${selected.warmAgentTurn?.preProviderMs}ms`);
+
+  const totalDelta = delta(selected.coldAgentTurn?.totalTurnMs, selected.warmAgentTurn?.totalTurnMs);
+  if (typeof thresholds.coldWarmDeltaMs === "number" && typeof totalDelta === "number" && totalDelta > thresholds.coldWarmDeltaMs) {
+    violations.push({
+      kind: "agent-latency",
+      metric: "coldWarmDeltaMs",
+      expected: `<= ${thresholds.coldWarmDeltaMs}`,
+      actual: totalDelta,
+      message: `cold agent turn was ${totalDelta}ms slower than warm turn`
+    });
+  }
+
+  if (selected.agentLatencyDiagnosis?.severity === "fail") {
+    violations.push({
+      kind: "agent-latency",
+      metric: "agentLatencyDiagnosis",
+      expected: "no cold pre-provider stall",
+      actual: selected.agentLatencyDiagnosis.kind,
+      message: selected.agentLatencyDiagnosis.summary
+    });
+  }
+}
+
+function checkTurnThreshold(violations, turn, metric, threshold, message) {
+  if (!turn || typeof threshold !== "number" || typeof turn[metric] !== "number" || turn[metric] <= threshold) {
+    return;
+  }
+  violations.push({
+    kind: "agent-latency",
+    metric,
+    phaseId: turn.phaseId,
+    expected: `<= ${threshold}`,
+    actual: turn[metric],
+    message: `${message}, over threshold ${threshold}ms`
+  });
+}
+
+function diagnoseAgentLatency({ coldAgentTurn, warmAgentTurn, providerTurn, thresholds, timelineSummary }) {
   if (!providerTurn) {
-    return;
+    return null;
   }
-  if (providerTurn.missingProviderRequest === true && record.auth?.mode === "mock") {
-    violations.push({
-      kind: "provider",
-      metric: "agentProviderRequestMissing",
-      expected: "provider request during agent command",
-      actual: "none",
-      message: "agent command ran with mock auth but no mock provider request was captured"
-    });
-    return;
+  if (providerTurn.missingProviderRequest === true) {
+    return {
+      kind: "no-provider-request",
+      severity: "fail",
+      summary: "No provider request happened during the agent turn.",
+      likelyOwner: "agent-runtime/auth/provider-routing"
+    };
   }
-  if (typeof thresholds.preProviderMs === "number" &&
-    typeof providerTurn.preProviderMs === "number" &&
-    providerTurn.preProviderMs > thresholds.preProviderMs) {
-    violations.push({
-      kind: "agent-latency",
-      metric: "preProviderMs",
-      expected: `<= ${thresholds.preProviderMs}`,
-      actual: providerTurn.preProviderMs,
-      message: `agent spent ${providerTurn.preProviderMs}ms before provider work, over threshold ${thresholds.preProviderMs}ms`
-    });
+
+  const preProviderThreshold = thresholds.preProviderMs ?? thresholds.coldPreProviderMs ?? 10000;
+  const dominanceThreshold = thresholds.preProviderDominanceRatio ?? 0.8;
+  const coldWarmDeltaThreshold = thresholds.coldWarmDeltaMs ?? 10000;
+  const coldWarmDelta = delta(coldAgentTurn?.totalTurnMs, warmAgentTurn?.totalTurnMs);
+  const providerFast = typeof providerTurn.providerFinalMs === "number" && providerTurn.providerFinalMs <= (thresholds.providerFinalMs ?? 3000);
+  const preProviderDominant = typeof providerTurn.preProviderDominance === "number" && providerTurn.preProviderDominance > dominanceThreshold;
+  const preProviderSlow = typeof providerTurn.preProviderMs === "number" && providerTurn.preProviderMs > preProviderThreshold;
+  const coldImproved = typeof coldWarmDelta === "number" && coldWarmDelta > coldWarmDeltaThreshold;
+
+  if (providerFast && preProviderSlow && preProviderDominant) {
+    return {
+      kind: coldImproved ? "cold-pre-provider-stall" : "pre-provider-stall",
+      severity: "fail",
+      summary: `${providerTurn.label} provider was fast (${providerTurn.providerFinalMs}ms), but OpenClaw spent ${providerTurn.preProviderMs}ms before provider work${coldImproved ? `; warm turn improved by ${coldWarmDelta}ms` : ""}.`,
+      likelyOwner: "model catalog / channel plugin loading / runtime capabilities",
+      supportingSpans: relevantAgentSpans(timelineSummary)
+    };
   }
-  if (typeof thresholds.preProviderDominanceRatio === "number" &&
-    typeof providerTurn.preProviderDominates === "number" &&
-    providerTurn.preProviderDominates > thresholds.preProviderDominanceRatio) {
-    violations.push({
-      kind: "agent-latency",
-      metric: "preProviderDominanceRatio",
-      expected: `<= ${thresholds.preProviderDominanceRatio}`,
-      actual: providerTurn.preProviderDominates,
-      message: `pre-provider work dominated agent turn (${Math.round(providerTurn.preProviderDominates * 100)}% of ${providerTurn.totalTurnMs}ms)`
-    });
+
+  if (typeof providerTurn.providerFinalMs === "number" && providerTurn.providerFinalMs > (thresholds.providerFinalMs ?? 3000)) {
+    return {
+      kind: "provider-slow",
+      severity: "warn",
+      summary: `Provider work took ${providerTurn.providerFinalMs}ms; investigate provider/mock-provider route before blaming OpenClaw pre-provider work.`,
+      likelyOwner: "provider"
+    };
   }
+
+  return {
+    kind: "agent-latency-attributed",
+    severity: "info",
+    summary: `${providerTurn.label} agent turn ${providerTurn.totalTurnMs ?? "unknown"}ms; pre-provider ${providerTurn.preProviderMs ?? "unknown"}ms; provider ${providerTurn.providerFinalMs ?? "unknown"}ms.`,
+    likelyOwner: "OpenClaw"
+  };
+}
+
+function relevantAgentSpans(timelineSummary) {
+  const names = [
+    "agent.turn",
+    "agent.prepare",
+    "agent.runtimeCapabilities",
+    "channel.capabilities",
+    "channel.plugin.get",
+    "channel.plugin.load",
+    "models.catalog.gateway",
+    "models.catalog.load",
+    "models.discovery",
+    "plugins.metadata.scan",
+    "runtimeDeps.stage",
+    "provider.request",
+    "agent.cleanup"
+  ];
+  return names
+    .map((name) => timelineSummary.keySpans?.[name])
+    .filter(Boolean)
+    .filter((span) => (span.count ?? 0) > 0 || (span.openCount ?? 0) > 0 || typeof span.maxDurationMs === "number")
+    .map((span) => ({
+      name: span.name,
+      count: span.count,
+      maxDurationMs: span.maxDurationMs,
+      openCount: span.openCount
+    }));
+}
+
+function agentTurnLabel(phaseId, index) {
+  if (phaseId?.includes("cold")) {
+    return "cold";
+  }
+  if (phaseId?.includes("warm")) {
+    return "warm";
+  }
+  return `turn-${index}`;
+}
+
+function summarizeTurnResources(samples) {
+  if (!samples) {
+    return null;
+  }
+  return {
+    sampleCount: samples.sampleCount ?? 0,
+    peakTotalRssMb: samples.peakTotalRssMb ?? null,
+    maxTotalCpuPercent: samples.maxTotalCpuPercent ?? null,
+    topRolesByRss: samples.topRolesByRss ?? [],
+    topRolesByCpu: samples.topRolesByCpu ?? []
+  };
 }
 
 function timelineRequirementFor(options) {
@@ -987,6 +1216,10 @@ function maxNullable(left, right) {
   return left === null ? right : Math.max(left, right);
 }
 
+function delta(left, right) {
+  return typeof left === "number" && typeof right === "number" ? Math.max(0, left - right) : null;
+}
+
 function roundNumber(value) {
   return Math.round(value * 100) / 100;
 }
@@ -1214,9 +1447,9 @@ function isAgentMessageCommand(command) {
   return command.includes(" -- agent ") && command.includes("--message");
 }
 
-function agentResultHasUsableResponse(result) {
+function extractAgentResponse(result) {
   if (result.status !== 0 || result.timedOut) {
-    return false;
+    return { usable: false, text: null };
   }
 
   const text = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
@@ -1229,14 +1462,26 @@ function agentResultHasUsableResponse(result) {
       "reply"
     ]);
     if (typeof finalText === "string" && finalText.trim().length > 0 && finalText.trim() !== "NO_REPLY") {
-      return true;
+      return { usable: true, text: finalText.trim() };
     }
   } catch {
     // Fall through to tolerant text checks. Some OpenClaw builds still emit
     // diagnostics alongside JSON in integration environments.
   }
 
-  return /"finalAssistant(?:Raw|Visible)Text"\s*:\s*"[^"]+"/.test(text) && !/"finalAssistant(?:Raw|Visible)Text"\s*:\s*"NO_REPLY"/.test(text);
+  const match = text.match(/"finalAssistant(?:Raw|Visible)Text"\s*:\s*"([^"]+)"/);
+  const finalText = match?.[1] ?? null;
+  return {
+    usable: typeof finalText === "string" && finalText.trim().length > 0 && finalText.trim() !== "NO_REPLY",
+    text: finalText?.trim() ?? null
+  };
+}
+
+function responseContainsExpectedText(response, result, expectedText) {
+  if (response.text?.includes(expectedText)) {
+    return true;
+  }
+  return `${result.stdout ?? ""}\n${result.stderr ?? ""}`.includes(expectedText);
 }
 
 function findFirstString(value, keys) {

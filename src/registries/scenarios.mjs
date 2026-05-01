@@ -29,6 +29,9 @@ export function validateScenarioShape(scenario, sourceName = "scenario") {
   if (scenario.auth !== undefined) {
     validateAuth(scenario.auth, "auth", errors);
   }
+  if (scenario.agent !== undefined) {
+    validateAgent(scenario.agent, "agent", errors);
+  }
 
   validateStringArray(scenario.tags, "tags", errors);
   validateStringArray(scenario.states, "states", errors, { optional: true });
@@ -45,6 +48,16 @@ function validateAuth(auth, prefix, errors) {
   }
   if (auth.mode !== undefined && !["default", "mock", "live", "skip", "missing", "broken", "none"].includes(auth.mode)) {
     errors.push(`${prefix}.mode must be one of default, mock, live, skip, missing, broken, none`);
+  }
+}
+
+function validateAgent(agent, prefix, errors) {
+  if (!agent || typeof agent !== "object" || Array.isArray(agent)) {
+    errors.push(`${prefix} must be an object`);
+    return;
+  }
+  if (agent.expectedText !== undefined && (typeof agent.expectedText !== "string" || agent.expectedText.length === 0)) {
+    errors.push(`${prefix}.expectedText must be a non-empty string when set`);
   }
 }
 
