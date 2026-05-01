@@ -77,6 +77,31 @@ export async function resolveRunAuthContext(flags = {}) {
 
   const store = await loadCredentialStore();
   const live = await verifyLiveCredentialStatus(liveCredentialStatus(store));
+  if (requestedMode === "live" && !live.available && flags.source_env) {
+    const inheritedLive = {
+      available: true,
+      providerId: null,
+      method: "source-env",
+      externalCli: null,
+      fallbackFrom: null,
+      fallbackPolicy: null,
+      envVars: [],
+      reason: `inherited from cloned source env ${flags.source_env}`,
+      verification: {
+        checked: false,
+        status: "inherited-source-env",
+        reason: "Kova will clone the source env and preserve its OpenClaw auth/config state"
+      }
+    };
+    return {
+      schemaVersion: "kova.auth.context.v1",
+      requestedMode,
+      credentialStore: credentialStoreSummary(store),
+      liveEnv: store.liveEnv,
+      live: inheritedLive,
+      redactionValues: secretValues(store.liveEnv)
+    };
+  }
   if (requestedMode === "live" && !live.available) {
     throw new Error(`--auth live requires configured live credentials: ${live.reason}`);
   }
@@ -129,8 +154,8 @@ export function scenarioAuthPolicy(context, scenario, state) {
       externalCli: live.externalCli ?? null,
       fallbackFrom: live.fallbackFrom ?? null,
       fallbackPolicy: live.fallbackPolicy ?? null,
-      setup: true,
-      setupKind: liveAuthSetupKind(live),
+      setup: live.method !== "source-env",
+      setupKind: live.method === "source-env" ? "source-env-inherited" : liveAuthSetupKind(live),
       commandEnv: env,
       redactionValues: [...(context.auth?.redactionValues ?? []), ...secretValues(env)],
       summary: authDisplay({
@@ -140,8 +165,8 @@ export function scenarioAuthPolicy(context, scenario, state) {
         externalCli: live.externalCli ?? null,
         fallbackFrom: live.fallbackFrom ?? null,
         fallbackPolicy: live.fallbackPolicy ?? null,
-        setup: true,
-        setupKind: liveAuthSetupKind(live),
+        setup: live.method !== "source-env",
+        setupKind: live.method === "source-env" ? "source-env-inherited" : liveAuthSetupKind(live),
         envVars: live.envVars
       })
     };

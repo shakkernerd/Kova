@@ -1,0 +1,62 @@
+{
+  "id": "dashboard-session-send-turn-existing-user",
+  "surface": "dashboard-session-send-turn",
+  "title": "Dashboard Session Send Existing User Turn",
+  "objective": "Clone an existing OpenClaw env, move the clone to the target runtime, send a dashboard-style user message through Gateway sessions.send, and measure response latency without mutating the durable source env.",
+  "tags": ["agent", "message", "dashboard", "sessions", "gateway", "providers", "existing-user", "live"],
+  "timeoutMs": 240000,
+  "agent": {
+    "expectedText": "KOVA_AGENT_OK"
+  },
+  "thresholds": {
+    "upgradeMs": 120000,
+    "gatewayReadyMs": 45000,
+    "agentTurnMs": 45000,
+    "preProviderMs": 10000,
+    "providerFinalMs": 3000,
+    "preProviderDominanceRatio": 0.8,
+    "statusMs": 10000,
+    "peakRssMb": 900,
+    "missingDependencyErrors": 0,
+    "pluginLoadFailures": 0
+  },
+  "phases": [
+    {
+      "id": "clone",
+      "title": "Clone Existing Env",
+      "intent": "Clone a durable existing user env into a disposable Kova env before runtime or message testing.",
+      "commands": ["ocm env clone {sourceEnv} {env} --json"],
+      "evidence": ["source env", "clone root", "cloned OpenClaw config"]
+    },
+    {
+      "id": "upgrade",
+      "title": "Move Clone To Target Runtime",
+      "intent": "Run the real OCM upgrade path so the cloned user state runs the requested OpenClaw target runtime.",
+      "commands": ["ocm upgrade {env} {upgradeSelector} --json", "ocm service status {env} --json"],
+      "evidence": ["upgrade JSON", "runtime binding", "post-upgrade service state"]
+    },
+    {
+      "id": "gateway-start",
+      "title": "Start Gateway",
+      "intent": "Start the cloned gateway after upgrade and wait for readiness before sending a dashboard-style message.",
+      "commands": ["ocm service install {env} --json", "ocm service start {env} --json"],
+      "evidence": ["gateway service installed", "gateway service started", "startup readiness"]
+    },
+    {
+      "id": "dashboard-session-turn",
+      "title": "Dashboard Session Message",
+      "intent": "Exercise Gateway sessions.send on cloned user state and verify final assistant text appears in chat history.",
+      "commands": [
+        "node {kovaRoot}/support/run-dashboard-session-send-turn.mjs --env {env} --session-key kova-dashboard-existing-user --message 'Reply with exact ASCII text KOVA_AGENT_OK only.' --expected-text KOVA_AGENT_OK --timeout 120000"
+      ],
+      "evidence": ["sessions.create timing", "sessions.send timing", "time to assistant text", "provider timing", "gateway health after turn", "role resource samples"]
+    },
+    {
+      "id": "post-dashboard-health",
+      "title": "Post-Dashboard Gateway Health",
+      "intent": "Verify the cloned gateway remains responsive after the dashboard-style turn and collect logs for embedded-run/liveness evidence.",
+      "commands": ["ocm @{env} -- status", "ocm logs {env} --tail 300 --raw"],
+      "evidence": ["gateway status", "embedded-run traces", "liveness warnings", "plugin errors", "memory after dashboard turn"]
+    }
+  ]
+}

@@ -186,6 +186,20 @@ export async function runSelfCheck(flags = {}) {
         throw new Error(`missing auth override should not inject auth phases: ${phaseIds.join(", ")}`);
       }
     }));
+    checks.push(await jsonCommandCheck("run-auth-live-source-env-json", `node bin/kova.mjs run --auth live --target runtime:stable --scenario dashboard-session-send-turn-existing-user --source-env 'Team Env' --report-dir ${quoteShell(tmp)} --json`, async (data) => {
+      const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
+      const record = report.records?.[0];
+      assertEqual(record?.auth?.mode, "live", "source-env live auth mode");
+      assertEqual(record?.auth?.source, "source-env", "source-env live auth source");
+      assertEqual(record?.auth?.setup, false, "source-env live auth does not patch config");
+      const phaseIds = record?.phases?.map((phase) => phase.id) ?? [];
+      if (phaseIds.includes("auth-setup") || phaseIds.includes("auth-prepare")) {
+        throw new Error(`source-env live auth should not inject auth phases: ${phaseIds.join(", ")}`);
+      }
+      const commands = record?.phases?.flatMap((phase) => phase.commands ?? []) ?? [];
+      assertEqual(commands.some((command) => command.includes("ocm env clone 'Team Env'")), true, "source env clone command present");
+      assertEqual(commands.some((command) => command.includes("run-dashboard-session-send-turn.mjs")), true, "dashboard session helper command present");
+    }));
     for (const item of [
       ["agent-gateway-rpc-turn", "agent-gateway-rpc-turn", "ocm @"],
       ["dashboard-session-send-turn", "dashboard-session-send-turn", "run-dashboard-session-send-turn.mjs"],
