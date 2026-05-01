@@ -2,6 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { quoteShell, runCommand } from "./commands.mjs";
+import { runCleanupCommand } from "./cleanup.mjs";
 import { summarizeCpuProfiles } from "./collectors/node-profiles.mjs";
 import { summarizeHeapProfiles } from "./collectors/heap.mjs";
 import { evaluateRecord } from "./evaluator.mjs";
@@ -15,6 +16,7 @@ import {
 } from "./performance/baselines.mjs";
 import { buildPerformanceSummary } from "./performance/stats.mjs";
 import { loadProcessRoles } from "./registries/process-roles.mjs";
+import { validateScenarioShape } from "./registries/scenarios.mjs";
 import { validateStateShape } from "./registries/states.mjs";
 import { validateRegistryReferences } from "./registries/validate.mjs";
 import { assertSafeScenarioCommand } from "./safety.mjs";
@@ -219,7 +221,9 @@ export async function runSelfCheck(flags = {}) {
     checks.push(await processSnapshotCheck(tmp));
     checks.push(roleThresholdEvaluationCheck());
     checks.push(thresholdPolicyCalibrationCheck());
+    checks.push(await cleanupRetryCheck(tmp));
     checks.push(stateRegistryValidationCheck());
+    checks.push(scenarioCloneFirstValidationCheck());
     checks.push(scenarioStateCompatibilityCheck());
     checks.push(await cpuProfileParserCheck());
     checks.push(await heapProfileParserCheck());
@@ -770,13 +774,30 @@ function safetyGuardCheck() {
   try {
     assertSafeScenarioCommand("ocm start kova-safe-test --runtime stable --json", {}, "kova-safe-test");
     assertSafeScenarioCommand("ocm env clone 'Team Env' kova-safe-test --json", { sourceEnv: "Team Env" }, "kova-safe-test");
-    let blocked = false;
-    try {
-      assertSafeScenarioCommand("ocm env destroy Violet --yes", {}, "kova-safe-test");
-    } catch (error) {
-      blocked = /refusing to mutate non-Kova/.test(error.message);
+    const blockedCases = [
+      "ocm env destroy Violet --yes",
+      "ocm upgrade Violet --channel beta --json",
+      "ocm @Violet -- status",
+      "ocm env clone 'Team Env' Violet --json"
+    ];
+    let blocked = 0;
+    for (const command of blockedCases) {
+      try {
+        assertSafeScenarioCommand(command, { sourceEnv: "Team Env" }, "kova-safe-test");
+      } catch (error) {
+        if (/refusing to mutate non-Kova/.test(error.message)) {
+          blocked += 1;
+        }
+      }
     }
-    assertEqual(blocked, true, "durable env mutation blocked");
+    assertEqual(blocked, blockedCases.length, "durable env mutation cases blocked");
+    let wrongSourceBlocked = false;
+    try {
+      assertSafeScenarioCommand("ocm env clone Other kova-safe-test --json", { sourceEnv: "Team Env" }, "kova-safe-test");
+    } catch (error) {
+      wrongSourceBlocked = /refusing to mutate non-Kova/.test(error.message);
+    }
+    assertEqual(wrongSourceBlocked, true, "unexpected source env clone blocked");
     return {
       id: "durable-env-mutation-guard",
       status: "PASS",
@@ -799,6 +820,7 @@ async function localBuildRuntimeCleanupCheck(tmp) {
   const repoDir = join(tmp, "mock-openclaw repo");
   const reportDir = join(tmp, "local-build-cleanup-report");
   const ocmLog = join(tmp, "mock-ocm.log");
+  const removeCount = join(tmp, "mock-runtime-remove-count");
   await mkdir(binDir, { recursive: true });
   await mkdir(repoDir, { recursive: true });
   const ocmPath = join(binDir, "ocm");
@@ -806,7 +828,15 @@ async function localBuildRuntimeCleanupCheck(tmp) {
 printf '%s\\n' "$*" >> "$KOVA_MOCK_OCM_LOG"
 case "$1:$2" in
   runtime:build-local) echo '{"ok":true}'; exit 0 ;;
-  runtime:remove) echo '{"removed":true}'; exit 0 ;;
+  runtime:remove)
+    count=0
+    if [ -f "$KOVA_MOCK_REMOVE_COUNT" ]; then count=$(cat "$KOVA_MOCK_REMOVE_COUNT"); fi
+    count=$((count + 1))
+    printf '%s' "$count" > "$KOVA_MOCK_REMOVE_COUNT"
+    if [ "$count" -lt 2 ]; then echo 'runtime busy shutting down' >&2; exit 1; fi
+    echo '{"removed":true}'
+    exit 0
+    ;;
   service:status) echo '{"running":false,"desiredRunning":false,"childPid":null,"gatewayPort":null,"gatewayState":"stopped"}'; exit 0 ;;
   env:exec) exit 0 ;;
   env:destroy) echo '{"destroyed":true}'; exit 0 ;;
@@ -828,7 +858,8 @@ exit 2
     maxOutputChars: 1000000,
     env: {
       PATH: `${binDir}:${process.env.PATH}`,
-      KOVA_MOCK_OCM_LOG: ocmLog
+      KOVA_MOCK_OCM_LOG: ocmLog,
+      KOVA_MOCK_REMOVE_COUNT: removeCount
     }
   });
 
@@ -840,6 +871,7 @@ exit 2
     const report = JSON.parse(await readFile(receipt.jsonPath, "utf8"));
     const log = await readFile(ocmLog, "utf8");
     assertEqual(report.targetCleanup?.status, "removed", "local-build target cleanup status");
+    assertEqual(report.targetCleanup?.result?.attempts?.length, 2, "local-build target cleanup retry attempts");
     if (!/runtime remove kova-local-\d+ --json/.test(log)) {
       throw new Error(`runtime remove was not called; log:\n${log}`);
     }
@@ -3104,6 +3136,35 @@ function thresholdPolicyCalibrationCheck() {
   }
 }
 
+async function cleanupRetryCheck(tmp) {
+  const counterPath = join(tmp, "cleanup-retry-count");
+  const command = `node -e 'const fs=require("fs"); const p=${JSON.stringify(counterPath)}; const n=Number(fs.existsSync(p)?fs.readFileSync(p,"utf8"):0)+1; fs.writeFileSync(p,String(n)); if(n<2){console.error("gateway still shutting down"); process.exit(1)} console.log("destroyed")'`;
+  const result = await runCleanupCommand(command, {
+    timeoutMs: 30000,
+    retryDelaysMs: [0, 0, 0]
+  });
+  try {
+    assertEqual(result.status, 0, "cleanup retry final status");
+    assertEqual(result.attempts?.length, 2, "cleanup retry attempts");
+    assertEqual(result.attempts?.[0]?.status, 1, "first cleanup attempt failed");
+    assertEqual(result.attempts?.[1]?.status, 0, "second cleanup attempt passed");
+    return {
+      id: "cleanup-retry-contract",
+      status: "PASS",
+      command: "evaluate retryable cleanup command",
+      durationMs: result.durationMs
+    };
+  } catch (error) {
+    return {
+      id: "cleanup-retry-contract",
+      status: "FAIL",
+      command: "evaluate retryable cleanup command",
+      durationMs: result.durationMs,
+      message: error.message
+    };
+  }
+}
+
 function markdownFailureCardsCheck() {
   try {
     const rendered = renderMarkdownReport({
@@ -3460,6 +3521,91 @@ function stateRegistryValidationCheck() {
       id: "state-registry-validation",
       status: "FAIL",
       command: "evaluate synthetic invalid state contracts",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+function scenarioCloneFirstValidationCheck() {
+  try {
+    let rejectedMissingClone = false;
+    try {
+      validateScenarioShape({
+        id: "bad-existing-user",
+        surface: "upgrade-existing-user",
+        title: "Bad Existing User",
+        objective: "Touches source env without clone-first protection.",
+        tags: ["upgrade"],
+        thresholds: {},
+        phases: [{
+          id: "status",
+          title: "Status",
+          intent: "Unsafe durable source access.",
+          commands: ["ocm service status {sourceEnv} --json"],
+          evidence: ["status"]
+        }]
+      }, "bad-existing-user.json");
+    } catch (error) {
+      rejectedMissingClone = /must start by cloning/.test(error.message);
+    }
+    assertEqual(rejectedMissingClone, true, "source env scenario without clone-first rejected");
+
+    let rejectedSecondSourceUse = false;
+    try {
+      validateScenarioShape({
+        id: "bad-existing-user-second-source",
+        surface: "upgrade-existing-user",
+        title: "Bad Existing User Second Source",
+        objective: "References source env after clone.",
+        tags: ["upgrade"],
+        thresholds: {},
+        phases: [{
+          id: "clone",
+          title: "Clone",
+          intent: "Clone source.",
+          commands: ["ocm env clone {sourceEnv} {env} --json", "ocm logs {sourceEnv} --tail 20"],
+          evidence: ["clone"]
+        }]
+      }, "bad-existing-user-second-source.json");
+    } catch (error) {
+      rejectedSecondSourceUse = /may reference it only in the first clone command/.test(error.message);
+    }
+    assertEqual(rejectedSecondSourceUse, true, "second source env reference rejected");
+
+    validateScenarioShape({
+      id: "good-existing-user",
+      surface: "upgrade-existing-user",
+      title: "Good Existing User",
+      objective: "Clone first, then operate only on the disposable env.",
+      tags: ["upgrade"],
+      thresholds: {},
+      phases: [{
+        id: "clone",
+        title: "Clone",
+        intent: "Clone source.",
+        commands: ["ocm env clone {sourceEnv} {env} --json"],
+        evidence: ["clone"]
+      }, {
+        id: "upgrade",
+        title: "Upgrade",
+        intent: "Upgrade disposable clone.",
+        commands: ["ocm upgrade {env} --channel beta --json"],
+        evidence: ["upgrade"]
+      }]
+    }, "good-existing-user.json");
+
+    return {
+      id: "scenario-clone-first-validation",
+      status: "PASS",
+      command: "validate source-env scenario contracts",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "scenario-clone-first-validation",
+      status: "FAIL",
+      command: "validate source-env scenario contracts",
       durationMs: 0,
       message: error.message
     };

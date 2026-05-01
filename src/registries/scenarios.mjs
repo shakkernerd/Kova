@@ -46,6 +46,7 @@ export function validateScenarioShape(scenario, sourceName = "scenario") {
     errors.push("requiresFrom must be a boolean when set");
   }
   validatePhases(scenario.phases, errors);
+  validateCloneFirstContract(scenario, errors);
 
   assertNoShapeErrors(errors, sourceName);
 }
@@ -121,6 +122,24 @@ function validatePhases(phases, errors) {
     if (phase.expectedAgentFailure !== undefined && typeof phase.expectedAgentFailure !== "boolean") {
       errors.push(`${prefix}.expectedAgentFailure must be a boolean when set`);
     }
+  }
+}
+
+function validateCloneFirstContract(scenario, errors) {
+  if (!Array.isArray(scenario.phases)) {
+    return;
+  }
+  const commands = scenario.phases.flatMap((phase) => phase.commands ?? []);
+  if (!commands.some((command) => command.includes("{sourceEnv}"))) {
+    return;
+  }
+  const firstCommand = commands[0] ?? "";
+  if (!/^ocm\s+env\s+clone\s+\{sourceEnv\}\s+\{env\}(?:\s|$)/.test(firstCommand)) {
+    errors.push("scenarios that use {sourceEnv} must start by cloning it into {env}");
+  }
+  const sourceCommands = commands.filter((command) => command.includes("{sourceEnv}"));
+  if (sourceCommands.length !== 1) {
+    errors.push("scenarios that use {sourceEnv} may reference it only in the first clone command");
   }
 }
 

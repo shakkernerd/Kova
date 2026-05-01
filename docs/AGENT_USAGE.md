@@ -165,6 +165,10 @@ node bin/kova.mjs run \
   --execute
 ```
 
+Scenarios that use `--source-env` must reference that durable env only in the
+first `ocm env clone {sourceEnv} {env}` command. Kova rejects scenario contracts
+that inspect, upgrade, start, or otherwise touch the source env directly.
+
 Focused upgrade lanes are target-specific and Kova validates the selector:
 
 ```sh

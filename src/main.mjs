@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import { join, relative } from "node:path";
 import { bundleReport, retainGateArtifacts } from "./artifacts.mjs";
 import { authReportSummary, resolveRunAuthContext } from "./auth.mjs";
+import { runCleanupCommand } from "./cleanup.mjs";
 import { quoteShell, runCommand } from "./commands.mjs";
 import { compareReports, renderCompareFixerSummary, renderCompareSummary } from "./compare.mjs";
 import { parseFlags, printHelp, required, resolveFromCwd } from "./cli.mjs";
@@ -781,7 +782,7 @@ async function cleanupEnvs(flags) {
 
   if (flags.execute) {
     for (const env of envs) {
-      results.push(await runCommand(`ocm env destroy ${env} --yes`, { timeoutMs: 120000 }));
+      results.push(await runCleanupCommand(`ocm env destroy ${quoteShell(env)} --yes`, { timeoutMs: 120000 }));
     }
   }
 
@@ -795,7 +796,8 @@ async function cleanupEnvs(flags) {
         command: result.command,
         status: result.status,
         durationMs: result.durationMs,
-        timedOut: result.timedOut
+        timedOut: result.timedOut,
+        attempts: result.attempts ?? []
       }))
     }, null, 2));
     return;
@@ -1102,45 +1104,10 @@ async function cleanupTargetRuntimeIfNeeded(targetPlan, records, options) {
       durationMs: result.durationMs,
       timedOut: result.timedOut,
       stdout: result.stdout,
-      stderr: result.stderr
+      stderr: result.stderr,
+      attempts: result.attempts ?? []
     }
   };
-}
-
-async function runCleanupCommand(command, options) {
-  const attempts = [];
-  const delays = [0, 1000, 2000];
-  for (const [index, delayMs] of delays.entries()) {
-    if (delayMs > 0) {
-      await sleep(delayMs);
-    }
-    const result = await runCommand(command, options);
-    attempts.push(result);
-    if (result.status === 0 || !isRetryableCleanupFailure(result) || index === delays.length - 1) {
-      return {
-        ...result,
-        attempts: attempts.map((attempt) => ({
-          status: attempt.status,
-          durationMs: attempt.durationMs,
-          timedOut: attempt.timedOut,
-          stdout: attempt.stdout,
-          stderr: attempt.stderr
-        }))
-      };
-    }
-  }
-}
-
-function isRetryableCleanupFailure(result) {
-  if (result.timedOut) {
-    return true;
-  }
-  const output = `${result.stdout}\n${result.stderr}`;
-  return /busy|running|shutting down|in use|resource temporarily unavailable|timed out|timeout|econnrefused|connection refused/i.test(output);
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function classifyTargetRuntimeCleanup(result) {
