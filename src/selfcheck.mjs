@@ -1250,6 +1250,62 @@ function agentTurnBreakdownCheck() {
       "breakdown markdown helper includes unknown bucket"
     );
 
+    const cleanupRecord = {
+      scenario: "agent-cold-warm-message",
+      title: "Agent cleanup stall",
+      status: "PASS",
+      cleanup: "done",
+      phases: [{
+        id: "cleanup-agent-turn",
+        title: "Cleanup agent turn",
+        intent: "Synthetic cleanup stall",
+        commands: [cleanupStall.result.command],
+        evidence: [],
+        results: [{
+          ...cleanupStall.result,
+          status: 0,
+          timedOut: false,
+          stdout: "{\"finalAssistantVisibleText\":\"KOVA_AGENT_OK\"}",
+          stderr: ""
+        }],
+        metrics: {
+          logs: zeroLogMetrics(),
+          health: { ok: true },
+          timeline: {
+            available: true,
+            eventCount: 1,
+            parseErrorCount: 0,
+            spanTotals: {
+              "agent.cleanup": { count: 1, totalDurationMs: 74000, maxDurationMs: 74000 }
+            },
+            keySpans: {}
+          }
+        }
+      }],
+      providerEvidence: {
+        available: true,
+        requestCount: 1,
+        requests: [cleanupStall.request]
+      },
+      finalMetrics: {
+        service: { gatewayState: "running" },
+        logs: zeroLogMetrics()
+      }
+    };
+    evaluateRecord(cleanupRecord, {
+      id: "agent-cold-warm-message",
+      agent: { expectedText: "KOVA_AGENT_OK" },
+      thresholds: { agentCleanupMs: 5000 }
+    }, { surface: { thresholds: {} }, targetPlan: { kind: "local-build" } });
+    assertEqual(cleanupRecord.status, "FAIL", "cleanup stall should fail");
+    assertEqual(cleanupRecord.measurements.agentCleanupMaxMs, 74000, "agent cleanup max measurement");
+    assertEqual(cleanupRecord.measurements.agentCleanupDiagnosis.kind, "slow-agent-cleanup", "agent cleanup diagnosis");
+    assertEqual(
+      cleanupRecord.measurements.agentFailureFixerSummary.items.some((item) => item.kind === "slow-agent-cleanup"),
+      true,
+      "slow cleanup fixer evidence"
+    );
+
     return {
       id: "agent-turn-breakdown",
       status: "PASS",

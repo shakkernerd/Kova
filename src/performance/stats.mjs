@@ -15,6 +15,8 @@ export const PERFORMANCE_METRICS = [
   { id: "warmAgentTurnMs", title: "Warm Agent Turn", unit: "ms", regressionKey: "agentLatencyRegressionPercent" },
   { id: "agentColdWarmDeltaMs", title: "Cold/Warm Agent Delta", unit: "ms", regressionKey: "agentLatencyRegressionPercent" },
   { id: "agentPreProviderP95Ms", title: "Pre-Provider p95", unit: "ms", regressionKey: "agentLatencyRegressionPercent" },
+  { id: "agentCleanupP95Ms", title: "Agent Cleanup p95", unit: "ms", regressionKey: "agentLatencyRegressionPercent" },
+  { id: "agentCleanupMaxMs", title: "Agent Cleanup Max", unit: "ms", regressionKey: "agentLatencyRegressionPercent" },
   { id: "coldPreProviderMs", title: "Cold Pre-Provider", unit: "ms", regressionKey: "agentLatencyRegressionPercent" },
   { id: "warmPreProviderMs", title: "Warm Pre-Provider", unit: "ms", regressionKey: "agentLatencyRegressionPercent" },
   { id: "healthP95Ms", title: "Health p95", unit: "ms", regressionKey: "startupRegressionPercent" },

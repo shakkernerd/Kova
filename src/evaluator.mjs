@@ -49,6 +49,7 @@ export function evaluateRecord(record, scenario, options = {}) {
   const agentResponseOk = agentTurns.length === 0 ? null : agentTurns.every((turn) => turn.responseOk === true);
   const agentProviderSimulation = evaluateProviderSimulation({ turns: agentTurns, scenario, record, thresholds });
   const agentFailureContainment = evaluateAgentFailureContainment({ turns: agentTurns, record, thresholds });
+  const agentCleanupDiagnosis = diagnoseAgentCleanup(agentTurns, agentTurnStats, thresholds);
   const agentLatencyDiagnosis = diagnoseAgentLatency({
     coldAgentTurn,
     warmAgentTurn,
@@ -331,6 +332,9 @@ export function evaluateRecord(record, scenario, options = {}) {
     agentProviderFinalMedianMs: agentTurnStats.providerFinalMs.median,
     agentProviderFinalP95Ms: agentTurnStats.providerFinalMs.p95,
     agentProviderFinalMaxMs: agentTurnStats.providerFinalMs.max,
+    agentCleanupMedianMs: agentTurnStats.cleanupMs.median,
+    agentCleanupP95Ms: agentTurnStats.cleanupMs.p95,
+    agentCleanupMaxMs: agentTurnStats.cleanupMs.max,
     coldAgentTurnMs: coldAgentTurn?.totalTurnMs ?? null,
     warmAgentTurnMs: warmAgentTurn?.totalTurnMs ?? null,
     agentColdWarmDeltaMs: delta(coldAgentTurn?.totalTurnMs, warmAgentTurn?.totalTurnMs),
@@ -342,11 +346,12 @@ export function evaluateRecord(record, scenario, options = {}) {
     coldFirstByteLatencyMs: coldAgentTurn?.firstByteLatencyMs ?? null,
     warmFirstByteLatencyMs: warmAgentTurn?.firstByteLatencyMs ?? null,
     agentLatencyDiagnosis,
+    agentCleanupDiagnosis,
     agentProviderSimulation,
     agentFailureContainment,
     agentProcessLeakCount: agentFailureContainment.processLeakCount,
     agentLeakedProcesses: agentFailureContainment.leakedProcesses,
-    agentFailureFixerSummary: buildAgentFailureFixerSummary(agentLatencyDiagnosis, agentProviderSimulation, agentFailureContainment),
+    agentFailureFixerSummary: buildAgentFailureFixerSummary(agentLatencyDiagnosis, agentCleanupDiagnosis, agentProviderSimulation, agentFailureContainment),
     agentProviderMode: agentProviderSimulation.mode,
     agentProviderIssue: agentProviderSimulation.observedIssue,
     agentProviderContainmentOk: agentProviderSimulation.containmentOk,
@@ -512,6 +517,7 @@ function collectAgentTurns(record, providerEvidence, scenario, timelineSummary) 
         providerErrorClasses: attribution?.errorClasses ?? [],
         providerErrors: attribution?.errors ?? [],
         phaseBreakdown,
+        cleanupMs: phaseBreakdown?.buckets?.cleanupMs ?? null,
         processLeaks: result.processSnapshots?.leaks ?? null,
         processLeakCount: result.processSnapshots?.leaks?.leakCount ?? null,
         leakedProcesses: result.processSnapshots?.leaks?.leakedProcesses ?? [],
@@ -627,6 +633,7 @@ function summarizeAgentTurnStats(turns) {
     preProviderMs: summarizeNumericField(turns, "preProviderMs"),
     providerFinalMs: summarizeNumericField(turns, "providerFinalMs"),
     postProviderMs: summarizeNumericField(turns, "postProviderMs"),
+    cleanupMs: summarizeNumericField(turns, "cleanupMs"),
     firstByteLatencyMs: summarizeNumericField(turns, "firstByteLatencyMs"),
     processLeakCount: turns.reduce((sum, turn) => sum + (turn.processLeakCount ?? 0), 0),
     missingProviderRequestCount: turns.filter((turn) => turn.missingProviderRequest === true).length,
@@ -859,7 +866,7 @@ function checkProviderSimulation(violations, simulation) {
   }
 }
 
-function buildAgentFailureFixerSummary(latencyDiagnosis, providerSimulation, containment) {
+function buildAgentFailureFixerSummary(latencyDiagnosis, cleanupDiagnosis, providerSimulation, containment) {
   const items = [];
   if (providerSimulation?.mode === "timeout" || providerSimulation?.observedIssue === "provider-timeout") {
     items.push({
@@ -910,6 +917,13 @@ function buildAgentFailureFixerSummary(latencyDiagnosis, providerSimulation, con
       likelyOwner: latencyDiagnosis.likelyOwner
     });
   }
+  if (cleanupDiagnosis?.kind === "slow-agent-cleanup") {
+    items.push({
+      kind: "slow-agent-cleanup",
+      summary: cleanupDiagnosis.summary,
+      likelyOwner: cleanupDiagnosis.likelyOwner
+    });
+  }
   if ((containment?.processLeakCount ?? 0) > 0) {
     const first = containment.leakedProcesses?.[0];
     items.push({
@@ -947,6 +961,7 @@ function checkAgentTurnThresholds(violations, turns, selected, thresholds, recor
     }
     checkTurnThreshold(violations, turn, "preProviderMs", thresholds.preProviderMs, `${turn.label} agent spent ${turn.preProviderMs}ms before provider work`);
     checkTurnThreshold(violations, turn, "providerFinalMs", thresholds.providerFinalMs, `${turn.label} provider work took ${turn.providerFinalMs}ms`);
+    checkTurnThreshold(violations, turn, "cleanupMs", thresholds.agentCleanupMs, `${turn.label} agent cleanup took ${turn.cleanupMs}ms`);
     if (typeof thresholds.preProviderDominanceRatio === "number" &&
       typeof turn.preProviderDominance === "number" &&
       turn.preProviderDominance > thresholds.preProviderDominanceRatio) {
@@ -995,6 +1010,8 @@ function checkAgentTurnAggregateThresholds(violations, stats, thresholds) {
   checkAggregateThreshold(violations, stats.preProviderMs.max, "agentPreProviderMaxMs", thresholds.agentPreProviderMaxMs);
   checkAggregateThreshold(violations, stats.providerFinalMs.p95, "agentProviderFinalP95Ms", thresholds.agentProviderFinalP95Ms);
   checkAggregateThreshold(violations, stats.providerFinalMs.max, "agentProviderFinalMaxMs", thresholds.agentProviderFinalMaxMs);
+  checkAggregateThreshold(violations, stats.cleanupMs.p95, "agentCleanupP95Ms", thresholds.agentCleanupP95Ms);
+  checkAggregateThreshold(violations, stats.cleanupMs.max, "agentCleanupMaxMs", thresholds.agentCleanupMaxMs);
 }
 
 function checkAggregateThreshold(violations, actual, metric, threshold) {
@@ -1088,6 +1105,26 @@ function diagnoseAgentLatency({ coldAgentTurn, warmAgentTurn, providerTurn, thre
     severity: "info",
     summary: `${providerTurn.label} agent turn ${providerTurn.totalTurnMs ?? "unknown"}ms; pre-provider ${providerTurn.preProviderMs ?? "unknown"}ms; provider ${providerTurn.providerFinalMs ?? "unknown"}ms.`,
     likelyOwner: "OpenClaw"
+  };
+}
+
+function diagnoseAgentCleanup(turns, stats, thresholds) {
+  const threshold = thresholds.agentCleanupMs ?? thresholds.agentCleanupMaxMs ?? null;
+  const max = stats.cleanupMs.max;
+  if (typeof threshold !== "number" || typeof max !== "number" || max <= threshold) {
+    return null;
+  }
+  const slowest = turns
+    .filter((turn) => typeof turn.cleanupMs === "number")
+    .toSorted((left, right) => right.cleanupMs - left.cleanupMs)[0] ?? null;
+  return {
+    kind: "slow-agent-cleanup",
+    severity: "fail",
+    summary: `${slowest?.label ?? "agent"} cleanup took ${max}ms after provider work; investigate agent cleanup, MCP runtime shutdown, plugin child cleanup, or session persistence.`,
+    likelyOwner: "agent cleanup / plugin child process lifecycle",
+    maxCleanupMs: max,
+    thresholdMs: threshold,
+    phaseId: slowest?.phaseId ?? null
   };
 }
 
