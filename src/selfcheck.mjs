@@ -246,6 +246,7 @@ export async function runSelfCheck(flags = {}) {
     checks.push(readinessClassificationCheck());
     checks.push(await resourceRoleAttributionCheck(tmp));
     checks.push(await resourceRootCommandRoleBoundaryCheck());
+    checks.push(await resourceRolePollutionCheck());
     checks.push(await processSnapshotCheck(tmp));
     checks.push(roleThresholdEvaluationCheck());
     checks.push(thresholdPolicyCalibrationCheck());
@@ -3077,6 +3078,50 @@ async function resourceRootCommandRoleBoundaryCheck() {
       id: "resource-root-command-role-boundary",
       status: "FAIL",
       command: "classify synthetic gateway and command-tree roles",
+      durationMs: 0,
+      message: error.message
+    };
+  }
+}
+
+async function resourceRolePollutionCheck() {
+  try {
+    const processRoles = await loadProcessRoles();
+    const mockProviderCommand = "node support/mock-openai-server.mjs --marker KOVA_AGENT_OK";
+    const mockProviderRoles = classifyRegistryRolesForProcess(
+      { command: `/bin/zsh -lc ${mockProviderCommand}` },
+      {
+        processRoles,
+        rootCommand: mockProviderCommand,
+        existingRoles: ["command-tree"]
+      }
+    );
+    const envNameCommand = "ocm env exec kova-mcp-runtime-start-stop -- node support/configure-openclaw-mock-auth.mjs";
+    const envNameRoles = classifyRegistryRolesForProcess(
+      { command: envNameCommand },
+      {
+        processRoles,
+        rootCommand: envNameCommand,
+        existingRoles: ["command-tree"]
+      }
+    );
+
+    assertEqual(mockProviderRoles.includes("mock-provider"), true, "mock provider helper remains classified");
+    assertEqual(mockProviderRoles.includes("agent-cli"), false, "KOVA_AGENT_OK marker must not imply agent-cli");
+    assertEqual(mockProviderRoles.includes("agent-process"), false, "KOVA_AGENT_OK marker must not imply agent-process");
+    assertEqual(envNameRoles.includes("runtime-management"), false, "mcp-runtime env name must not imply runtime-management");
+    assertEqual(envNameRoles.includes("model-cli"), false, "configure-openclaw fixture helper must not imply model-cli");
+    return {
+      id: "resource-role-pollution-boundary",
+      status: "PASS",
+      command: "classify synthetic helper commands for role pollution",
+      durationMs: 0
+    };
+  } catch (error) {
+    return {
+      id: "resource-role-pollution-boundary",
+      status: "FAIL",
+      command: "classify synthetic helper commands for role pollution",
       durationMs: 0,
       message: error.message
     };

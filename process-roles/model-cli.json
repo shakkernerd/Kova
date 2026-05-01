@@ -2,6 +2,6 @@
   "id": "model-cli",
   "title": "Model CLI",
   "description": "OpenClaw model/provider discovery command paths.",
-  "commandPatterns": ["models list", "configure"],
+  "commandPatterns": ["models\\s+list", "(^|\\s)configure(\\s|$)"],
   "processPatterns": ["openclaw.*models"]
 }
