@@ -14,6 +14,11 @@
       "timeoutMs": 300000
     },
     {
+      "scenario": "workspace-scan-pressure",
+      "state": "large-workspace",
+      "timeoutMs": 240000
+    },
+    {
       "scenario": "gateway-performance",
       "state": "many-bundled-plugins",
       "timeoutMs": 180000

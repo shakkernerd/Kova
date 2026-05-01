@@ -34,7 +34,8 @@
     "workspace-pressure"
   ],
   "compatibleSurfaces": [
-    "soak"
+    "soak",
+    "workspace-scan"
   ],
   "incompatibleSurfaces": [],
   "riskArea": "workspace-scan",

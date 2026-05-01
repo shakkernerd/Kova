@@ -42,6 +42,7 @@
     { "scenario": "failure-injection", "state": "broken-plugin-deps" },
     { "scenario": "failure-injection", "state": "corrupted-config" },
     { "scenario": "soak", "state": "large-workspace", "timeoutMs": 240000 },
+    { "scenario": "workspace-scan-pressure", "state": "large-workspace", "timeoutMs": 240000 },
     { "scenario": "soak", "state": "large-memory-session", "timeoutMs": 240000 },
     { "scenario": "cross-platform-smoke", "state": "slow-filesystem" },
     { "scenario": "cross-platform-smoke", "state": "channel-configured" }

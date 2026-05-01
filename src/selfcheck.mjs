@@ -166,6 +166,19 @@ export async function runSelfCheck(flags = {}) {
       assertEqual(report.records?.[0]?.profiling?.enabled, true, "profiling marker");
       assertEqual(report.performance?.profiledRunCount, 1, "profiled run count");
     }));
+    checks.push(await jsonCommandCheck("workspace-scan-dry-run-json", `node bin/kova.mjs run --target runtime:stable --scenario workspace-scan-pressure --state large-workspace --report-dir ${quoteShell(tmp)} --json`, async (data) => {
+      const report = JSON.parse(await readFile(data.jsonPath, "utf8"));
+      const record = report.records?.[0];
+      assertEqual(record?.surface, "workspace-scan", "workspace scan surface");
+      const phaseIds = record?.phases?.map((phase) => phase.id) ?? [];
+      if (!phaseIds.includes("state-start")) {
+        throw new Error(`large workspace state setup after start missing: ${phaseIds.join(", ")}`);
+      }
+      const commands = record?.phases?.flatMap((phase) => phase.commands ?? []) ?? [];
+      assertEqual(commands.some((command) => command.includes("kova-large")), true, "large workspace fixture command");
+      assertEqual(commands.some((command) => command.includes("ocm service restart")), true, "workspace restart command");
+      assertEqual(commands.some((command) => command.includes("run-soak-loop.mjs") && command.includes("--duration-ms 15000")), true, "workspace repeated command loop");
+    }));
     checks.push(await jsonCommandCheck("diagnostic-profile-plan-json", "node bin/kova.mjs matrix plan --profile diagnostic --target local-build:/tmp/openclaw --include scenario:release-runtime-startup --json", (data) => {
       assertEqual(data.schemaVersion, "kova.matrix.plan.v1", "diagnostic matrix plan schema");
       assertEqual(data.profile?.id, "diagnostic", "diagnostic profile id");

@@ -1,0 +1,41 @@
+{
+  "id": "workspace-scan",
+  "title": "Workspace Scan Pressure",
+  "ownerArea": "workspace-runtime",
+  "description": "Exercise OpenClaw with a large workspace tree to catch synchronous filesystem scans, slow command paths, memory growth, and event-loop stalls.",
+  "requiredStates": ["large-workspace"],
+  "targetKinds": ["npm", "channel", "runtime", "local-build"],
+  "requiredMetrics": [
+    "warmReadyMs",
+    "statusMs",
+    "pluginsListMs",
+    "modelsListMs",
+    "soakCommandP95Ms",
+    "soakHealthP95Ms",
+    "peakRssMb",
+    "healthP95Ms",
+    "eventLoopMaxMs"
+  ],
+  "processRoles": ["gateway", "gateway-tree", "command-tree", "status-cli", "plugin-cli", "model-cli"],
+  "thresholds": {
+    "warmReadyMs": 30000,
+    "statusMs": 10000,
+    "pluginsListMs": 15000,
+    "modelsListMs": 20000,
+    "soakCommandP95Ms": 12000,
+    "soakHealthP95Ms": 1000,
+    "healthP95Ms": 1000,
+    "peakRssMb": 1000,
+    "eventLoopMaxMs": 500
+  },
+  "roleThresholds": {
+    "gateway": { "peakRssMb": 900, "maxCpuPercent": 300 },
+    "gateway-tree": { "peakRssMb": 1100, "maxCpuPercent": 350 },
+    "model-cli": { "peakRssMb": 800, "maxCpuPercent": 300 },
+    "plugin-cli": { "peakRssMb": 700, "maxCpuPercent": 250 }
+  },
+  "diagnostics": {
+    "timelineRequiredForSourceBuild": true,
+    "expectedSpans": ["workspace.scan", "config.normalize", "models.catalog", "plugins.metadata.scan", "eventLoop.delay"]
+  }
+}
