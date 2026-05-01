@@ -1300,6 +1300,34 @@ function buildAgentFailureFixerSummary(latencyDiagnosis, cleanupDiagnosis, provi
       likelyOwner: "provider retry / agent recovery"
     });
   }
+  if (providerSimulation?.expected === true && providerSimulation.observedIssue === "provider-error") {
+    items.push({
+      kind: "provider-error",
+      summary: providerSimulation.observedIssueSummary ?? "Provider returned an explicit error; verify OpenClaw reports it clearly and keeps the session usable.",
+      likelyOwner: "provider error handling / agent recovery"
+    });
+  }
+  if (providerSimulation?.expected === true && providerSimulation.observedIssue === "provider-aborted") {
+    items.push({
+      kind: "provider-aborted",
+      summary: providerSimulation.observedIssueSummary ?? "Provider request was aborted; verify OpenClaw cancels cleanly and does not leave a hung turn.",
+      likelyOwner: "provider cancellation / agent turn lifecycle"
+    });
+  }
+  if (providerSimulation?.expected === true && providerSimulation.observedIssue === "http-error") {
+    items.push({
+      kind: "provider-http-error",
+      summary: providerSimulation.observedIssueSummary ?? "Provider returned an HTTP error; verify OpenClaw maps it to actionable user-facing guidance.",
+      likelyOwner: "provider HTTP error mapping"
+    });
+  }
+  if (providerSimulation?.expected === true && providerSimulation.observedIssue === "none") {
+    items.push({
+      kind: "provider-failure-not-observed",
+      summary: `Mock provider mode ${providerSimulation.mode} did not produce the expected failure evidence; verify the scenario exercises the intended OpenClaw provider path.`,
+      likelyOwner: "scenario/provider harness wiring"
+    });
+  }
   if (providerSimulation?.expected === true && providerSimulation.mode === "concurrent-pressure") {
     items.push({
       kind: "provider-concurrent-pressure",
@@ -1341,6 +1369,27 @@ function buildAgentFailureFixerSummary(latencyDiagnosis, cleanupDiagnosis, provi
       kind: "gateway-after-agent-unhealthy",
       summary: `Gateway was not healthy after agent command; gateway=${containment.finalGatewayState ?? "unknown"}, health failures=${containment.healthFailures}.`,
       likelyOwner: "gateway supervision / agent failure containment"
+    });
+  }
+  if (containment?.statusWorks === false) {
+    items.push({
+      kind: "status-after-agent-failed",
+      summary: "OpenClaw status command did not respond cleanly after the failed agent turn; verify failed turns do not degrade CLI/gateway control paths.",
+      likelyOwner: "gateway control path / agent failure containment"
+    });
+  }
+  if (containment?.dashboardResponsive === false) {
+    items.push({
+      kind: "dashboard-after-agent-failed",
+      summary: "Dashboard did not stay responsive after the failed agent turn; verify gateway UI endpoints are isolated from agent/provider failures.",
+      likelyOwner: "dashboard / gateway failure containment"
+    });
+  }
+  if (containment?.tuiResponsive === false) {
+    items.push({
+      kind: "tui-after-agent-failed",
+      summary: "TUI did not stay responsive after the failed agent turn; verify terminal input and gateway attach paths are isolated from provider failures.",
+      likelyOwner: "TUI / gateway attach failure containment"
     });
   }
   return {

@@ -2014,6 +2014,9 @@ function providerFailureEvaluationCheck() {
     assertEqual(record.measurements.agentFailureContainment.processLeaksOk, true, "agent process leaks ok");
     assertEqual(record.measurements.agentTurns[0].responseOk, true, "recovery response ok");
     assertEqual(record.measurements.agentLatencyDiagnosis.kind, "provider-error", "provider failure diagnosis");
+    const fixerKinds = new Set(record.measurements.agentFailureFixerSummary.items.map((item) => item.kind));
+    assertEqual(fixerKinds.has("provider-error"), true, "provider error fixer evidence");
+    assertEqual(fixerKinds.has("provider-recovered"), true, "provider recovered fixer evidence");
     return {
       id: "provider-failure-evaluation",
       status: "PASS",
