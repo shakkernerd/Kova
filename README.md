@@ -1,67 +1,85 @@
 # Kova
 
-Kova is the OpenClaw runtime validation lab.
+Kova is the OpenClaw validation lab.
 
-Kova runs real OpenClaw release, upgrade, plugin, gateway, and performance
-scenarios. It uses OCM as the lab control plane for isolated envs and runtimes,
-but Kova reports on OpenClaw behavior.
+It runs OpenClaw the way real users run it: packaged releases, local
+release-shaped builds, fresh installs, existing-user upgrades, gateway startup,
+plugin loading, dashboard sends, TUI paths, agent turns, provider failures, and
+long-running pressure.
 
-## What Kova Tests
+Kova is built to answer the questions that decide whether OpenClaw is ready to
+ship:
 
-- fresh OpenClaw installs
-- existing-user upgrades
-- gateway startup and readiness
-- bundled plugin/runtime dependency behavior
-- plugin lifecycle paths
-- model/provider discovery paths
-- dashboard, TUI, and API responsiveness
-- memory, CPU, latency, and startup regressions
+- Did the gateway actually start, bind, and become healthy?
+- Did bundled plugins load, or did runtime dependencies break?
+- Did a user message reach the provider quickly, or did OpenClaw stall first?
+- Did memory, CPU, event loop delay, or child processes regress?
+- Did an upgrade preserve real user state?
+- Did the dashboard, TUI, plugins, and model/provider paths keep working?
 
-Kova is not a unit test runner. It should exercise OpenClaw the way users and
-release builds actually run it.
+Kova uses OCM to create isolated OpenClaw labs, but Kova reports on OpenClaw.
+OCM is the harness. OpenClaw is the product under test.
 
-Kova is designed for agents and humans:
+## Why Kova
 
-- agents consume JSON plans and JSON reports
-- humans read concise Markdown reports
-- successful command output stays out of Markdown noise
-- real execution is explicit and cleanup-aware
+Unit tests do not prove release behavior.
 
-When Codex or another agent has access to the `ocm-operator` skill, it should
-load that skill before executing Kova scenarios. The skill gives the agent the
-OCM operating knowledge needed for safe env cloning, runtime builds, upgrades,
-service inspection, logs, and cleanup. Kova still reports OpenClaw behavior.
+Kova runs the full product path:
 
-Install the skill when it is missing:
+- installs or builds an OpenClaw runtime
+- creates disposable OpenClaw environments
+- injects deliberate auth, mock or live
+- starts the gateway
+- runs real commands and user-facing flows
+- samples CPU, memory, processes, health, logs, timelines, and provider calls
+- writes concise Markdown for humans and structured JSON for agents/CI
+- cleans up temporary envs and runtimes by default
+
+That makes Kova useful for release gates, regression hunting, performance
+investigation, and fixer handoffs.
+
+## What Kova Catches
+
+Kova is designed to catch failures that usually escape simple tests:
+
+- missing files in packed releases
+- broken bundled plugin dependency staging
+- slow gateway startup
+- high gateway RSS or CPU spikes
+- expensive package/build/runtime staging work
+- dashboard or TUI hangs
+- slow first agent reply
+- provider timeout, malformed response, streaming stall, and recovery behavior
+- child process leaks after failed turns
+- old user state that breaks after upgrade
+- plugin install, update, remove, manifest, and runtime-dependency problems
+
+When OpenClaw emits diagnostic spans, Kova correlates them with external
+evidence so reports can point at concrete startup, plugin, model, provider, or
+agent phases. When spans are missing, Kova still reports the outside-in proof
+instead of pretending it knows more than it measured.
+
+## Quick Start
+
+Install dependencies, set up Kova, and verify the lab:
 
 ```sh
-codex skills install https://github.com/shakkernerd/ocm/tree/main/skills/ocm-operator
-```
-
-## Commands
-
-```sh
-node bin/kova.mjs version
+npm install
 node bin/kova.mjs setup
-node bin/kova.mjs setup --non-interactive --auth env-only --provider openai --env-var OPENAI_API_KEY
-node bin/kova.mjs setup --non-interactive --auth env-only --provider openai --env-var OPENAI_API_KEY --fallback-policy external-cli
-node bin/kova.mjs setup --ci --json
 node bin/kova.mjs self-check
-node bin/kova.mjs plan
-node bin/kova.mjs plan --json
-node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --json
-node bin/kova.mjs matrix run --profile smoke --target runtime:stable --json
-node bin/kova.mjs matrix run --profile release --target channel:beta --include tag:plugins --parallel 2 --json
-node bin/kova.mjs matrix run --profile release --target local-build:/path/to/openclaw --execute --gate --json
-node bin/kova.mjs matrix run --profile smoke --target runtime:stable --repeat 3 --execute --save-baseline --reviewed-good --json
-node bin/kova.mjs report compare reports/baseline.json reports/current.json --json
-node bin/kova.mjs plan --scenario fresh-install
-node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install
-node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --state missing-plugin-index --json
-node bin/kova.mjs cleanup envs
 ```
 
-Kova runtime data lives outside the repo by default:
+`setup` also configures auth. Mock auth is the default, so Kova can run
+deterministic OpenClaw agent scenarios without live provider credentials. Live
+auth is supported when you want real provider behavior.
+
+For scripts and CI:
+
+```sh
+node bin/kova.mjs setup --ci --json
+```
+
+Kova stores runtime data outside the repo:
 
 ```text
 ~/.kova/
@@ -73,88 +91,123 @@ Kova runtime data lives outside the repo by default:
 
 Set `KOVA_HOME` to use a different data home.
 
-Interactive setup asks for provider first, then auth method. Provider and auth
-answers accept either the displayed number or the name, for example `2` or
-`anthropic`, `3` or `api-key`.
-External CLI auth is strict: Kova verifies the selected CLI binary and local
-auth evidence before setup can pass. `openai + external-cli` uses Codex CLI;
-`anthropic + external-cli` uses Claude CLI. `custom-openai` should use API-key
-or env-only auth. External CLI fallback is not automatic; set
-`--fallback-policy external-cli` when a live API-key/env-only run may use the
-selected local CLI if the live env var is missing.
+## First Real Run
 
-`run` is dry-run by default. It writes Markdown and JSON reports showing the
-planned OpenClaw scenario.
-
-Every Kova-created disposable OpenClaw env receives deliberate model auth unless
-the scenario/state explicitly tests missing or broken auth. `--auth mock` is the
-default and uses Kova's deterministic local OpenAI-compatible provider.
-`--auth live` requires credentials configured through `kova setup`; live results
-are marked environment-dependent and should be compared separately from mock
-baselines. For supported API-key/env-only providers, Kova configures live auth
-through OpenClaw's own non-interactive `onboard` path with env-backed
-SecretRefs. Live paths without a stable OpenClaw command path are labeled
-fixture setup and must not be cited as proof that OpenClaw onboarding/auth UX
-passed.
-
-`plan --json` is coverage-aware: scenarios map to declared OpenClaw surfaces,
-surfaces declare process roles and required metrics, and profile coverage gaps
-are visible before a run starts.
-
-States are validated contracts too. A profile cannot pair a scenario with a
-state that is incompatible with the scenario's surface.
-
-Real execution is explicit:
+Run a smoke matrix against an existing OCM runtime:
 
 ```sh
-node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --execute
-node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --state stale-runtime-deps --execute
-node bin/kova.mjs run --target npm:2026.4.27 --scenario gateway-performance --execute --node-profile
-node bin/kova.mjs run --target local-build:/path/to/openclaw --scenario release-runtime-startup --execute
-node bin/kova.mjs run --target npm:2026.4.27 --scenario plugin-external-install --execute
-node bin/kova.mjs run --target npm:2026.4.27 --scenario agent-cold-warm-message --auth live --execute
-node bin/kova.mjs matrix run --profile smoke --target npm:2026.4.27 --execute
-node bin/kova.mjs matrix run --profile release --target npm:2026.4.27 --include tag:plugins --exclude state:broken-plugin-deps --parallel 2 --execute
+node bin/kova.mjs matrix run \
+  --profile smoke \
+  --target runtime:stable \
+  --execute \
+  --json
 ```
 
-Matrix filters accept `scenario:<id>`, `state:<id>`, `tag:<tag>`, or a bare
-scenario/state/tag value. Matrix runs bundle their report automatically.
-
-Release gate mode uses the existing matrix runner:
+Run against a published OpenClaw version:
 
 ```sh
-node bin/kova.mjs matrix run --profile release --target local-build:/path/to/openclaw --execute --gate --json
+node bin/kova.mjs matrix run \
+  --profile smoke \
+  --target npm:2026.4.27 \
+  --execute \
+  --json
 ```
 
-`--gate` evaluates the selected profile against its gate policy and adds a
-ship/no-ship verdict to the report. The verdict is `SHIP`, `DO_NOT_SHIP`,
-`PARTIAL`, or `BLOCKED`. Non-ship verdicts exit non-zero after writing the Markdown/JSON
-report and artifact bundle. Non-ship gates also retain a durable copy under
-`artifacts/release-gates/<runId>/`.
-
-Filtered gate slices are reject-only. If a selected blocking scenario fails,
-the verdict is `DO_NOT_SHIP`; if the selected slice passes but required gate
-coverage is missing, the verdict is `PARTIAL` rather than `SHIP`.
-
-Release gates check required surface/scenario/state/platform coverage, not only
-command exit status. `report paste` and `report summarize --json` include a
-concise failure brief with exact evidence, subsystem grouping, and fixer-ready
-prompts.
-
-Gateway readiness is classified. Kova polls TCP listening and `/health` until a
-hard deadline, while separately enforcing the scenario readiness threshold.
-Reports distinguish hard failures, unhealthy gateways, slow startup, and ready
-gateways, with time-to-listening and time-to-health-ready evidence.
-
-Kova destroys temporary envs by default after execution. Keep an env for
-debugging only when needed:
+Run against a local OpenClaw checkout as a release-shaped runtime:
 
 ```sh
-node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --execute --keep-env
-node bin/kova.mjs run --target npm:2026.4.27 --scenario fresh-install --execute --retain-on-failure
+node bin/kova.mjs matrix run \
+  --profile diagnostic \
+  --target local-build:/path/to/openclaw \
+  --execute \
+  --json
 ```
 
-## Target Selectors
+Use `local-build:<repo>` when you need to test what a release-like package will
+do, not what source-mode dev commands happen to tolerate.
+
+## High-Value Workflows
+
+### Prove a Local OpenClaw Build Is Shippable
+
+```sh
+node bin/kova.mjs matrix run \
+  --profile release \
+  --target local-build:/path/to/openclaw \
+  --execute \
+  --gate \
+  --json
+```
+
+Gate mode writes a ship/no-ship verdict and keeps a durable artifact bundle for
+failed gates.
+
+### Find Why an Agent Reply Is Slow
+
+```sh
+node bin/kova.mjs run \
+  --target local-build:/path/to/openclaw \
+  --scenario agent-cold-warm-message \
+  --execute \
+  --json
+```
+
+Kova separates:
+
+- command time
+- gateway attach time
+- OpenClaw pre-provider time
+- provider request/response time
+- post-provider cleanup time
+- process and resource changes
+
+That lets you tell whether a slow reply came from OpenClaw preparation,
+provider latency, cleanup, or missing instrumentation.
+
+### Test Dashboard Message Sends
+
+```sh
+node bin/kova.mjs run \
+  --target local-build:/path/to/openclaw \
+  --scenario dashboard-session-send-turn \
+  --execute \
+  --json
+```
+
+This exercises the browser/dashboard session path instead of only CLI command
+paths.
+
+### Test Provider Failure Containment
+
+```sh
+node bin/kova.mjs matrix run \
+  --profile release \
+  --target runtime:stable \
+  --include tag:provider-failure \
+  --execute \
+  --json
+```
+
+Kova can simulate slow providers, timeouts, malformed responses, streaming
+stalls, and recovery. Reports show whether OpenClaw failed clearly, recovered,
+kept the gateway healthy, and avoided process leaks.
+
+### Test an Existing User Upgrade Safely
+
+```sh
+node bin/kova.mjs run \
+  --scenario upgrade-existing-user \
+  --source-env Violet \
+  --from npm:2026.4.20 \
+  --target npm:2026.4.27 \
+  --execute \
+  --json
+```
+
+Kova clones durable user envs before mutation. It should not run upgrade tests
+directly against real daily-driver envs.
+
+## Targets
 
 ```text
 npm:<version>              published OpenClaw release
@@ -163,98 +216,174 @@ runtime:<name>             existing OCM runtime name
 local-build:<repo-path>    OpenClaw checkout built as a release-shaped runtime
 ```
 
-Examples:
+## Profiles
 
-```sh
-node bin/kova.mjs run --target npm:2026.4.26 --scenario fresh-install --execute
-node bin/kova.mjs run --target channel:beta --scenario gateway-performance --execute
-node bin/kova.mjs run --target runtime:test-build-1 --scenario plugin-lifecycle --execute
-node bin/kova.mjs run --target local-build:/path/to/openclaw --scenario fresh-install --execute
+```text
+smoke        fast confidence over the most important product paths
+diagnostic   source-build diagnostics with timeline/span expectations
+release      release-gate coverage and ship/no-ship verdicts
+soak         longer pressure and stability runs
+exhaustive   broad coverage for deeper validation
 ```
 
-## Existing User Upgrade
-
-Existing-user scenarios must clone a source env. Do not run upgrade scenarios
-directly against durable user envs.
+Use filters when you want a focused slice:
 
 ```sh
-node bin/kova.mjs run \
-  --scenario upgrade-existing-user \
-  --source-env Violet \
-  --from npm:2026.4.20 \
-  --target npm:2026.4.27 \
-  --execute
+node bin/kova.mjs matrix run \
+  --profile release \
+  --target local-build:/path/to/openclaw \
+  --include tag:plugins \
+  --exclude state:broken-plugin-deps \
+  --execute \
+  --json
 ```
 
-Executed scenarios refuse to mutate non-`kova-` env targets. A durable env such
-as `Violet` can be used only as clone source state; Kova mutates the generated
-disposable clone.
+Filters accept `scenario:<id>`, `state:<id>`, `tag:<tag>`, or a bare
+scenario/state/tag value.
 
 ## Reports
 
-Reports are written to `reports/`:
+Every run writes:
 
-- Markdown for humans
-- JSON for agents, CI, and regression comparison
+- Markdown report for humans
+- JSON report for agents and CI
+- artifact bundle for handoff
+- optional baselines and comparison output
 
-Reports should answer:
+Reports focus on evidence:
 
-- what OpenClaw runtime was tested
-- what scenario ran
-- what passed, failed, or blocked
-- what command failed
-- what evidence was captured
-- what OpenClaw area likely owns the issue
-- whether temporary envs were cleaned up
+- tested runtime and scenario
+- pass/fail/blocker status
+- gateway readiness and health
+- plugin and dependency errors
+- agent/provider timing
+- CPU/RSS by process role
+- leaks and cleanup state
+- likely OpenClaw owner area
+- concise fixer summary
 
-Agents should use `node bin/kova.mjs plan --json` to choose scenarios and then
-read the generated JSON report after `run`. Markdown is intentionally compact.
-Use `run --json` when an agent needs stable report paths without parsing text.
-
-Summarize generated reports:
+Useful report commands:
 
 ```sh
 node bin/kova.mjs report summarize reports/<run>.json
-node bin/kova.mjs report summarize reports/<run>.json --json
 node bin/kova.mjs report paste reports/<run>.json
 node bin/kova.mjs report compare reports/<baseline>.json reports/<current>.json
 node bin/kova.mjs report bundle reports/<run>.json
 ```
 
-`report paste` produces a short handoff summary for another agent or fixer.
-`report compare` flags status and metric regressions between two Kova JSON
-reports. `report bundle` packages the JSON report, Markdown report, paste
-summary, and run artifacts for handoff.
+## Performance And Baselines
 
-## Current Status
+Repeat runs expose noisy or unstable performance:
 
-The repo has the first production skeleton:
+```sh
+node bin/kova.mjs matrix run \
+  --profile smoke \
+  --target runtime:stable \
+  --repeat 3 \
+  --execute \
+  --json
+```
 
-- scenario matrix
-- OCM-backed command execution
-- timeout handling
-- stdout/stderr capture
-- gateway service snapshots
-- gateway health snapshots
-- gateway health latency samples
-- readiness classification for hard failure, unhealthy, slow startup, and ready
-- gateway log diagnostic counts
-- gateway PID/RSS/CPU metrics on executed scenarios
-- continuous resource sampling during commands
-- optional Node CPU, heap, and trace profile artifacts with `--node-profile`
-- `--deep-profile` for CPU/heap/trace profiling, diagnostic reports, heap
-  snapshots, OpenClaw timeline envs, and denser resource sampling
-- optional OpenClaw diagnostics timeline ingestion
-- diagnostic correlation summaries that connect resource peaks, top profiler
-  functions, OpenClaw spans, event-loop delay, runtime deps, and provider/model
-  timing when available
-- threshold evaluation for command latency, peak RSS, missing dependency errors,
-  and final gateway state
-- Markdown and JSON reports
-- release gate verdicts and failure cards through `matrix run --gate`
-- explicit execution mode
-- default cleanup of temporary envs
+Save a reviewed-good baseline:
 
-Next OpenClaw-side work should expand diagnostics timeline emission so Kova can
-attribute every slow startup phase to concrete OpenClaw spans rather than only
-external process/profile evidence.
+```sh
+node bin/kova.mjs matrix run \
+  --profile smoke \
+  --target runtime:stable \
+  --repeat 3 \
+  --execute \
+  --save-baseline \
+  --reviewed-good \
+  --json
+```
+
+Compare future runs against that baseline to catch startup, RSS, CPU, event-loop,
+and agent-latency regressions.
+
+## Auth
+
+Kova-created envs get deliberate auth by default.
+
+```text
+mock   deterministic local OpenAI-compatible provider
+live   configured provider credentials or external CLI auth
+skip   only for scenarios that intentionally test missing auth
+```
+
+Interactive setup accepts numbers or names:
+
+```sh
+node bin/kova.mjs setup
+```
+
+Non-interactive examples:
+
+```sh
+node bin/kova.mjs setup --non-interactive --auth env-only --provider openai --env-var OPENAI_API_KEY
+node bin/kova.mjs setup --non-interactive --auth external-cli --provider openai
+node bin/kova.mjs setup --non-interactive --auth external-cli --provider anthropic
+```
+
+External CLI auth is strict. Kova checks the selected CLI and local auth
+evidence before accepting it.
+
+## Safety Model
+
+Kova is meant to be aggressive without being reckless.
+
+- `run` is dry-run by default.
+- Real execution requires `--execute`.
+- Disposable envs are destroyed by default.
+- Temporary local-build runtimes are removed by default.
+- Durable envs can be clone sources, not mutation targets.
+- Exhaustive executed matrices require `--allow-exhaustive`.
+
+Keep a failing env only when you need to inspect it:
+
+```sh
+node bin/kova.mjs run \
+  --target runtime:stable \
+  --scenario fresh-install \
+  --execute \
+  --retain-on-failure
+```
+
+Clean up Kova-owned resources:
+
+```sh
+node bin/kova.mjs cleanup envs --execute
+node bin/kova.mjs cleanup artifacts --older-than-days 7 --execute
+```
+
+## Agent Usage
+
+Kova is agent-first and human-usable.
+
+Agents should use JSON:
+
+```sh
+node bin/kova.mjs plan --json
+node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --json
+node bin/kova.mjs matrix run --profile smoke --target runtime:stable --execute --json
+```
+
+For Codex or other agents using OCM-backed Kova scenarios, install the OCM
+operator skill:
+
+```sh
+codex skills install https://github.com/shakkernerd/ocm/tree/main/skills/ocm-operator
+```
+
+That skill teaches safe OCM env cloning, local runtime builds, upgrades, service
+inspection, logs, and cleanup. Kova remains focused on OpenClaw behavior.
+
+## Development Checks
+
+```sh
+node bin/kova.mjs self-check
+node bin/kova.mjs plan --json
+node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --json
+```
+
+Self-check validates the registry, scenarios, state compatibility, collectors,
+auth setup, report generation, parser fixtures, and safety contracts.
