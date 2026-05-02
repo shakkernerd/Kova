@@ -21,7 +21,7 @@ const latestChecksumPath = `${latestArchivePath}.sha256`;
 await rm(stageRoot, { recursive: true, force: true });
 await mkdir(appDir, { recursive: true });
 
-for (const path of ["bin", "src", "scenarios", "states", "profiles", "surfaces", "process-roles", "metrics", "support", "fixtures", "skills"]) {
+for (const path of ["bin", "src", "scenarios", "states", "profiles", "surfaces", "process-roles", "metrics", "support", "fixtures", ".agents/skills/kova-operator", ".agents/skills/ocm-operator"]) {
   await copyRequired(path);
 }
 
@@ -68,7 +68,9 @@ async function copyRequired(path) {
   if (!existsSync(source)) {
     throw new Error(`release input missing: ${path}`);
   }
-  await cp(source, join(appDir, path), { recursive: true });
+  const destination = join(appDir, path);
+  await mkdir(dirname(destination), { recursive: true });
+  await cp(source, destination, { recursive: true });
 }
 
 function parseOutputDir() {

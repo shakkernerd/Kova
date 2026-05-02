@@ -89,11 +89,8 @@ If installing Kova from its installer, OCM can be installed or required there:
 curl -fsSL https://raw.githubusercontent.com/shakkernerd/Kova/main/install.sh | bash -s -- --install-ocm --require-ocm
 ```
 
-For Codex agents, install the OCM operating skill too:
-
-```sh
-codex skills install https://github.com/shakkernerd/ocm/tree/main/skills/ocm-operator
-```
+For Codex agents working from this repo, use the repo-local OCM operating skill
+at `.agents/skills/ocm-operator` when direct OCM operations are needed.
 
 ## Safety Rules
 
@@ -449,16 +446,12 @@ Artifacts:
 Do not paste noisy stdout unless the user asks. Use exact error lines and
 metrics, not vague summaries.
 
-## Installing This Skill
+## Repo-Local Skills
 
-When Kova is hosted in GitHub, install the skill with:
+This repo carries the skills under `.agents/skills/`:
 
-```sh
-codex skills install https://github.com/shakkernerd/Kova/tree/main/skills/kova-operator
-```
+- `.agents/skills/kova-operator`
+- `.agents/skills/ocm-operator`
 
-If the agent also needs to operate OCM directly, install:
-
-```sh
-codex skills install https://github.com/shakkernerd/ocm/tree/main/skills/ocm-operator
-```
+Use `kova-operator` for Kova benchmark selection, execution, and reporting. Use
+`ocm-operator` when direct OCM env/runtime/service/log operations are needed.

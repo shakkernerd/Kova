@@ -440,6 +440,6 @@ function skillGuidanceCheck() {
     id: "ocm-operator-skill",
     required: false,
     status: "INFO",
-    message: "For Codex/agent runs, install or load https://github.com/shakkernerd/ocm/tree/main/skills/ocm-operator"
+    message: "For Codex/agent runs from this repo, use .agents/skills/kova-operator and .agents/skills/ocm-operator"
   };
 }

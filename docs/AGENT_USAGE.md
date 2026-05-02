@@ -16,17 +16,7 @@ The `ocm-operator` skill is not part of Kova's product surface. It is an agent
 instruction layer that helps Codex use OCM correctly while Kova remains focused
 on OpenClaw runtime validation.
 
-Permanent skill source:
-
-```text
-https://github.com/shakkernerd/ocm/tree/main/skills/ocm-operator
-```
-
-Install it if missing:
-
-```sh
-codex skills install https://github.com/shakkernerd/ocm/tree/main/skills/ocm-operator
-```
+The repo-local OCM skill lives at `.agents/skills/ocm-operator`.
 
 ## Standard Agent Flow
 

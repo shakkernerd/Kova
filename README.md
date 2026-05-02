@@ -234,18 +234,12 @@ node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --json
 node bin/kova.mjs matrix run --profile smoke --target runtime:stable --execute --json
 ```
 
-Install the Kova operator skill so agents know the benchmark workflows,
-evidence rules, safety model, and report handoff format:
+Kova ships repo-local agent skills:
 
-```sh
-codex skills install https://github.com/shakkernerd/Kova/tree/main/skills/kova-operator
-```
+- `.agents/skills/kova-operator`
+- `.agents/skills/ocm-operator`
 
-For OCM-backed lab work, also install the OCM operator skill:
-
-```sh
-codex skills install https://github.com/shakkernerd/ocm/tree/main/skills/ocm-operator
-```
-
-The skill teaches safe env cloning, local runtime builds, upgrades, service
-inspection, logs, and cleanup. Kova stays focused on OpenClaw behavior.
+When using Codex or another agent from this repo, tell it to use those skills.
+`kova-operator` teaches benchmark workflows, evidence rules, safety model, and
+report handoff format. `ocm-operator` teaches safe env cloning, local runtime
+builds, upgrades, service inspection, logs, and cleanup.

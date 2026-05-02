@@ -4,17 +4,7 @@ Kova uses OCM as the OpenClaw environment and runtime control plane. Agents that
 have access to an `ocm-operator` skill should load it before executing real Kova
 scenarios.
 
-Permanent skill source:
-
-```text
-https://github.com/shakkernerd/ocm/tree/main/skills/ocm-operator
-```
-
-Install command:
-
-```sh
-codex skills install https://github.com/shakkernerd/ocm/tree/main/skills/ocm-operator
-```
+The repo-local OCM skill lives at `.agents/skills/ocm-operator`.
 
 ## Why
 

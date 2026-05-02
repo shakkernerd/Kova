@@ -16,14 +16,7 @@ env cloning, runtime selection, local release builds, service status, logs,
 cleanup, and durable user-state boundaries. Kova remains OpenClaw-focused; the
 skill only improves the harness operations.
 
-If the skill is not installed, install it from:
-
-```sh
-codex skills install https://github.com/shakkernerd/ocm/tree/main/skills/ocm-operator
-```
-
-Permanent skill source:
-`https://github.com/shakkernerd/ocm/tree/main/skills/ocm-operator`
+The repo-local OCM skill lives at `.agents/skills/ocm-operator`.
 
 ## Core Rules
 
