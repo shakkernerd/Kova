@@ -78,7 +78,7 @@ benchmarks:
 ```sh
 command -v ocm || curl -fsSL https://raw.githubusercontent.com/shakkernerd/ocm/main/install.sh | bash
 export PATH="$HOME/.local/bin:$PATH"
-ocm version
+ocm --version
 ocm env list
 ocm runtime list
 ```
@@ -104,6 +104,110 @@ at `.agents/skills/ocm-operator` when direct OCM operations are needed.
 - Keep failing envs only when inspection is needed; otherwise let Kova clean up.
 - Report OpenClaw failures as OpenClaw failures, not OCM failures, unless lab
   provisioning itself blocked the run.
+
+## OpenClaw Repo Handling
+
+When the user asks to benchmark OpenClaw, first decide which OpenClaw source is
+under test:
+
+1. Use the explicit repo path if the user gives one.
+2. If the current directory is an OpenClaw checkout, use it.
+3. If a nearby checkout exists, such as `../openclaw`, use it only after
+   confirming the path and commit.
+4. If no checkout exists, clone a disposable copy into `/tmp`, not inside Kova:
+
+```sh
+repo="/tmp/kova-openclaw-$(date +%Y%m%d%H%M%S)"
+git clone https://github.com/openclaw/openclaw.git "$repo"
+git -C "$repo" checkout main
+git -C "$repo" pull --ff-only
+```
+
+Before benchmarking a checkout, record:
+
+```sh
+git -C "$repo" status --short
+git -C "$repo" rev-parse --abbrev-ref HEAD
+git -C "$repo" rev-parse --short HEAD
+git -C "$repo" log -1 --format='%h %ci %s'
+```
+
+Do not mutate a user working tree unless the user asked for that. For
+benchmarking moving targets, prefer disposable clones or worktrees under
+`/tmp/kova-openclaw-*`.
+
+Use release-shaped Kova targets for local source:
+
+```sh
+kova matrix run --profile diagnostic --target local-build:"$repo" --execute --json
+```
+
+Do not use OpenClaw source/dev commands as proof that a package or release will
+work. Source commands can hide missing package files, prepack failures, bundled
+extension issues, or runtime dependency layout problems.
+
+## Build Blocker Triage
+
+A failed `local-build:<repo>` run is not automatically a finished benchmark.
+The agent must determine whether the failure is:
+
+- an OpenClaw packaging/prepack bug
+- a missing dependency/install problem
+- stale local artifacts
+- a dirty checkout problem
+- a platform/toolchain problem
+- a Kova/OCM harness problem
+
+If Kova reports a build/prepack blocker, inspect and reproduce the failing step
+inside the OpenClaw repo before returning:
+
+```sh
+git -C "$repo" status --short
+node --version
+pnpm --version || corepack enable
+pnpm -C "$repo" install --frozen-lockfile
+pnpm -C "$repo" build
+pnpm -C "$repo" pack --pack-destination /tmp/kova-openclaw-pack-check
+```
+
+If the Kova/OCM error names a specific script, run that script directly too:
+
+```sh
+pnpm -C "$repo" <script-name>
+```
+
+Examples:
+
+```sh
+pnpm -C "$repo" canvas:a2ui:bundle
+pnpm -C "$repo" runtime:postbuild
+pnpm -C "$repo" test-built-bundled-channel-entry-smoke
+```
+
+Use the direct script result to classify the issue:
+
+- Direct script fails too: OpenClaw script/build bug. Report exact command and
+  error.
+- Direct script passes but `pnpm pack` or OCM `runtime build-local` fails:
+  OpenClaw packaging/prepack path bug. Report that difference.
+- `pnpm install` fails: dependency/toolchain problem. Report lockfile, Node,
+  pnpm, and first failing package.
+- Kova cannot create/remove envs or runtimes after OpenClaw packs correctly:
+  likely harness/OCM problem. Report as BLOCKED with OCM evidence.
+
+Do not stop at "build failed" when a simple build step fails. Try to isolate the
+smallest failing OpenClaw command and include the exact failure line. A blocked
+benchmark is acceptable only after the blocker is classified.
+
+If stale generated artifacts are plausible, clean only disposable clones:
+
+```sh
+git -C "$repo" clean -fdX
+pnpm -C "$repo" install --frozen-lockfile
+```
+
+Never run `git clean`, `git reset`, or destructive cleanup in a user's dirty
+working checkout unless explicitly approved.
 
 ## How To Choose Scenarios From User Intent
 
@@ -352,6 +456,80 @@ kova matrix run \
 Use baseline comparisons to catch startup, RSS, CPU, event-loop, runtime-deps,
 and agent-latency regressions.
 
+### Benchmark a time window or commit range
+
+When the user asks to benchmark "between", "since", "before/after", "last N
+commits", "from date A to date B", or "over a period", produce a comparison.
+Do not only report separate runs.
+
+Required flow:
+
+1. Identify the baseline commit and latest/end commit.
+2. Run the same Kova scenario/profile on both commits.
+3. Use the same machine, auth mode, profile, scenario/state, target style, and
+   `--repeat` count.
+4. Compare the generated JSON reports.
+5. Report deltas and verdict.
+
+Use disposable OpenClaw worktrees or clones:
+
+```sh
+base_repo="/tmp/kova-openclaw-base-<shortsha>"
+head_repo="/tmp/kova-openclaw-head-<shortsha>"
+git clone <openclaw-remote-or-source> "$base_repo"
+git clone <openclaw-remote-or-source> "$head_repo"
+git -C "$base_repo" checkout <baseline-sha>
+git -C "$head_repo" checkout <head-sha>
+```
+
+Run comparable Kova commands:
+
+```sh
+kova run \
+  --target local-build:"$base_repo" \
+  --scenario gateway-performance \
+  --state many-bundled-plugins \
+  --repeat 3 \
+  --execute \
+  --json
+
+kova run \
+  --target local-build:"$head_repo" \
+  --scenario gateway-performance \
+  --state many-bundled-plugins \
+  --repeat 3 \
+  --execute \
+  --json
+
+kova report compare reports/<baseline>.json reports/<latest>.json --json
+```
+
+The final answer must include comparison lines such as:
+
+```text
+Metric                    Baseline     Latest       Delta
+health ready median       2625ms       3010ms       +14.7%
+listening median          2534ms       2810ms       +10.9%
+gateway RSS median        594.9MB      650.2MB      +9.3%
+total peak RSS median     1088.1MB     1420.5MB     +30.5%
+CPU max median            131.8%       180.0%       +36.6%
+event-loop max median     111.1ms      205.0ms      +84.5%
+```
+
+If one side cannot build or run, say the comparison is blocked and why:
+
+```text
+Comparison: BLOCKED
+Baseline ran, latest did not reach gateway startup.
+Latest blocker: OpenClaw release-shaped prepack failed in canvas:a2ui:bundle.
+Meaning: latest is not benchmarkable through the release-shaped path, which is
+a release blocker before performance can be compared.
+```
+
+Do not present baseline numbers as a comparison when the latest side did not
+run. Classify that as "benchmarkability regression" or "comparison blocked",
+then include the blocker evidence and report paths.
+
 ### Deep diagnostics
 
 Use only when investigating a real performance or resource issue:
@@ -445,6 +623,36 @@ Artifacts:
 
 Do not paste noisy stdout unless the user asks. Use exact error lines and
 metrics, not vague summaries.
+
+## Cleanup Etiquette
+
+Benchmark work should leave the machine clean unless the user asks to retain
+artifacts.
+
+After every executed run:
+
+```sh
+ocm env list | rg 'kova-|bench-' || true
+ocm runtime list | rg 'kova-local|bench-' || true
+```
+
+Remove Kova-owned leftovers:
+
+```sh
+kova cleanup envs --execute
+ocm env destroy <kova-env> --yes
+ocm runtime remove <kova-runtime>
+```
+
+Remove disposable OpenClaw clones/worktrees created for the benchmark:
+
+```sh
+rm -rf /tmp/kova-openclaw-*
+```
+
+Keep report artifacts by default. They are evidence. In the final response,
+state whether cleanup removed temporary envs/runtimes/clones or whether anything
+was intentionally retained.
 
 ## Repo-Local Skills
 
