@@ -1,67 +1,73 @@
 # Kova
 
-Kova is the OpenClaw validation lab.
+**Kova is the OpenClaw validation lab.**
 
-It runs OpenClaw the way real users run it: packaged releases, local
-release-shaped builds, fresh installs, existing-user upgrades, gateway startup,
-plugin loading, dashboard sends, TUI paths, agent turns, provider failures, and
-long-running pressure.
+It runs real OpenClaw installs, upgrades, gateways, plugins, dashboards, TUIs,
+agent turns, provider failures, and release-shaped builds, then tells you what
+broke, how slow it was, how much memory it used, which process owned the cost,
+and what evidence to hand to the fixer.
 
-Kova is built to answer the questions that decide whether OpenClaw is ready to
-ship:
+Unit tests can say code passed. Kova answers the release question:
 
-- Did the gateway actually start, bind, and become healthy?
-- Did bundled plugins load, or did runtime dependencies break?
-- Did a user message reach the provider quickly, or did OpenClaw stall first?
-- Did memory, CPU, event loop delay, or child processes regress?
-- Did an upgrade preserve real user state?
-- Did the dashboard, TUI, plugins, and model/provider paths keep working?
+> Can real users install, update, start, message, use plugins, and keep running
+> without OpenClaw getting slow, unhealthy, leaky, or broken?
 
-Kova uses OCM to create isolated OpenClaw labs, but Kova reports on OpenClaw.
-OCM is the harness. OpenClaw is the product under test.
+## What You Get
 
-## Why Kova
+- **Release confidence**: fresh installs, existing-user upgrades, local
+  release-shaped builds, channel/runtime targets, and ship/no-ship gates.
+- **Performance evidence**: startup time, health readiness, agent latency,
+  provider latency, event-loop delay, repeated-run stats, and baseline
+  regression checks.
+- **Memory and CPU ownership**: gateway RSS, CLI RSS, package-manager cost,
+  runtime-staging cost, plugin sidecars, browser sidecars, mock provider, and
+  uncategorized spikes.
+- **Agent-turn attribution**: pre-provider OpenClaw time, provider time,
+  post-provider time, cold/warm deltas, response correctness, and missing
+  instrumentation called out honestly.
+- **Plugin and runtime proof**: bundled plugin startup, runtime dependency
+  staging, external plugin install/update/remove, bad manifests, missing deps,
+  and plugin load failures.
+- **Failure containment**: provider timeouts, malformed responses, streaming
+  stalls, recovery, gateway health after failure, and leaked child processes.
+- **Human and agent reports**: concise Markdown for people, structured JSON for
+  agents/CI, plus artifact bundles for handoff.
 
-Unit tests do not prove release behavior.
+Kova uses OCM to create isolated OpenClaw labs. Kova is not testing OCM. OCM is
+the harness; OpenClaw is the product under test.
 
-Kova runs the full product path:
+## A Kova Report Looks Like This
 
-- installs or builds an OpenClaw runtime
-- creates disposable OpenClaw environments
-- injects deliberate auth, mock or live
-- starts the gateway
-- runs real commands and user-facing flows
-- samples CPU, memory, processes, health, logs, timelines, and provider calls
-- writes concise Markdown for humans and structured JSON for agents/CI
-- cleans up temporary envs and runtimes by default
+```text
+Kova Run: local-build diagnostic
+Verdict: FAIL
 
-That makes Kova useful for release gates, regression hunting, performance
-investigation, and fixer handoffs.
+release-runtime-startup/fresh
+  readiness: ready
+  listening: 2.8s
+  health ready: 3.0s
+  gateway peak RSS: 631 MB
+  package-manager peak RSS: 901 MB
+  build-tooling peak RSS: 2409 MB
+  missing dependency: @homebridge/ciao from bundled bonjour
 
-## What Kova Catches
+dashboard-session-send-turn/mock-openai-provider
+  agent turn: 9.2s
+  pre-provider OpenClaw time: 8.9s
+  provider time: 1ms
+  diagnosis: OpenClaw delayed before provider work
+  leak: browser-sidecar process remained after turn
+  health: gateway had post-command health failures
 
-Kova is designed to catch failures that usually escape simple tests:
+Fixer brief:
+  Area: plugins/runtime deps, dashboard session agent path
+  Why it matters: users can start successfully but hit plugin dependency errors
+  and slow first replies unrelated to provider latency.
+```
 
-- missing files in packed releases
-- broken bundled plugin dependency staging
-- slow gateway startup
-- high gateway RSS or CPU spikes
-- expensive package/build/runtime staging work
-- dashboard or TUI hangs
-- slow first agent reply
-- provider timeout, malformed response, streaming stall, and recovery behavior
-- child process leaks after failed turns
-- old user state that breaks after upgrade
-- plugin install, update, remove, manifest, and runtime-dependency problems
+That is the point: not just pass/fail, but the evidence needed to fix OpenClaw.
 
-When OpenClaw emits diagnostic spans, Kova correlates them with external
-evidence so reports can point at concrete startup, plugin, model, provider, or
-agent phases. When spans are missing, Kova still reports the outside-in proof
-instead of pretending it knows more than it measured.
-
-## Quick Start
-
-Install dependencies, set up Kova, and verify the lab:
+## Start
 
 ```sh
 npm install
@@ -69,51 +75,22 @@ node bin/kova.mjs setup
 node bin/kova.mjs self-check
 ```
 
-`setup` also configures auth. Mock auth is the default, so Kova can run
-deterministic OpenClaw agent scenarios without live provider credentials. Live
-auth is supported when you want real provider behavior.
+`setup` includes auth. Mock auth is the default, so Kova can test agent/provider
+paths without real credentials. Live auth is available when you want real
+provider behavior.
 
-For scripts and CI:
+For scripts:
 
 ```sh
 node bin/kova.mjs setup --ci --json
 ```
 
-Kova stores runtime data outside the repo:
+Kova data lives in `~/.kova` by default: credentials, reports, artifacts, and
+baselines.
 
-```text
-~/.kova/
-  credentials/
-  reports/
-  artifacts/
-  baselines/
-```
+## Run The Important Checks
 
-Set `KOVA_HOME` to use a different data home.
-
-## First Real Run
-
-Run a smoke matrix against an existing OCM runtime:
-
-```sh
-node bin/kova.mjs matrix run \
-  --profile smoke \
-  --target runtime:stable \
-  --execute \
-  --json
-```
-
-Run against a published OpenClaw version:
-
-```sh
-node bin/kova.mjs matrix run \
-  --profile smoke \
-  --target npm:2026.4.27 \
-  --execute \
-  --json
-```
-
-Run against a local OpenClaw checkout as a release-shaped runtime:
+### Test A Local OpenClaw Checkout Like A Release
 
 ```sh
 node bin/kova.mjs matrix run \
@@ -123,12 +100,10 @@ node bin/kova.mjs matrix run \
   --json
 ```
 
-Use `local-build:<repo>` when you need to test what a release-like package will
-do, not what source-mode dev commands happen to tolerate.
+This is the flow for catching packaging, bundled plugin, runtime dependency,
+startup, dashboard, provider, and agent regressions before a release.
 
-## High-Value Workflows
-
-### Prove a Local OpenClaw Build Is Shippable
+### Run A Release Gate
 
 ```sh
 node bin/kova.mjs matrix run \
@@ -139,32 +114,10 @@ node bin/kova.mjs matrix run \
   --json
 ```
 
-Gate mode writes a ship/no-ship verdict and keeps a durable artifact bundle for
-failed gates.
+Gate mode reports `SHIP`, `DO_NOT_SHIP`, `PARTIAL`, or `BLOCKED`, and keeps a
+durable artifact bundle for failed gates.
 
-### Find Why an Agent Reply Is Slow
-
-```sh
-node bin/kova.mjs run \
-  --target local-build:/path/to/openclaw \
-  --scenario agent-cold-warm-message \
-  --execute \
-  --json
-```
-
-Kova separates:
-
-- command time
-- gateway attach time
-- OpenClaw pre-provider time
-- provider request/response time
-- post-provider cleanup time
-- process and resource changes
-
-That lets you tell whether a slow reply came from OpenClaw preparation,
-provider latency, cleanup, or missing instrumentation.
-
-### Test Dashboard Message Sends
+### Investigate Slow Replies
 
 ```sh
 node bin/kova.mjs run \
@@ -174,117 +127,10 @@ node bin/kova.mjs run \
   --json
 ```
 
-This exercises the browser/dashboard session path instead of only CLI command
-paths.
+Kova separates OpenClaw pre-provider work from provider latency. If a message
+takes 62s but the provider only took 800ms, Kova makes that visible.
 
-### Test Provider Failure Containment
-
-```sh
-node bin/kova.mjs matrix run \
-  --profile release \
-  --target runtime:stable \
-  --include tag:provider-failure \
-  --execute \
-  --json
-```
-
-Kova can simulate slow providers, timeouts, malformed responses, streaming
-stalls, and recovery. Reports show whether OpenClaw failed clearly, recovered,
-kept the gateway healthy, and avoided process leaks.
-
-### Test an Existing User Upgrade Safely
-
-```sh
-node bin/kova.mjs run \
-  --scenario upgrade-existing-user \
-  --source-env Violet \
-  --from npm:2026.4.20 \
-  --target npm:2026.4.27 \
-  --execute \
-  --json
-```
-
-Kova clones durable user envs before mutation. It should not run upgrade tests
-directly against real daily-driver envs.
-
-## Targets
-
-```text
-npm:<version>              published OpenClaw release
-channel:<name>             published channel such as stable or beta
-runtime:<name>             existing OCM runtime name
-local-build:<repo-path>    OpenClaw checkout built as a release-shaped runtime
-```
-
-## Profiles
-
-```text
-smoke        fast confidence over the most important product paths
-diagnostic   source-build diagnostics with timeline/span expectations
-release      release-gate coverage and ship/no-ship verdicts
-soak         longer pressure and stability runs
-exhaustive   broad coverage for deeper validation
-```
-
-Use filters when you want a focused slice:
-
-```sh
-node bin/kova.mjs matrix run \
-  --profile release \
-  --target local-build:/path/to/openclaw \
-  --include tag:plugins \
-  --exclude state:broken-plugin-deps \
-  --execute \
-  --json
-```
-
-Filters accept `scenario:<id>`, `state:<id>`, `tag:<tag>`, or a bare
-scenario/state/tag value.
-
-## Reports
-
-Every run writes:
-
-- Markdown report for humans
-- JSON report for agents and CI
-- artifact bundle for handoff
-- optional baselines and comparison output
-
-Reports focus on evidence:
-
-- tested runtime and scenario
-- pass/fail/blocker status
-- gateway readiness and health
-- plugin and dependency errors
-- agent/provider timing
-- CPU/RSS by process role
-- leaks and cleanup state
-- likely OpenClaw owner area
-- concise fixer summary
-
-Useful report commands:
-
-```sh
-node bin/kova.mjs report summarize reports/<run>.json
-node bin/kova.mjs report paste reports/<run>.json
-node bin/kova.mjs report compare reports/<baseline>.json reports/<current>.json
-node bin/kova.mjs report bundle reports/<run>.json
-```
-
-## Performance And Baselines
-
-Repeat runs expose noisy or unstable performance:
-
-```sh
-node bin/kova.mjs matrix run \
-  --profile smoke \
-  --target runtime:stable \
-  --repeat 3 \
-  --execute \
-  --json
-```
-
-Save a reviewed-good baseline:
+### Compare Performance Over Time
 
 ```sh
 node bin/kova.mjs matrix run \
@@ -297,48 +143,78 @@ node bin/kova.mjs matrix run \
   --json
 ```
 
-Compare future runs against that baseline to catch startup, RSS, CPU, event-loop,
-and agent-latency regressions.
+Future runs can compare startup, memory, CPU, event-loop delay, and agent
+latency against the reviewed-good baseline.
 
-## Auth
+### Test Existing Users Safely
 
-Kova-created envs get deliberate auth by default.
+```sh
+node bin/kova.mjs run \
+  --scenario upgrade-existing-user \
+  --source-env Violet \
+  --from npm:2026.4.20 \
+  --target npm:2026.4.27 \
+  --execute \
+  --json
+```
+
+Kova clones durable envs before mutating anything. Real user envs are sources,
+not test targets.
+
+## Targets
 
 ```text
-mock   deterministic local OpenAI-compatible provider
-live   configured provider credentials or external CLI auth
-skip   only for scenarios that intentionally test missing auth
+npm:<version>              published OpenClaw release
+channel:<name>             published channel such as stable or beta
+runtime:<name>             existing OCM runtime
+local-build:<repo-path>    local OpenClaw checkout built as release-shaped runtime
 ```
 
-Interactive setup accepts numbers or names:
+## Profiles
+
+```text
+smoke        fast confidence over core product paths
+diagnostic   local-build diagnostics with timeline/span expectations
+release      ship/no-ship gate coverage
+soak         long-running pressure and stability
+exhaustive   broad validation when you want the full sweep
+```
+
+Filter any matrix:
 
 ```sh
-node bin/kova.mjs setup
+node bin/kova.mjs matrix run \
+  --profile release \
+  --target runtime:stable \
+  --include tag:provider-failure \
+  --execute \
+  --json
 ```
 
-Non-interactive examples:
+## Reports
 
 ```sh
-node bin/kova.mjs setup --non-interactive --auth env-only --provider openai --env-var OPENAI_API_KEY
-node bin/kova.mjs setup --non-interactive --auth external-cli --provider openai
-node bin/kova.mjs setup --non-interactive --auth external-cli --provider anthropic
+node bin/kova.mjs report summarize reports/<run>.json
+node bin/kova.mjs report paste reports/<run>.json
+node bin/kova.mjs report compare reports/<baseline>.json reports/<current>.json
+node bin/kova.mjs report bundle reports/<run>.json
 ```
 
-External CLI auth is strict. Kova checks the selected CLI and local auth
-evidence before accepting it.
+- Markdown is for humans.
+- JSON is for agents and CI.
+- Bundles are for handoff.
+- Paste summaries are for fixer prompts.
 
-## Safety Model
+## Safety
 
-Kova is meant to be aggressive without being reckless.
-
-- `run` is dry-run by default.
+- Dry-run by default.
 - Real execution requires `--execute`.
 - Disposable envs are destroyed by default.
 - Temporary local-build runtimes are removed by default.
 - Durable envs can be clone sources, not mutation targets.
-- Exhaustive executed matrices require `--allow-exhaustive`.
+- Exhaustive execution requires `--allow-exhaustive`.
 
-Keep a failing env only when you need to inspect it:
+Keep a failing lab only when you need to inspect it:
 
 ```sh
 node bin/kova.mjs run \
@@ -348,18 +224,9 @@ node bin/kova.mjs run \
   --retain-on-failure
 ```
 
-Clean up Kova-owned resources:
+## For Agents
 
-```sh
-node bin/kova.mjs cleanup envs --execute
-node bin/kova.mjs cleanup artifacts --older-than-days 7 --execute
-```
-
-## Agent Usage
-
-Kova is agent-first and human-usable.
-
-Agents should use JSON:
+Agents should use JSON plans and reports:
 
 ```sh
 node bin/kova.mjs plan --json
@@ -367,23 +234,11 @@ node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --json
 node bin/kova.mjs matrix run --profile smoke --target runtime:stable --execute --json
 ```
 
-For Codex or other agents using OCM-backed Kova scenarios, install the OCM
-operator skill:
+For OCM-backed lab work, install the operator skill:
 
 ```sh
 codex skills install https://github.com/shakkernerd/ocm/tree/main/skills/ocm-operator
 ```
 
-That skill teaches safe OCM env cloning, local runtime builds, upgrades, service
-inspection, logs, and cleanup. Kova remains focused on OpenClaw behavior.
-
-## Development Checks
-
-```sh
-node bin/kova.mjs self-check
-node bin/kova.mjs plan --json
-node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --json
-```
-
-Self-check validates the registry, scenarios, state compatibility, collectors,
-auth setup, report generation, parser fixtures, and safety contracts.
+The skill teaches safe env cloning, local runtime builds, upgrades, service
+inspection, logs, and cleanup. Kova stays focused on OpenClaw behavior.
