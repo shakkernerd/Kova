@@ -1,0 +1,7 @@
+interface:
+  display_name: "Kova Operator"
+  short_description: "Benchmark and validate OpenClaw with Kova"
+  brand_color: "#E65A2E"
+  default_prompt: "Use $kova-operator to benchmark this OpenClaw checkout and return concise Kova report evidence."
+policy:
+  allow_implicit_invocation: true

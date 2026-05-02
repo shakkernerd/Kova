@@ -234,7 +234,14 @@ node bin/kova.mjs matrix plan --profile smoke --target runtime:stable --json
 node bin/kova.mjs matrix run --profile smoke --target runtime:stable --execute --json
 ```
 
-For OCM-backed lab work, install the operator skill:
+Install the Kova operator skill so agents know the benchmark workflows,
+evidence rules, safety model, and report handoff format:
+
+```sh
+codex skills install https://github.com/shakkernerd/Kova/tree/main/skills/kova-operator
+```
+
+For OCM-backed lab work, also install the OCM operator skill:
 
 ```sh
 codex skills install https://github.com/shakkernerd/ocm/tree/main/skills/ocm-operator
