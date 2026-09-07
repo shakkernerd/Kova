@@ -2,7 +2,7 @@ import { measurementMetricValue } from "../health.mjs";
 
 export const PERFORMANCE_SCHEMA = "kova.performance.v1";
 export const RESOURCE_MEASUREMENT_SCOPE = "product";
-export const RESOURCE_HEADLINE_CONTRACT = "primary-role-product-scope-v3";
+export const RESOURCE_HEADLINE_CONTRACT = "primary-role-product-scope-v4";
 
 export const PERFORMANCE_METRICS = [
   { id: "readinessHealthReadyMs", title: "Health Ready", unit: "ms", regressionKey: "startupRegressionPercent" },

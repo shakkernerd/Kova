@@ -44,6 +44,7 @@ import {
   checkDuration,
   checkEvidenceThreshold,
   checkRoleThresholds,
+  checkCpuThreshold,
   checkTurnThreshold
 } from "./evaluation/violations.mjs";
 
@@ -129,7 +130,20 @@ export function evaluateRecord(record, scenario, options = {}) {
   const allResults = collectResults(record);
   const measurementScopeSummary = summarizeMeasurementScopes(record);
   const measuredResults = collectResults(record, { productOnly: true });
-  const gatewayProcessResources = collectGatewayProcessResources(record, { productOnly: true });
+  const intervalCpu = measuredResults.some((result) => result.resourceSamples?.cpuMeasurementContract === "linux-process-interval-v1");
+  const requireCpuContract = options.requireCpuContract === true || intervalCpu ||
+    record.measurements?.resourceHeadlineContract !== undefined;
+  const expectedCpuContract = process.platform === "linux" ? "linux-process-interval-v1" : "ps-process-cpu-v1";
+  for (const result of measuredResults) {
+    const samples = result.resourceSamples;
+    if (samples?.cpuCoverageComplete === false || (requireCpuContract && (options.requireCpuContract === true || samples || result.resourceSampleExpected) &&
+      (samples?.cpuCoverageComplete !== true || samples?.cpuMeasurementContract !== expectedCpuContract))) {
+      violations.push({ kind: "evidence", metric: "resourceCpuCoverage", expected: "complete CPU interval evidence",
+        actual: samples?.errors ?? "missing CPU measurement contract or coverage", failureDomain: "kova-harness",
+        message: "Product CPU interval evidence is incomplete" });
+    }
+  }
+  const gatewayProcessResources = collectGatewayProcessResources(record, { productOnly: true, intervalCpu });
   const resourceSummary = collectResourceSummary(measuredResults, { gatewayProcessResources });
   const channelWorkflowResources = summarizeChannelWorkflowResources(measuredResults);
   const peakTrackedRssMb = maxNullable(gatewayProcessResources?.peakRssMb, resourceSummary.peakTotalRssMb);
@@ -310,15 +324,11 @@ export function evaluateRecord(record, scenario, options = {}) {
     });
   }
 
-  if (cpuPercentThreshold !== null && cpuPercentMax !== null && cpuPercentMax > cpuPercentThreshold) {
-    violations.push({
-      kind: "threshold",
-      metric: "cpuPercentMax",
-      expected: `<= ${cpuPercentThreshold}`,
-      actual: cpuPercentMax,
-      message: `max CPU ${cpuPercentMax}% exceeded threshold ${cpuPercentThreshold}%`
-    });
-  }
+  checkCpuThreshold(violations, {
+    kind: "threshold", metric: "cpuPercentMax", label: "max CPU", value: cpuPercentMax,
+    lower: resourceGate.role ? resourceSummary.byRole[resourceGate.role]?.maxCpuPercentLower : resourceSummary.maxTotalCpuPercentLower,
+    threshold: cpuPercentThreshold ?? undefined
+  });
   checkRoleThresholds(violations, resourceSummary.byRole, roleThresholds, {
     skipPeakRssRoles:
       primaryRoleOwnsResourceGate && typeof thresholds.peakRssMb === "number"
@@ -3855,14 +3865,14 @@ function collectGatewayProcessResources(record, options = {}) {
     if (options.productOnly === true && !measuredProductPhase(phase)) {
       continue;
     }
-    summary = mergeGatewayProcessMetrics(summary, phase.metrics?.process);
+    summary = mergeGatewayProcessMetrics(summary, phase.metrics?.process, options);
   }
-  return mergeGatewayProcessMetrics(summary, record.finalMetrics?.process);
+  return mergeGatewayProcessMetrics(summary, record.finalMetrics?.process, options);
 }
 
-function mergeGatewayProcessMetrics(summary, process) {
+function mergeGatewayProcessMetrics(summary, process, options = {}) {
   const rssMb = typeof process?.rssMb === "number" ? process.rssMb : null;
-  const cpuPercent = typeof process?.cpuPercent === "number" ? process.cpuPercent : null;
+  const cpuPercent = !options.intervalCpu && typeof process?.cpuPercent === "number" ? process.cpuPercent : null;
   if (rssMb === null && cpuPercent === null) {
     return summary;
   }
@@ -3898,6 +3908,7 @@ function collectResourceSummary(results, options = {}) {
   let sampleCount = 0;
   let peakTotalRssMb = null;
   let maxTotalCpuPercent = null;
+  let maxTotalCpuPercentLower = null;
   let peakCommandTreeRssMb = null;
   let peakGatewayRssMb = null;
   let peakRssSample = null;
@@ -3917,6 +3928,7 @@ function collectResourceSummary(results, options = {}) {
     sampleCount += samples.sampleCount ?? 0;
     peakTotalRssMb = maxNullable(peakTotalRssMb, samples.peakTotalRssMb);
     maxTotalCpuPercent = maxNullable(maxTotalCpuPercent, samples.maxTotalCpuPercent);
+    maxTotalCpuPercentLower = maxNullable(maxTotalCpuPercentLower, samples.maxTotalCpuPercentLower);
     peakCommandTreeRssMb = maxNullable(peakCommandTreeRssMb, samples.peakCommandTreeRssMb);
     peakGatewayRssMb = maxNullable(peakGatewayRssMb, samples.peakGatewayRssMb);
     mergeRoleSummaries(byRole, samples.byRole ?? {});
@@ -3929,8 +3941,10 @@ function collectResourceSummary(results, options = {}) {
       artifacts.push(samples.artifactPath);
     }
     for (const process of [...(samples.topByRss ?? []), ...(samples.topByCpu ?? [])]) {
-      const existing = byPid.get(process.pid) ?? {
+      const processIdentity = `${process.pid}:${process.startTicks ?? "legacy"}`;
+      const existing = byPid.get(processIdentity) ?? {
         pid: process.pid,
+        ...(process.startTicks === undefined ? {} : { startTicks: process.startTicks }),
         command: process.command,
         role: process.role,
         peakRssMb: 0,
@@ -3944,7 +3958,7 @@ function collectResourceSummary(results, options = {}) {
       existing.maxCpuPercent = Math.max(existing.maxCpuPercent, process.maxCpuPercent ?? 0);
       existing.firstSeenMs = Math.min(existing.firstSeenMs ?? process.firstSeenMs ?? 0, process.firstSeenMs ?? 0);
       existing.lastSeenMs = Math.max(existing.lastSeenMs ?? process.lastSeenMs ?? 0, process.lastSeenMs ?? 0);
-      byPid.set(process.pid, existing);
+      byPid.set(processIdentity, existing);
     }
   }
 
@@ -3961,6 +3975,7 @@ function collectResourceSummary(results, options = {}) {
     sampleCount,
     peakTotalRssMb,
     maxTotalCpuPercent,
+    maxTotalCpuPercentLower,
     peakCommandTreeRssMb,
     peakGatewayRssMb,
     maxTotalRssGrowthMb,
@@ -4011,6 +4026,7 @@ function mergeRoleSummaries(target, source) {
       existing.peakCpuAtMs = summary.peakCpuAtMs ?? null;
       existing.peakCpuProcess = summary.peakCpuProcess ?? null;
     }
+    if (typeof summary.maxCpuPercentLower === "number") existing.maxCpuPercentLower = Math.max(existing.maxCpuPercentLower ?? 0, summary.maxCpuPercentLower);
     target.set(role, existing);
   }
 }

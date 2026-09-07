@@ -1075,3 +1075,43 @@ Kova stages and preflights the complete artifact set before publication. It
 omits raw Node traces only when a bundle limit would otherwise be exceeded,
 never publishes an arbitrary subset of that class, and fails closed if the
 remaining mandatory artifacts still exceed a limit.
+
+### Linux CPU interval accounting
+
+`primary-role-product-scope-v4` keeps the existing resource thresholds and
+separates Linux interval CPU evidence from older lifetime-average samples.
+Only product processes and the ancestor chains needed for their wait accounting
+participate in the Linux CPU census. Existing wait owners discovered with a new
+product process establish a baseline without importing historical host CPU.
+
+Linux resource samples bracket CPU-counter scans and use their common inner
+monotonic interval, retaining PID/start-time identities. Upper bounds conservatively
+include work in the scan margins; lower bounds subtract the maximum possible
+CPU in those margins. A range crossing a CPU threshold blocks qualification as
+inconclusive harness evidence instead of inventing a product failure. New children contribute their
+CPU since birth; reaped children contribute CPU not already observed in an
+earlier sample. Vanished process roles remain attached to their wait accounting,
+including a Gateway reaped by an external supervisor. Parent counters are read
+before child counters; a product process disappearing during that census
+discards the inconsistent scan before accounting. Collection attempts are
+recorded, and three unstable censuses produce a harness failure. Ambiguous reaped CPU is
+an upper bound for each affected role; it never raises the lower bound. Unsettled
+terminal wait accounting blocks qualification. CPU percentages may exceed 100% when product threads or
+processes execute concurrently. The collector does not sum `ps` lifetime CPU
+averages from processes of different ages.
+
+For sampled commands, a Kova wait owner remains alive until the final CPU sample.
+Its own CPU and RSS are harness work and excluded from product measurements;
+its child accounting retains sub-second commands and the last interval before
+exit. The watchdog remains active until inherited stdout/stderr writers drain
+and the captured process closes; direct shell exit does not release that ownership. The command environment is forwarded privately to its shell; Node preload and
+profiling options do not execute in the accounting helper. Product command
+stdout, stderr, exit status, signal, and timeout behavior remain unchanged. Resource artifacts identify the counter contract as
+`linux-process-interval-v1`. Incomplete counter/baseline evidence is a harness
+failure, never a zero-CPU result. A single-process final `ps` snapshot remains
+available as diagnostic data but does not override Linux interval CPU gates.
+
+Old reports cannot be reprocessed into interval evidence because they lack CPU
+time counters, process start identities, and terminal child accounting. Run
+fresh qualification after adopting this collector; do not reuse or recalibrate
+old zero-CPU short-command reports as an interval baseline.

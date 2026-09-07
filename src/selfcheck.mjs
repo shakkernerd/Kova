@@ -21998,6 +21998,8 @@ function thresholdPolicyCalibrationCheck() {
             durationMs: 150,
             resourceSamples: {
               schemaVersion: "kova.resourceSamples.v1",
+              cpuCoverageComplete: true,
+              cpuMeasurementContract: process.platform === "linux" ? "linux-process-interval-v1" : "ps-process-cpu-v1",
               sampleCount: 1,
               peakTotalRssMb: 250,
               maxTotalCpuPercent: 80,

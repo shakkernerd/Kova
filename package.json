@@ -10,7 +10,8 @@
   "scripts": {
     "kova": "node bin/kova.mjs",
     "plan": "node bin/kova.mjs plan",
-    "check": "npm run test:assert-command-output && npm run test:selfcheck-isolation && node bin/kova.mjs self-check",
+    "test:cpu-accounting": "node --test tests/linux-cpu-accounting.mjs tests/resource-command-accounting.mjs",
+    "check": "npm run test:cpu-accounting && npm run test:assert-command-output && npm run test:selfcheck-isolation && node bin/kova.mjs self-check",
     "check:full": "npm run check && npm run test:snapshots && npm run check:web-payload && npm run test:release-contracts",
     "check:web-payload": "node scripts/check-web-payload.mjs",
     "test:assert-command-output": "node tests/assert-command-output.mjs",

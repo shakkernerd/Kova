@@ -92,6 +92,7 @@ function attachNodeProfileMeasurements(record) {
 
 function evaluatorContext(context, scenario, record) {
   return {
+    requireCpuContract: true,
     surface: context.surfacesById?.[scenario.surface] ?? null,
     targetPlan: context.targetPlan ?? null,
     profile: context.profile ?? null,
