@@ -3,7 +3,7 @@ import test from "node:test";
 import { runCommand, quoteShell } from "../src/commands.mjs";
 
 test("a final sample measures a sub-second command before its wait owner exits", { skip: process.platform !== "linux" }, async () => {
-  const result = await runCommand(`sleep 0.2; ${process.execPath} -e 'const end=Date.now()+200; while(Date.now()<end){}'`, {
+  const result = await runCommand(`sleep 0.2; ${quoteShell(process.execPath)} -e 'const end=Date.now()+200; while(Date.now()<end){}'`, {
     resourceSample: {}, timeoutMs: 10000
   });
   assert.equal(result.status, 0, result.stderr);
