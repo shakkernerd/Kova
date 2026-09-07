@@ -94,19 +94,18 @@ export function runCommand(command, options = {}) {
     let sampler = accountCpu ? null : createSampler();
     let accountedCompletion;
     let sampledResources;
-    child.on("message", async (message) => {
+    child.on("message", (message) => {
       if (message?.type === "ready" && !sampler) {
         sampler = createSampler();
         child.send({ type: "start", env: childEnv }, () => {});
       } else if (message?.type === "complete" && !accountedCompletion) {
-        clearTimeout(timer);
         accountedCompletion = { ...message, finishedAtEpochMs: Date.now() };
-        try {
-          sampledResources = await sampler?.stop();
-        } catch (error) {
-          sampledResources = { available: false, sampleCount: 0, failedSampleCount: 1,
-            cpuCoverageComplete: false, errors: [error.message] };
-        }
+        // stop() captures the terminal counters synchronously. Persisting the
+        // artifact must not keep the command's wait owner alive after capture.
+        sampledResources = sampler?.stop().catch((error) => ({
+          available: false, sampleCount: 0, failedSampleCount: 1,
+          cpuCoverageComplete: false, errors: [error.message]
+        }));
         if (child.connected) child.send({ type: "sampled" }, () => {});
       }
     });
@@ -175,7 +174,7 @@ export function runCommand(command, options = {}) {
       if (!keepTracking) {
         stopTrackingChild();
       }
-      const finishedAtEpochMs = accountedCompletion?.finishedAtEpochMs ?? Date.now();
+      const finishedAtEpochMs = timedOut ? Date.now() : accountedCompletion?.finishedAtEpochMs ?? Date.now();
       const stdoutResult = stdout.finish();
       const stderrResult = stderr.finish();
       settle({
@@ -201,7 +200,7 @@ export function runCommand(command, options = {}) {
       }
       settled = true;
       if (sampler) {
-        result.resourceSamples = sampledResources ?? await sampler.stop();
+        result.resourceSamples = await (sampledResources ?? sampler.stop());
       }
       resolve(result);
     }

@@ -1103,7 +1103,8 @@ averages from processes of different ages.
 For sampled commands, a Kova wait owner remains alive until the final CPU sample.
 Its own CPU and RSS are harness work and excluded from product measurements;
 its child accounting retains sub-second commands and the last interval before
-exit. The command environment is forwarded privately to its shell; Node preload and
+exit. The watchdog remains active until inherited stdout/stderr writers drain
+and the captured process closes; direct shell exit does not release that ownership. The command environment is forwarded privately to its shell; Node preload and
 profiling options do not execute in the accounting helper. Product command
 stdout, stderr, exit status, signal, and timeout behavior remain unchanged. Resource artifacts identify the counter contract as
 `linux-process-interval-v1`. Incomplete counter/baseline evidence is a harness

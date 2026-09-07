@@ -8,8 +8,12 @@ process.on("message", (message) => {
   if (message?.type === "start" && !child) {
     child = spawn(process.argv[2], ["-c", process.argv[3]], {
       env: message.env,
-      stdio: ["ignore", "inherit", "inherit"]
+      stdio: ["ignore", "pipe", "pipe"]
     });
+    // Keep the wait owner alive until inherited writers close, even when the
+    // direct shell has exited. The parent's watchdog still owns this group.
+    child.stdout.pipe(process.stdout, { end: false });
+    child.stderr.pipe(process.stderr, { end: false });
     child.once("error", (error) => {
       process.stderr.write(`${error.message}\n`);
       finish(127, null);
