@@ -70,11 +70,14 @@ export function runCommand(command, options = {}) {
       childEnv.SHELL = options.shell;
     }
     const accountCpu = process.platform === "linux" && Boolean(options.resourceSample);
+    const accountingEnv = accountCpu ? Object.fromEntries(
+      Object.entries(process.env).filter(([name]) => !name.startsWith("NODE_") && name !== "UV_THREADPOOL_SIZE")
+    ) : null;
     const child = spawn(accountCpu ? process.execPath : shell, accountCpu
       ? [fileURLToPath(new URL("../support/resource-command.mjs", import.meta.url)), shell, command]
       : ["-c", command], {
       cwd: repoRoot,
-      env: childEnv,
+      env: accountingEnv ?? childEnv,
       stdio: accountCpu ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32"
     });
@@ -94,7 +97,7 @@ export function runCommand(command, options = {}) {
     child.on("message", async (message) => {
       if (message?.type === "ready" && !sampler) {
         sampler = createSampler();
-        child.send({ type: "start" }, () => {});
+        child.send({ type: "start", env: childEnv }, () => {});
       } else if (message?.type === "complete" && !accountedCompletion) {
         clearTimeout(timer);
         accountedCompletion = { ...message, finishedAtEpochMs: Date.now() };

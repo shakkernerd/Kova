@@ -1080,6 +1080,10 @@ remaining mandatory artifacts still exceed a limit.
 
 `primary-role-product-scope-v4` keeps the existing resource thresholds and
 separates Linux interval CPU evidence from older lifetime-average samples.
+Only product processes and the ancestor chains needed for their wait accounting
+participate in the Linux CPU census. Existing wait owners discovered with a new
+product process establish a baseline without importing historical host CPU.
+
 Linux resource samples bracket CPU-counter scans and use their common inner
 monotonic interval, retaining PID/start-time identities. Upper bounds conservatively
 include work in the scan margins; lower bounds subtract the maximum possible
@@ -1099,8 +1103,9 @@ averages from processes of different ages.
 For sampled commands, a Kova wait owner remains alive until the final CPU sample.
 Its own CPU and RSS are harness work and excluded from product measurements;
 its child accounting retains sub-second commands and the last interval before
-exit. Product command stdout, stderr, exit status, signal, and timeout behavior
-remain unchanged. Resource artifacts identify the counter contract as
+exit. The command environment is forwarded privately to its shell; Node preload and
+profiling options do not execute in the accounting helper. Product command
+stdout, stderr, exit status, signal, and timeout behavior remain unchanged. Resource artifacts identify the counter contract as
 `linux-process-interval-v1`. Incomplete counter/baseline evidence is a harness
 failure, never a zero-CPU result. A single-process final `ps` snapshot remains
 available as diagnostic data but does not override Linux interval CPU gates.

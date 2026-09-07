@@ -41,3 +41,29 @@ test("terminal sampling failures remain visible and do not strand the command ow
   assert.equal(signaled.signal, "SIGTERM");
   assert.notEqual(signaled.status, 0);
 });
+
+
+test("command Node preloads and coverage run only in the requested command", { skip: process.platform !== "linux" }, async () => {
+  const fs = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const root = await fs.mkdtemp(join(tmpdir(), "kova-command-node-env-"));
+  try {
+    const modules = join(root, "modules");
+    const coverage = join(root, "coverage");
+    const preload = join(root, "preload.cjs");
+    await fs.mkdir(modules);
+    await fs.writeFile(join(modules, "accounting-preload-marker.js"), 'module.exports = "preload\\n";');
+    await fs.writeFile(preload, 'process.stdout.write(require("accounting-preload-marker"));');
+    const result = await runCommand(`${quoteShell(process.execPath)} -e 'process.stdout.write("target\\n")'`, {
+      env: { NODE_OPTIONS: `--require ${JSON.stringify(preload)}`, NODE_PATH: modules, NODE_V8_COVERAGE: coverage },
+      resourceSample: {}, timeoutMs: 10000
+    });
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(result.stdout, "preload\ntarget\n");
+    assert.equal((await fs.readdir(coverage)).filter((entry) => entry.endsWith(".json")).length, 1);
+    assert.equal(result.resourceSamples.cpuCoverageComplete, true, JSON.stringify(result.resourceSamples.errors));
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

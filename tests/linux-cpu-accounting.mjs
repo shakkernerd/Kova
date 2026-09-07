@@ -53,7 +53,7 @@ test("counter regression and a missing historical baseline fail closed", () => {
   assert.throws(() => accountant.sample([processRow(1, 0, 90)], clock(11)), /Regressed/);
   const fresh = createLinuxCpuAccountant();
   fresh.sample([processRow(1, 0, 100)], clock(10));
-  assert.throws(() => fresh.sample([processRow(1, 0, 100), processRow(2, 1, 100)], clock(11)), /Missing CPU baseline/);
+  assert.throws(() => fresh.sample([processRow(1, 0, 100), { ...processRow(2, 1, 100), roles: ["gateway"] }], clock(11)), /Missing CPU baseline/);
 });
 
 
@@ -204,4 +204,50 @@ test("production CPU qualification rejects a completely absent sampler result", 
   evaluateRecord(record, {}, { requireCpuContract: true });
   assert.equal(record.status, "BLOCKED");
   assert.ok(record.violations.some((violation) => violation.metric === "resourceCpuCoverage"));
+});
+
+
+test("unrelated host reparenting is outside the product CPU census", () => {
+  const reads = [];
+  const original = fs.readFileSync;
+  mock.method(fs, "readFileSync", (path, ...args) => {
+    if (!/^\/proc\/[123]\/stat$/.test(path)) return original(path, ...args);
+    reads.push(path);
+    const pid = Number(path.split("/")[2]);
+    const fields = Array(22).fill("0");
+    fields[0] = "S";
+    fields[1] = String(pid === 1 ? 0 : pid === 2 ? 1 : 99);
+    return `${pid} (synthetic) ${fields.join(" ")}`;
+  });
+  syncBuiltinESMExports();
+  try {
+    const rows = readLinuxCpuSnapshot([
+      processRow(1, 0, 0),
+      { ...processRow(2, 1, 0), roles: ["gateway"] },
+      processRow(3, 1, 0)
+    ]);
+    assert.deepEqual(rows.map((entry) => entry.pid), [1, 2]);
+    assert.deepEqual(reads, ["/proc/1/stat", "/proc/2/stat"]);
+  } finally {
+    mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+});
+
+
+test("a new Gateway introduces its existing wait owner without importing host CPU", () => {
+  const accountant = createLinuxCpuAccountant();
+  const command = { ...processRow(1, 0, 0), roles: ["command-tree"] };
+  accountant.sample([command], clock(10));
+  const owner = processRow(2, 0, 5000, 9000);
+  const gateway = { ...processRow(3, 2, 50, 0, 1000), roles: ["gateway"] };
+  const running = accountant.sample([command, owner, gateway], clock(11));
+  assert.equal(running.find((entry) => entry.pid === 2).cpuPercent, 0);
+  assert.equal(running.find((entry) => entry.pid === 3).cpuPercent, 50);
+  assert.ok(accountant.trackedProcessIds().has(2));
+  const completed = accountant.sample([command, { ...owner, childCpuTicks: 9060 }], clock(12));
+  const retired = completed.find((entry) => entry.pid === 2);
+  assert.equal(retired.reapedCpuPercent, 10);
+  assert.deepEqual(retired.reapedRoles, ["gateway"]);
+  assert.equal(accountant.coverageComplete(), true);
 });

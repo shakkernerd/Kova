@@ -7,6 +7,7 @@ let completed = false;
 process.on("message", (message) => {
   if (message?.type === "start" && !child) {
     child = spawn(process.argv[2], ["-c", process.argv[3]], {
+      env: message.env,
       stdio: ["ignore", "inherit", "inherit"]
     });
     child.once("error", (error) => {

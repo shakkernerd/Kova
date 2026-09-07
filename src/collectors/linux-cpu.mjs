@@ -51,7 +51,11 @@ export function readLinuxCpuSnapshot(processes, previouslyTrackedPids = new Set(
       if (entry.roles?.length || previouslyTrackedPids.has(entry.pid)) throw new LinuxCpuSnapshotChangedError("Product process exited during CPU collection");
     }
   };
-  for (const entry of processes) visit(entry);
+  // The census needs product processes and their wait-owner ancestry, not
+  // unrelated host workloads that happen to share an ancestor such as init.
+  for (const entry of processes) {
+    if (entry.roles?.length || previouslyTrackedPids.has(entry.pid)) visit(entry);
+  }
   return counters;
 }
 
@@ -74,7 +78,7 @@ export function createLinuxCpuAccountant({ accountingRootPid } = {}) {
       return previousClock;
     },
     trackedProcessIds() {
-      return new Set([...previous.values()].filter((entry) => entry.roles?.length).map((entry) => entry.pid));
+      return new Set([...previous.values()].map((entry) => entry.pid));
     },
     coverageComplete() {
       return !missingWaitOwner && ![...reapDebt.values()].some((debt) => debt.ticks > 0 && debt.processes.some((entry) => entry.roles?.length));
@@ -126,11 +130,16 @@ export function createLinuxCpuAccountant({ accountingRootPid } = {}) {
         let reapedRoles = [];
         let reapedProcesses = [];
         if (intervalTicks !== null) {
-          if (!before && process.startTicks < Math.floor(previousClock.ticks) - 1) {
+          const newlyObservedExistingOwner = !before && process.startTicks < Math.floor(previousClock.ticks) - 1;
+          if (newlyObservedExistingOwner && process.roles.length) {
             throw new Error(`Missing CPU baseline for process ${process.pid}`);
           }
-          const ownTicks = process.cpuTicks - (before?.cpuTicks ?? 0);
-          const waitedTicks = process.childCpuTicks - (before?.childCpuTicks ?? 0);
+          // A new product process can introduce an existing external wait owner.
+          // Its historical host work is not product CPU; establish its baseline
+          // before the child can be reaped in a later parent-first census.
+          const baseline = before ?? (newlyObservedExistingOwner ? process : null);
+          const ownTicks = process.cpuTicks - (baseline?.cpuTicks ?? 0);
+          const waitedTicks = process.childCpuTicks - (baseline?.childCpuTicks ?? 0);
           if (ownTicks < 0 || waitedTicks < 0) throw new Error(`Regressed CPU counters for process ${process.pid}`);
           const debt = nextDebt.get(key) ?? { ticks: 0, processes: [] };
           const newlyReapedTicks = Math.max(0, waitedTicks - debt.ticks);
