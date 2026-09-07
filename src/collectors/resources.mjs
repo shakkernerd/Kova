@@ -1,8 +1,10 @@
 import { spawnSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
+import { cpus } from "node:os";
 import { dirname } from "node:path";
 import { repoRoot } from "../paths.mjs";
 import { ocmServiceStatusJson } from "../ocm/commands.mjs";
+import { createLinuxCpuAccountant, LinuxCpuSnapshotChangedError, readLinuxCpuClock, readLinuxCpuSnapshot } from "./linux-cpu.mjs";
 
 export const RESOURCE_SAMPLES_SCHEMA = "kova.resourceSamples.v1";
 export const PROCESS_SNAPSHOT_SCHEMA = "kova.processSnapshot.v1";
@@ -21,6 +23,10 @@ export function startResourceSampler(rootPid, options = {}) {
       .filter(([role, pid]) => typeof role === "string" && role.length > 0 && Number.isSafeInteger(pid) && pid > 0)
   );
   const samples = [];
+  const cpuAccountant = process.platform === "linux" && !options.processLister
+    ? createLinuxCpuAccountant({ accountingRootPid: options.accountingRootPid }) : null;
+  const cpuCount = cpuAccountant ? cpus().length : 0;
+  let stopped;
   let gatewayPid = null;
   let nextGatewayLookupSample = 0;
 
@@ -29,24 +35,41 @@ export function startResourceSampler(rootPid, options = {}) {
   timer.unref?.();
 
   return {
-    async stop() {
-      clearInterval(timer);
-      sample();
-      const summary = summarizeResourceSamples(samples);
-      if (options.artifactPath) {
-        await mkdir(dirname(options.artifactPath), { recursive: true });
-        await writeFile(
-          options.artifactPath,
-          samples.map((item) => JSON.stringify(item)).join("\n") + (samples.length > 0 ? "\n" : ""),
-          "utf8"
-        );
-        summary.artifactPath = options.artifactPath;
-      }
-      return summary;
+    stop() {
+      stopped ??= finish();
+      return stopped;
     }
   };
 
-  function sample() {
+  async function finish() {
+    clearInterval(timer);
+    sample();
+    const summary = summarizeResourceSamples(samples);
+    if (cpuAccountant && !cpuAccountant.coverageComplete()) {
+      summary.cpuCoverageComplete = false;
+      summary.errors.push("Terminal product CPU wait accounting is incomplete");
+    }
+    if (options.artifactPath) {
+      await mkdir(dirname(options.artifactPath), { recursive: true });
+      await writeFile(
+        options.artifactPath,
+        samples.map((item) => JSON.stringify(item)).join("\n") + (samples.length > 0 ? "\n" : ""),
+        "utf8"
+      );
+      summary.artifactPath = options.artifactPath;
+    }
+    return summary;
+  }
+
+  function sample(attempt = 1) {
+    let cpuClock;
+    try {
+      cpuClock = cpuAccountant ? readLinuxCpuClock() : null;
+    } catch (error) {
+      samples.push({ timestamp: new Date().toISOString(), elapsedMs: Date.now() - startedAt,
+        rootPid, gatewayPid, collectionStatus: "error", collectionError: error.message, processes: [] });
+      return;
+    }
     const processResult = (options.processLister ?? listProcesses)(options.redactValues ?? []);
     if (!processResult.ok) {
       samples.push({
@@ -105,14 +128,41 @@ export function startResourceSampler(rootPid, options = {}) {
       if (roles.size === 1 && roles.has("gateway-tree")) {
         roles.add("uncategorized");
       }
-      if (roles.size === 0 || seen.has(process.pid)) {
+      if (seen.has(process.pid)) {
         continue;
       }
       seen.add(process.pid);
       const sortedRoles = [...roles].sort();
-      tracked.push({ ...process, roles: sortedRoles, role: sortedRoles.join(",") });
+      tracked.push({ ...process,
+        ...(process.pid === options.accountingRootPid ? { rssKb: 0, rssMb: 0, command: "[Kova command CPU accounting]" } : {}),
+        roles: sortedRoles, role: sortedRoles.join(",") });
     }
 
+    let measured = tracked;
+    let cpuUncertaintyPercent = null;
+    if (cpuAccountant) {
+      try {
+        const counters = readLinuxCpuSnapshot(tracked, cpuAccountant.trackedProcessIds());
+        cpuClock.finishedMs = performance.now();
+        const previousEnd = cpuAccountant.lastSuccessfulClock()?.finishedMs;
+        const previousStart = cpuAccountant.lastSuccessfulClock()?.monotonicMs;
+        const innerMs = previousEnd === undefined ? null : cpuClock.monotonicMs - previousEnd;
+        const scanMs = cpuClock.finishedMs - cpuClock.monotonicMs + (previousEnd === undefined ? 0 : previousEnd - previousStart);
+        cpuUncertaintyPercent = innerMs > 0 ? cpuCount * scanMs / innerMs * 100 : null;
+        measured = cpuAccountant.sample(counters, cpuClock).map((entry) => ({ ...entry,
+          ...(entry.roles.length ? {} : { rssMb: 0, rssKb: 0, command: "[CPU wait owner for retired product processes]" }),
+          // A supervisor outside the product tree can own a retired Gateway's
+          // wait counters. Preserve those roles without charging its own work.
+          cpuPercent: entry.ownCpuPercent === null ? null :
+            (entry.roles.length ? entry.ownCpuPercent : 0) + (entry.reapedRoles.length ? entry.reapedCpuPercent : 0)
+        }));
+      } catch (error) {
+        if (error instanceof LinuxCpuSnapshotChangedError && attempt < 3) return sample(attempt + 1);
+        samples.push({ timestamp: new Date().toISOString(), elapsedMs: Date.now() - startedAt,
+          rootPid, gatewayPid, collectionStatus: "error", collectionError: error.message, processes: [] });
+        return;
+      }
+    }
     samples.push({
       timestamp: new Date().toISOString(),
       elapsedMs: Date.now() - startedAt,
@@ -120,7 +170,10 @@ export function startResourceSampler(rootPid, options = {}) {
       gatewayPid,
       collectionStatus: "ok",
       collectionError: null,
-      processes: tracked
+      cpuMeasurementContract: cpuAccountant ? "linux-process-interval-v1" : "ps-process-cpu-v1",
+      cpuClock, cpuUncertaintyPercent,
+      ...(cpuAccountant ? { collectionAttempts: attempt } : {}),
+      processes: measured.filter((entry) => entry.roles.length || entry.reapedRoles?.length)
     });
   }
 }
@@ -132,6 +185,7 @@ export function summarizeResourceSamples(samples) {
   const failedSamples = samples.filter((sample) => sample?.collectionStatus === "error");
   let peakTotalRssMb = null;
   let maxTotalCpuPercent = null;
+  let maxTotalCpuPercentLower = null;
   let peakCommandTreeRssMb = null;
   let peakGatewayRssMb = null;
   let peakRssSample = null;
@@ -141,13 +195,19 @@ export function summarizeResourceSamples(samples) {
 
   for (const sample of usableSamples) {
     const totalRssMb = roundNumber(sample.processes.reduce((total, process) => total + process.rssMb, 0));
-    const totalCpuPercent = roundNumber(sample.processes.reduce((total, process) => total + process.cpuPercent, 0));
+    const cpuProcesses = sample.processes.filter((process) => typeof process.cpuPercent === "number");
+    const totalCpu = cpuProcesses.reduce((total, process) => total + process.cpuPercent, 0);
+    const totalCpuPercent = cpuProcesses.length > 0 ? (sample.cpuMeasurementContract === "linux-process-interval-v1" ? Math.ceil(totalCpu * 10) / 10 : roundNumber(totalCpu)) : null;
     const commandTreeRssMb = roleRss(sample.processes, "command-tree");
     const gatewayRssMb = roleRss(sample.processes, "gateway");
     updateRolePeaks(byRole, sample);
 
     peakTotalRssMb = maxNullable(peakTotalRssMb, totalRssMb);
     maxTotalCpuPercent = maxNullable(maxTotalCpuPercent, totalCpuPercent);
+    if (sample.cpuUncertaintyPercent !== null && sample.cpuUncertaintyPercent !== undefined) {
+      const certain = sample.processes.reduce((sum, entry) => sum + (entry.roles.length ? entry.ownCpuPercent ?? 0 : 0), 0);
+      maxTotalCpuPercentLower = maxNullable(maxTotalCpuPercentLower, Math.floor(Math.max(0, certain - sample.cpuUncertaintyPercent) * 10) / 10);
+    }
     peakCommandTreeRssMb = maxNullable(peakCommandTreeRssMb, commandTreeRssMb);
     peakGatewayRssMb = maxNullable(peakGatewayRssMb, gatewayRssMb);
     if (!peakRssSample || totalRssMb > peakRssSample.totalRssMb) {
@@ -158,7 +218,7 @@ export function summarizeResourceSamples(samples) {
         topProcess: sample.processes.toSorted((left, right) => right.rssMb - left.rssMb)[0] ?? null
       };
     }
-    if (!peakCpuSample || totalCpuPercent > peakCpuSample.totalCpuPercent) {
+    if (totalCpuPercent !== null && (!peakCpuSample || totalCpuPercent > peakCpuSample.totalCpuPercent)) {
       peakCpuSample = {
         timestamp: sample.timestamp,
         elapsedMs: sample.elapsedMs,
@@ -168,8 +228,10 @@ export function summarizeResourceSamples(samples) {
     }
 
     for (const process of sample.processes) {
-      const existing = byPid.get(process.pid) ?? {
+      const processIdentity = `${process.pid}:${process.startTicks ?? "legacy"}`;
+      const existing = byPid.get(processIdentity) ?? {
         pid: process.pid,
+        ...(process.startTicks === undefined ? {} : { startTicks: process.startTicks }),
         command: process.command,
         roles: process.roles ?? process.role.split(",").filter(Boolean),
         role: process.role,
@@ -184,7 +246,7 @@ export function summarizeResourceSamples(samples) {
       existing.peakRssMb = Math.max(existing.peakRssMb, process.rssMb);
       existing.maxCpuPercent = Math.max(existing.maxCpuPercent, process.cpuPercent);
       existing.lastSeenMs = sample.elapsedMs;
-      byPid.set(process.pid, existing);
+      byPid.set(processIdentity, existing);
     }
   }
 
@@ -209,6 +271,9 @@ export function summarizeResourceSamples(samples) {
     intervalMs: sampleInterval(usableSamples),
     peakTotalRssMb,
     maxTotalCpuPercent,
+    maxTotalCpuPercentLower,
+    cpuMeasurementContract: usableSamples.find((sample) => sample.cpuMeasurementContract)?.cpuMeasurementContract ?? null,
+    cpuCoverageComplete: usableSamples.some((sample) => sample.processes.some((process) => typeof process.cpuPercent === "number")) && failedSamples.length === 0,
     peakCommandTreeRssMb,
     peakGatewayRssMb,
     byRole: roleSummaries,
@@ -484,7 +549,7 @@ function listProcesses(redactValues = []) {
   const processes = [];
   for (const line of result.stdout.split("\n")) {
     const match = line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+([0-9.]+)\s+(.+)$/);
-    if (!match) {
+    if (!match || Number(match[1]) === result.pid) {
       continue;
     }
     processes.push({
@@ -584,22 +649,31 @@ function lookupGatewayPid(envName, commandEnv) {
 function updateRolePeaks(byRole, sample) {
   const totals = new Map();
   for (const process of sample.processes) {
-    for (const role of process.roles ?? process.role.split(",").filter(Boolean)) {
+    for (const role of new Set([...(process.roles ?? process.role.split(",").filter(Boolean)), ...(process.reapedRoles ?? [])])) {
       const total = totals.get(role) ?? {
         rssMb: 0,
-        cpuPercent: 0,
+        cpuPercent: null,
+        cpuCertainPercent: null,
         processCount: 0,
         topRssProcess: null,
         topCpuProcess: null
       };
-      total.rssMb += process.rssMb;
-      total.cpuPercent += process.cpuPercent;
+      const ownsRole = process.roles?.includes(role) ?? process.role.split(",").includes(role);
+      if (ownsRole) total.rssMb += process.rssMb;
+      if (typeof process.ownCpuPercent === "number") {
+        total.cpuPercent = (total.cpuPercent ?? 0) + (ownsRole ? process.ownCpuPercent : 0) +
+          (process.reapedRoles.includes(role) ? process.reapedCpuPercent : 0);
+        total.cpuCertainPercent = (total.cpuCertainPercent ?? 0) + (ownsRole ? process.ownCpuPercent : 0);
+      } else if (typeof process.cpuPercent === "number") total.cpuPercent = (total.cpuPercent ?? 0) + process.cpuPercent;
       total.processCount += 1;
       if (!total.topRssProcess || process.rssMb > total.topRssProcess.rssMb) {
         total.topRssProcess = process;
       }
-      if (!total.topCpuProcess || process.cpuPercent > total.topCpuProcess.cpuPercent) {
-        total.topCpuProcess = process;
+      const retired = !ownsRole ? process.reapedProcesses?.find((entry) => entry.roles?.includes(role)) : null;
+      const attributed = retired ? { ...process, ...retired, rssMb: 0, role: retired.roles.join(","),
+        cpuPercent: process.reapedCpuPercent, cpuAttribution: "reaped-role-upper-bound", cpuWaitOwnerPid: process.pid } : process;
+      if (!total.topCpuProcess || attributed.cpuPercent > total.topCpuProcess.cpuPercent) {
+        total.topCpuProcess = attributed;
       }
       totals.set(role, total);
     }
@@ -617,14 +691,19 @@ function updateRolePeaks(byRole, sample) {
       peakCpuProcess: null
     };
     const rssMb = roundNumber(total.rssMb);
-    const cpuPercent = roundNumber(total.cpuPercent);
+    const cpuPercent = total.cpuPercent === null ? null :
+      sample.cpuMeasurementContract === "linux-process-interval-v1" ? Math.ceil(total.cpuPercent * 10) / 10 : roundNumber(total.cpuPercent);
     if (existing.peakRssMb === null || rssMb > existing.peakRssMb) {
       existing.peakRssMb = rssMb;
       existing.peakRssAtMs = sample.elapsedMs;
       existing.peakProcessCount = total.processCount;
       existing.peakRssProcess = compactProcess(total.topRssProcess);
     }
-    if (existing.maxCpuPercent === null || cpuPercent > existing.maxCpuPercent) {
+    if (total.cpuCertainPercent !== null) {
+      const lower = Math.floor(Math.max(0, total.cpuCertainPercent - (sample.cpuUncertaintyPercent ?? 0)) * 10) / 10;
+      existing.maxCpuPercentLower = Math.max(existing.maxCpuPercentLower ?? 0, lower);
+    }
+    if (cpuPercent !== null && (existing.maxCpuPercent === null || cpuPercent > existing.maxCpuPercent)) {
       existing.maxCpuPercent = cpuPercent;
       existing.peakCpuAtMs = sample.elapsedMs;
       existing.peakCpuProcess = compactProcess(total.topCpuProcess);
@@ -637,6 +716,7 @@ function finalizeRoleSummary(summary) {
   return {
     peakRssMb: summary.peakRssMb,
     maxCpuPercent: summary.maxCpuPercent,
+    ...(summary.maxCpuPercentLower === undefined ? {} : { maxCpuPercentLower: summary.maxCpuPercentLower }),
     peakRssAtMs: summary.peakRssAtMs,
     peakCpuAtMs: summary.peakCpuAtMs,
     peakProcessCount: summary.peakProcessCount,
@@ -655,7 +735,8 @@ function compactProcess(process) {
     role: process.role,
     rssMb: process.rssMb,
     cpuPercent: process.cpuPercent,
-    command: process.command
+    command: process.command,
+    ...(process.cpuAttribution ? { cpuAttribution: process.cpuAttribution, cpuWaitOwnerPid: process.cpuWaitOwnerPid } : {})
   };
 }
 

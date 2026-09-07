@@ -4,6 +4,10 @@ All notable changes to Kova are documented in this file.
 
 ## [0.1.5] - Unreleased
 
+### Fixed
+
+- Fix Linux CPU accounting so serial parent/child work is not reported as concurrent CPU, short commands retain final CPU evidence, and incomplete measurements cannot qualify a release.
+
 ## [0.1.4] - 2026-09-05
 
 **Highlights:** Setup now recovers from an unresponsive OCM version probe, and fresh validation machines provision and hydrate reliably.

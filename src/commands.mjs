@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { spawn, spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { StringDecoder } from "node:string_decoder";
 import { startResourceSampler } from "./collectors/resources.mjs";
 import { repoRoot } from "./paths.mjs";
@@ -68,21 +69,44 @@ export function runCommand(command, options = {}) {
     if (options.shell !== undefined && options.env?.SHELL === undefined) {
       childEnv.SHELL = options.shell;
     }
-    const child = spawn(shell, ["-c", command], {
+    const accountCpu = process.platform === "linux" && Boolean(options.resourceSample);
+    const child = spawn(accountCpu ? process.execPath : shell, accountCpu
+      ? [fileURLToPath(new URL("../support/resource-command.mjs", import.meta.url)), shell, command]
+      : ["-c", command], {
       cwd: repoRoot,
       env: childEnv,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: accountCpu ? ["ignore", "pipe", "pipe", "ipc"] : ["ignore", "pipe", "pipe"],
       detached: process.platform !== "win32"
     });
     const stopTrackingChild = trackDetachedChild(child);
 
-    const sampler = options.resourceSample
+    const createSampler = () => options.resourceSample
       ? startResourceSampler(child.pid, {
         ...options.resourceSample,
+        accountingRootPid: accountCpu ? child.pid : undefined,
         rootCommand: command,
         redactValues: options.redactValues ?? []
       })
       : null;
+    let sampler = accountCpu ? null : createSampler();
+    let accountedCompletion;
+    let sampledResources;
+    child.on("message", async (message) => {
+      if (message?.type === "ready" && !sampler) {
+        sampler = createSampler();
+        child.send({ type: "start" }, () => {});
+      } else if (message?.type === "complete" && !accountedCompletion) {
+        clearTimeout(timer);
+        accountedCompletion = { ...message, finishedAtEpochMs: Date.now() };
+        try {
+          sampledResources = await sampler?.stop();
+        } catch (error) {
+          sampledResources = { available: false, sampleCount: 0, failedSampleCount: 1,
+            cpuCoverageComplete: false, errors: [error.message] };
+        }
+        if (child.connected) child.send({ type: "sampled" }, () => {});
+      }
+    });
     const stdout = createBoundedOutputAccumulator({
       limit: maxOutputChars,
       redactValues: options.redactValues
@@ -133,7 +157,7 @@ export function runCommand(command, options = {}) {
         terminationError = await termination;
         reportTerminationError(terminationError);
       }
-      complete(timedOut ? 124 : (status ?? 1), signal, Boolean(terminationError));
+      complete(timedOut ? 124 : (accountedCompletion ? (accountedCompletion.status ?? 1) : (status ?? 1)), accountedCompletion?.signal ?? signal, Boolean(terminationError));
     });
 
     function reportTerminationError(error) {
@@ -148,7 +172,7 @@ export function runCommand(command, options = {}) {
       if (!keepTracking) {
         stopTrackingChild();
       }
-      const finishedAtEpochMs = Date.now();
+      const finishedAtEpochMs = accountedCompletion?.finishedAtEpochMs ?? Date.now();
       const stdoutResult = stdout.finish();
       const stderrResult = stderr.finish();
       settle({
@@ -163,6 +187,7 @@ export function runCommand(command, options = {}) {
         durationMs: finishedAtEpochMs - startedAtEpochMs,
         stdout: stdoutResult.text,
         stderr: stderrResult.text,
+        ...(options.resourceSample ? { resourceSampleExpected: true } : {}),
         outputBudget: outputBudgetSummary(stdoutResult, stderrResult)
       });
     }
@@ -173,7 +198,7 @@ export function runCommand(command, options = {}) {
       }
       settled = true;
       if (sampler) {
-        result.resourceSamples = await sampler.stop();
+        result.resourceSamples = sampledResources ?? await sampler.stop();
       }
       resolve(result);
     }

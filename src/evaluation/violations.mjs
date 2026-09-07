@@ -100,31 +100,9 @@ export function checkRoleThresholds(violations, byRole, roleThresholds, options 
         message: `${role} peak process RSS ${peakProcessRssMb} MB exceeded threshold ${thresholds.peakProcessRssMb} MB`
       });
     }
-    const maxCpuThresholdActive = activeFiniteThreshold(
-      violations,
-      `resourceByRole.${role}.maxCpuPercent`,
-      thresholds.maxCpuPercent
-    );
-    if (
-      !skipMaxCpuRoles.has(role) &&
-      maxCpuThresholdActive &&
-      finiteNonNegativeMeasurement(
-        violations,
-        `resourceByRole.${role}.maxCpuPercent`,
-        summary.maxCpuPercent,
-        "measurement"
-      ) &&
-      summary.maxCpuPercent > thresholds.maxCpuPercent
-    ) {
-      violations.push({
-        kind: "resource",
-        metric: `resourceByRole.${role}.maxCpuPercent`,
-        role,
-        expected: `<= ${thresholds.maxCpuPercent}`,
-        actual: summary.maxCpuPercent,
-        message: `${role} max CPU ${summary.maxCpuPercent}% exceeded threshold ${thresholds.maxCpuPercent}%`
-      });
-    }
+    checkCpuThreshold(violations, { kind: "resource", metric: `resourceByRole.${role}.maxCpuPercent`, role,
+      label: `${role} max CPU`, value: summary.maxCpuPercent, lower: summary.maxCpuPercentLower,
+      threshold: thresholds.maxCpuPercent, skipComparison: skipMaxCpuRoles.has(role) });
   }
 }
 
@@ -259,4 +237,20 @@ function describeValue(value) {
   } catch {
     return String(value);
   }
+}
+
+
+export function checkCpuThreshold(violations, { kind, metric, role, label, value, lower, threshold, skipComparison = false }) {
+  if (!activeFiniteThreshold(violations, metric, threshold) || skipComparison ||
+      !finiteNonNegativeMeasurement(violations, metric, value, "measurement") || value <= threshold) return;
+  const uncertain = typeof lower === "number" && lower <= threshold;
+  violations.push({
+    kind: uncertain ? "evidence" : kind, metric, ...(role ? { role } : {}),
+    ...(uncertain ? { failureDomain: "kova-harness" } : {}),
+    expected: `<= ${threshold}`,
+    actual: uncertain ? { lower, upper: value } : value,
+    message: uncertain ? `${label} interval [${lower}%, ${value}%] crosses threshold ${threshold}%; CPU measurement is inconclusive` :
+      typeof lower === "number" ? `${label} at least ${lower}% exceeded threshold ${threshold}% (upper bound ${value}%)` :
+        `${label} ${value}% exceeded threshold ${threshold}%`
+  });
 }
