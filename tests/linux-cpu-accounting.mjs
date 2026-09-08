@@ -251,7 +251,9 @@ test("process census latency stays outside the CPU counter uncertainty window", 
     now += 1000;
     cpuTicks = 100;
     const summary = await sampler.stop();
-    assert.equal(summary.maxTotalCpuPercentLower, summary.maxTotalCpuPercent);
+    // The summary rounds the upper bound up and the lower bound down. With no
+    // scan uncertainty, they can therefore differ by at most one tenth.
+    assert.ok(summary.maxTotalCpuPercent - summary.maxTotalCpuPercentLower <= 0.1);
   } finally {
     mock.restoreAll();
     syncBuiltinESMExports();
