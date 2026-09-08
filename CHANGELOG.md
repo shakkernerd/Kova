@@ -4,9 +4,17 @@ All notable changes to Kova are documented in this file.
 
 ## [0.1.5] - Unreleased
 
+**Highlights:** Linux CPU validation now measures process lifetimes without mistaking serial work for parallel load or qualifying incomplete interval evidence.
+
 ### Fixed
 
-- Fix Linux CPU accounting so serial parent/child work is not reported as concurrent CPU, short commands retain final CPU evidence, and incomplete measurements cannot qualify a release.
+- Measure Linux CPU over common intervals so serial parent/child work is not reported as concurrent CPU, short commands retain final CPU evidence, and incomplete measurements cannot qualify a release. (#110)
+- Keep late-discovered process CPU as conservative interval evidence and block qualification when earlier intervals are missing, instead of allowing lifetime averages to hide CPU bursts. Thanks @RomneyDa. (#112)
+- Support Node executable paths containing spaces in the CPU-accounting regression workload. Thanks @vincentkoc. (#111)
+
+### Internal
+
+- Refresh the checksum-verified OCM CI runtime to 0.2.41 and website Node.js types to 26.5.0.
 
 ## [0.1.4] - 2026-09-05
 
