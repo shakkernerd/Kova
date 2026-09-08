@@ -62,7 +62,8 @@ export function startResourceSampler(rootPid, options = {}) {
   }
 
   function sample(attempt = 1) {
-    const processResult = (options.processLister ?? listProcesses)(options.redactValues ?? []);
+    const processLister = options.processLister ?? listProcesses;
+    const processResult = processLister(options.redactValues ?? []);
     if (!processResult.ok) {
       samples.push({
         timestamp: new Date().toISOString(),
@@ -75,7 +76,7 @@ export function startResourceSampler(rootPid, options = {}) {
       });
       return;
     }
-    const allProcesses = processResult.processes;
+    let allProcesses = processResult.processes;
     if (options.envName) {
       const knownGatewayPid = gatewayPid ?? gatewayPidsByEnv.get(options.envName) ?? null;
       gatewayPid = liveGatewayPid(options.envName, gatewayPid, allProcesses);
@@ -83,11 +84,21 @@ export function startResourceSampler(rootPid, options = {}) {
         nextGatewayLookupSample = samples.length;
       }
       if (gatewayPid === null && samples.length >= nextGatewayLookupSample) {
-        gatewayPid = lookupGatewayPid(options.envName, options.commandEnv);
+        gatewayPid = (options.gatewayPidLookup ?? lookupGatewayPid)(options.envName, options.commandEnv);
         // Startup sampling begins before the gateway exists. Retrying on the
         // next sample lets the CPU accountant establish the gateway's zero
         // baseline while its birth still falls inside the current interval.
         nextGatewayLookupSample = samples.length + 1;
+      }
+      // The gateway can be born after the census above but before OCM returns
+      // its PID. Refresh immediately so the CPU accountant records the process
+      // in the same interval in which it was discovered instead of first
+      // observing its already-accumulated lifetime counters a sample later.
+      if (gatewayPid !== null && !allProcesses.some((process) => process.pid === gatewayPid)) {
+        const refreshed = processLister(options.redactValues ?? []);
+        if (refreshed.ok) {
+          allProcesses = refreshed.processes;
+        }
       }
     }
 

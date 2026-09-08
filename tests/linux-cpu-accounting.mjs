@@ -12,6 +12,23 @@ const clock = (seconds) => ({ hz: 100, ticks: seconds * 100, monotonicMs: second
 const processRow = (pid, ppid, cpuTicks, childCpuTicks = 0, startTicks = 0) => ({ pid, ppid, cpuTicks, childCpuTicks, startTicks, rssMb: 0, command: "synthetic", roles: [] });
 const cpu = (rows) => rows.reduce((total, row) => total + (row.cpuPercent ?? 0), 0);
 
+test("gateway discovery refreshes a census that predates gateway birth", async () => {
+  let censusCount = 0;
+  const root = { pid: 1, ppid: 0, rssKb: 1, rssMb: 1, cpuPercent: 0, command: "kova" };
+  const gateway = { pid: 2, ppid: 1, rssKb: 2, rssMb: 2, cpuPercent: 0, command: "openclaw-gateway" };
+  const sampler = startResourceSampler(1, {
+    envName: `gateway-census-refresh-${Date.now()}`,
+    processLister() {
+      censusCount += 1;
+      return { ok: true, processes: censusCount === 1 ? [root] : [root, gateway] };
+    },
+    gatewayPidLookup: () => 2
+  });
+  const summary = await sampler.stop();
+  assert.ok(censusCount >= 2);
+  assert.equal(summary.byRole.gateway.peakRssMb, 2);
+});
+
 test("serial parent and newborn child use the same CPU interval", () => {
   const accountant = createLinuxCpuAccountant();
   accountant.sample([processRow(1, 0, 0)], clock(0));
