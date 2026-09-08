@@ -2,6 +2,8 @@
 
 All notable changes to Kova are documented in this file.
 
+## Unreleased
+
 ## 0.1.5 - 2026-09-07
 
 **Highlights:** Linux CPU validation now measures process lifetimes without mistaking serial work for parallel load or qualifying incomplete interval evidence.
