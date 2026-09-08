@@ -1,8 +1,9 @@
 import fs from "node:fs";
+import childProcess from "node:child_process";
 import { syncBuiltinESMExports } from "node:module";
 import assert from "node:assert/strict";
 import test, { mock } from "node:test";
-import { summarizeResourceSamples } from "../src/collectors/resources.mjs";
+import { startResourceSampler, summarizeResourceSamples } from "../src/collectors/resources.mjs";
 import { checkCpuThreshold } from "../src/evaluation/violations.mjs";
 import { evaluateRecord } from "../src/evaluator.mjs";
 import { createLinuxCpuAccountant, readLinuxCpuSnapshot, LinuxCpuSnapshotChangedError } from "../src/collectors/linux-cpu.mjs";
@@ -216,6 +217,47 @@ test("counter scan brackets yield conservative bounds and never an invented CPU 
   const below = [];
   checkCpuThreshold(below, { kind: "resource", metric: "cpu", label: "CPU", value: 199, lower: 180, threshold: 200 });
   assert.deepEqual(below, []);
+});
+
+test("process census latency stays outside the CPU counter uncertainty window", {
+  skip: process.platform !== "linux"
+}, async () => {
+  let now = 0;
+  let cpuTicks = 0;
+  const originalRead = fs.readFileSync;
+  const originalSpawn = childProcess.spawnSync;
+  mock.method(performance, "now", () => now);
+  mock.method(childProcess, "spawnSync", (command) => {
+    if (command === "getconf") return { status: 0, stdout: "100\n" };
+    if (command === "ps") {
+      now += 100;
+      return { status: 0, pid: 999, stdout: "1 0 1024 0 node\n" };
+    }
+    return originalSpawn(command);
+  });
+  mock.method(fs, "readFileSync", (path, ...args) => {
+    if (path === "/proc/uptime") return `${now / 1000} 0\n`;
+    if (path === "/proc/1/stat") {
+      const fields = Array(22).fill("0");
+      fields[0] = "S";
+      fields[11] = String(cpuTicks);
+      return `1 (node) ${fields.join(" ")}`;
+    }
+    return originalRead(path, ...args);
+  });
+  syncBuiltinESMExports();
+  try {
+    const sampler = startResourceSampler(1);
+    now += 1000;
+    cpuTicks = 100;
+    const summary = await sampler.stop();
+    // The summary rounds the upper bound up and the lower bound down. With no
+    // scan uncertainty, they can therefore differ by at most one tenth.
+    assert.ok(summary.maxTotalCpuPercent - summary.maxTotalCpuPercentLower <= 0.1);
+  } finally {
+    mock.restoreAll();
+    syncBuiltinESMExports();
+  }
 });
 
 test("qualification rejects missing and historical CPU contracts", () => {
