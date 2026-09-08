@@ -71,6 +71,10 @@ const identity = (process) => `${process.pid}:${process.startTicks}`;
 export function createLinuxCpuAccountant({ accountingRootPid } = {}) {
   let previous = new Map();
   let previousClock;
+  // A process can be born after collection starts but remain undiscovered
+  // until a later role lookup. Its lifetime counters still provide a complete
+  // baseline for this sampling session.
+  let initialClock;
   let reapDebt = new Map();
   let missingWaitOwner = false;
   return {
@@ -84,6 +88,7 @@ export function createLinuxCpuAccountant({ accountingRootPid } = {}) {
       return !missingWaitOwner && ![...reapDebt.values()].some((debt) => debt.ticks > 0 && debt.processes.some((entry) => entry.roles?.length));
     },
     sample(processes, clock) {
+      initialClock ??= clock;
       const nextDebt = new Map([...reapDebt].map(([key, debt]) => [key, { ...debt, processes: [...debt.processes] }]));
       let nextMissingWaitOwner = missingWaitOwner;
       processes = processes.map((entry) => {
@@ -131,16 +136,20 @@ export function createLinuxCpuAccountant({ accountingRootPid } = {}) {
         let reapedProcesses = [];
         if (intervalTicks !== null) {
           const newlyObservedExistingOwner = !before && process.startTicks < Math.floor(previousClock.ticks) - 1;
-          if (newlyObservedExistingOwner && process.roles.length) {
+          const bornDuringSampling = !before && process.startTicks >= Math.floor(initialClock.ticks) - 1;
+          const lateSessionProcess = newlyObservedExistingOwner && bornDuringSampling;
+          if (newlyObservedExistingOwner && process.roles.length && !bornDuringSampling) {
             throw new Error(`Missing CPU baseline for process ${process.pid}`);
           }
           // A new product process can introduce an existing external wait owner.
           // Its historical host work is not product CPU; establish its baseline
           // before the child can be reaped in a later parent-first census.
-          const baseline = before ?? (newlyObservedExistingOwner ? process : null);
+          const baseline = before ?? (newlyObservedExistingOwner && !lateSessionProcess ? process : null);
           const ownTicks = process.cpuTicks - (baseline?.cpuTicks ?? 0);
           const waitedTicks = process.childCpuTicks - (baseline?.childCpuTicks ?? 0);
           if (ownTicks < 0 || waitedTicks < 0) throw new Error(`Regressed CPU counters for process ${process.pid}`);
+          const measuredIntervalTicks = lateSessionProcess ? clock.ticks - process.startTicks : intervalTicks;
+          if (!(measuredIntervalTicks > 0)) throw new Error(`Invalid CPU lifetime interval for process ${process.pid}`);
           const debt = nextDebt.get(key) ?? { ticks: 0, processes: [] };
           const newlyReapedTicks = Math.max(0, waitedTicks - debt.ticks);
           reapedRoles = [...new Set([...(process.roles ?? []), ...debt.processes.flatMap((entry) => entry.roles ?? [])])];
@@ -149,8 +158,8 @@ export function createLinuxCpuAccountant({ accountingRootPid } = {}) {
           else nextDebt.delete(key);
           // The accounting wrapper is harness work. Its waited-child counters
           // still contain product work, including children missed by polling.
-          ownCpuPercent = (process.pid === accountingRootPid ? 0 : ownTicks) / intervalTicks * 100;
-          reapedCpuPercent = newlyReapedTicks / intervalTicks * 100;
+          ownCpuPercent = (process.pid === accountingRootPid ? 0 : ownTicks) / measuredIntervalTicks * 100;
+          reapedCpuPercent = newlyReapedTicks / measuredIntervalTicks * 100;
         }
         measured.push({ ...process, ownCpuPercent, reapedCpuPercent, reapedRoles, reapedProcesses,
           cpuPercent: ownCpuPercent === null ? null : ownCpuPercent + reapedCpuPercent });

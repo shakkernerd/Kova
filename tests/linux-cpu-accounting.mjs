@@ -56,6 +56,16 @@ test("counter regression and a missing historical baseline fail closed", () => {
   assert.throws(() => fresh.sample([processRow(1, 0, 100), { ...processRow(2, 1, 100), roles: ["gateway"] }], clock(11)), /Missing CPU baseline/);
 });
 
+test("a product process born during sampling can be discovered from lifetime counters", () => {
+  const accountant = createLinuxCpuAccountant();
+  accountant.sample([processRow(1, 0, 100)], clock(10));
+  accountant.sample([processRow(1, 0, 100)], clock(11));
+  const gateway = { ...processRow(2, 1, 240, 0, 1020), roles: ["gateway"] };
+  const measured = accountant.sample([processRow(1, 0, 100), gateway], clock(15));
+  assert.equal(measured.find((entry) => entry.pid === 2).cpuPercent, 50);
+  assert.equal(accountant.coverageComplete(), true);
+});
+
 
 
 test("missing CPU counter coverage blocks qualification rather than passing as zero", () => {
