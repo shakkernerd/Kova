@@ -1100,6 +1100,15 @@ terminal wait accounting blocks qualification. CPU percentages may exceed 100% w
 processes execute concurrently. The collector does not sum `ps` lifetime CPU
 averages from processes of different ages.
 
+A product process born during collection but first discovered after an earlier
+sample contributes its lifetime counters as an upper bound over the common
+current interval, never as a lifetime-average percentage. Its
+`cpuIntervalComplete: false` sample excludes that work from total and role lower
+bounds. Missing earlier intervals keep `cpuCoverageComplete` false and block
+qualification even if the current upper bound is below the CPU limit; later
+complete samples cannot repair the discovery gap. Existing product processes
+that predate collection still require a historical baseline.
+
 For sampled commands, a Kova wait owner remains alive until the final CPU sample.
 Its own CPU and RSS are harness work and excluded from product measurements;
 its child accounting retains sub-second commands and the last interval before

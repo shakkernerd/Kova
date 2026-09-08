@@ -72,11 +72,12 @@ export function createLinuxCpuAccountant({ accountingRootPid } = {}) {
   let previous = new Map();
   let previousClock;
   // A process can be born after collection starts but remain undiscovered
-  // until a later role lookup. Its lifetime counters still provide a complete
-  // baseline for this sampling session.
+  // until a later role lookup. Lifetime counters bound the latest interval's
+  // CPU, but cannot reconstruct the earlier unsampled intervals.
   let initialClock;
   let reapDebt = new Map();
   let missingWaitOwner = false;
+  let missingIntervalBaseline = false;
   return {
     lastSuccessfulClock() {
       return previousClock;
@@ -85,12 +86,13 @@ export function createLinuxCpuAccountant({ accountingRootPid } = {}) {
       return new Set([...previous.values()].map((entry) => entry.pid));
     },
     coverageComplete() {
-      return !missingWaitOwner && ![...reapDebt.values()].some((debt) => debt.ticks > 0 && debt.processes.some((entry) => entry.roles?.length));
+      return !missingIntervalBaseline && !missingWaitOwner && ![...reapDebt.values()].some((debt) => debt.ticks > 0 && debt.processes.some((entry) => entry.roles?.length));
     },
     sample(processes, clock) {
       initialClock ??= clock;
       const nextDebt = new Map([...reapDebt].map(([key, debt]) => [key, { ...debt, processes: [...debt.processes] }]));
       let nextMissingWaitOwner = missingWaitOwner;
+      let nextMissingIntervalBaseline = missingIntervalBaseline;
       processes = processes.map((entry) => {
         const roles = [...new Set([...(previous.get(identity(entry))?.roles ?? []), ...(entry.roles ?? [])])];
         return { ...entry, roles, role: roles.join(",") };
@@ -134,10 +136,13 @@ export function createLinuxCpuAccountant({ accountingRootPid } = {}) {
         let reapedCpuPercent = null;
         let reapedRoles = [];
         let reapedProcesses = [];
+        let cpuIntervalComplete = true;
         if (intervalTicks !== null) {
           const newlyObservedExistingOwner = !before && process.startTicks < Math.floor(previousClock.ticks) - 1;
           const bornDuringSampling = !before && process.startTicks >= Math.floor(initialClock.ticks) - 1;
           const lateSessionProcess = newlyObservedExistingOwner && bornDuringSampling;
+          cpuIntervalComplete = !lateSessionProcess;
+          if (lateSessionProcess && process.roles.length) nextMissingIntervalBaseline = true;
           if (newlyObservedExistingOwner && process.roles.length && !bornDuringSampling) {
             throw new Error(`Missing CPU baseline for process ${process.pid}`);
           }
@@ -148,8 +153,6 @@ export function createLinuxCpuAccountant({ accountingRootPid } = {}) {
           const ownTicks = process.cpuTicks - (baseline?.cpuTicks ?? 0);
           const waitedTicks = process.childCpuTicks - (baseline?.childCpuTicks ?? 0);
           if (ownTicks < 0 || waitedTicks < 0) throw new Error(`Regressed CPU counters for process ${process.pid}`);
-          const measuredIntervalTicks = lateSessionProcess ? clock.ticks - process.startTicks : intervalTicks;
-          if (!(measuredIntervalTicks > 0)) throw new Error(`Invalid CPU lifetime interval for process ${process.pid}`);
           const debt = nextDebt.get(key) ?? { ticks: 0, processes: [] };
           const newlyReapedTicks = Math.max(0, waitedTicks - debt.ticks);
           reapedRoles = [...new Set([...(process.roles ?? []), ...debt.processes.flatMap((entry) => entry.roles ?? [])])];
@@ -158,15 +161,16 @@ export function createLinuxCpuAccountant({ accountingRootPid } = {}) {
           else nextDebt.delete(key);
           // The accounting wrapper is harness work. Its waited-child counters
           // still contain product work, including children missed by polling.
-          ownCpuPercent = (process.pid === accountingRootPid ? 0 : ownTicks) / measuredIntervalTicks * 100;
-          reapedCpuPercent = newlyReapedTicks / measuredIntervalTicks * 100;
+          ownCpuPercent = (process.pid === accountingRootPid ? 0 : ownTicks) / intervalTicks * 100;
+          reapedCpuPercent = newlyReapedTicks / intervalTicks * 100;
         }
-        measured.push({ ...process, ownCpuPercent, reapedCpuPercent, reapedRoles, reapedProcesses,
+        measured.push({ ...process, ownCpuPercent, reapedCpuPercent, reapedRoles, reapedProcesses, cpuIntervalComplete,
           cpuPercent: ownCpuPercent === null ? null : ownCpuPercent + reapedCpuPercent });
       }
       for (const key of nextDebt.keys()) if (!current.has(key)) nextDebt.delete(key);
       reapDebt = nextDebt;
       missingWaitOwner = nextMissingWaitOwner;
+      missingIntervalBaseline = nextMissingIntervalBaseline;
       previous = current;
       previousClock = clock;
       return measured;

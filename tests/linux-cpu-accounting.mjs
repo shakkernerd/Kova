@@ -56,17 +56,80 @@ test("counter regression and a missing historical baseline fail closed", () => {
   assert.throws(() => fresh.sample([processRow(1, 0, 100), { ...processRow(2, 1, 100), roles: ["gateway"] }], clock(11)), /Missing CPU baseline/);
 });
 
-test("a product process born during sampling can be discovered from lifetime counters", () => {
+test("late-discovered product CPU keeps interval bounds and incomplete coverage", () => {
   const accountant = createLinuxCpuAccountant();
   accountant.sample([processRow(1, 0, 100)], clock(10));
   accountant.sample([processRow(1, 0, 100)], clock(11));
   const gateway = { ...processRow(2, 1, 240, 0, 1020), roles: ["gateway"] };
   const measured = accountant.sample([processRow(1, 0, 100), gateway], clock(15));
-  assert.equal(measured.find((entry) => entry.pid === 2).cpuPercent, 50);
+  assert.equal(measured.find((entry) => entry.pid === 2).cpuPercent, 60);
+  assert.equal(accountant.coverageComplete(), false);
+  const summary = summarizeResourceSamples([{ processes: measured, collectionStatus: "ok", cpuUncertaintyPercent: 0 }]);
+  assert.equal(summary.byRole.gateway.maxCpuPercentLower, 0);
+  assert.equal(summary.cpuCoverageComplete, false);
+  const record = { status: "PASS", phases: [{ id: "status", measurementScope: "product", results: [{
+    command: "openclaw status", status: 0, stdout: "", stderr: "", durationMs: 5000, resourceSamples: summary
+  }] }] };
+  evaluateRecord(record, {}, {});
+  assert.equal(record.status, "BLOCKED", "unobserved earlier bursts cannot qualify even when the latest upper bound is small");
+  assert.ok(record.violations.some((violation) => violation.metric === "resourceCpuCoverage"));
+  accountant.sample([processRow(1, 0, 100), { ...gateway, cpuTicks: 260 }], clock(16));
+  assert.equal(accountant.coverageComplete(), false, "later intervals cannot repair an earlier discovery gap");
+});
+
+test("late discovery cannot average a 225% CPU burst into a passing lifetime value", () => {
+  const accountant = createLinuxCpuAccountant();
+  accountant.sample([], clock(10));
+  accountant.sample([], clock(11));
+  const processes = accountant.sample([{ ...processRow(2, 0, 900, 0, 1020), roles: ["gateway"] }], clock(15));
+  const summary = summarizeResourceSamples([{ processes, collectionStatus: "ok", cpuUncertaintyPercent: 0 }]);
+  assert.equal(summary.byRole.gateway.maxCpuPercent, 225);
+  assert.equal(summary.byRole.gateway.maxCpuPercentLower, 0);
+  const violations = [];
+  checkCpuThreshold(violations, { kind: "resource", metric: "cpu", label: "CPU", value: summary.byRole.gateway.maxCpuPercent,
+    lower: summary.byRole.gateway.maxCpuPercentLower, threshold: 200 });
+  assert.equal(violations[0]?.kind, "evidence");
+  assert.equal(violations[0]?.failureDomain, "kova-harness");
+});
+
+test("mixed discovery times do not import uncertain CPU into total or role lower bounds", () => {
+  const accountant = createLinuxCpuAccountant();
+  const known = { ...processRow(1, 0, 0), roles: ["gateway"] };
+  accountant.sample([known], clock(10));
+  accountant.sample([known], clock(11));
+  const processes = accountant.sample([{ ...known, cpuTicks: 400 },
+    { ...processRow(2, 0, 900, 0, 1020), roles: ["gateway"] }], clock(15));
+  const summary = summarizeResourceSamples([{ processes, collectionStatus: "ok", cpuUncertaintyPercent: 0 }]);
+  assert.equal(summary.maxTotalCpuPercent, 325);
+  assert.equal(summary.maxTotalCpuPercentLower, 100);
+  assert.equal(summary.byRole.gateway.maxCpuPercent, 325);
+  assert.equal(summary.byRole.gateway.maxCpuPercentLower, 100);
+  assert.equal(summary.cpuCoverageComplete, false);
+});
+
+test("a rejected late-discovery census cannot poison interval coverage", () => {
+  const accountant = createLinuxCpuAccountant();
+  const known = { ...processRow(1, 0, 100), roles: ["gateway"] };
+  accountant.sample([known], clock(10));
+  accountant.sample([known], clock(11));
+  assert.throws(() => accountant.sample([
+    { ...processRow(2, 0, 240, 0, 1020), roles: ["gateway"] }, { ...known, cpuTicks: 90 }
+  ], clock(15)), /Regressed/);
+  accountant.sample([{ ...known, cpuTicks: 200 }], clock(16));
   assert.equal(accountant.coverageComplete(), true);
 });
 
-
+test("late discovery of a roleless wait owner does not invalidate product coverage", () => {
+  const accountant = createLinuxCpuAccountant();
+  const known = { ...processRow(1, 0, 0), roles: ["gateway"] };
+  accountant.sample([known], clock(10));
+  accountant.sample([known], clock(11));
+  const processes = accountant.sample([{ ...known, cpuTicks: 100 }, processRow(2, 0, 0, 0, 1020)], clock(15));
+  const summary = summarizeResourceSamples([{ processes, collectionStatus: "ok", cpuUncertaintyPercent: 0 }]);
+  assert.equal(summary.cpuCoverageComplete, true);
+  assert.deepEqual(summary.errors, []);
+  assert.equal(accountant.coverageComplete(), true);
+});
 
 test("missing CPU counter coverage blocks qualification rather than passing as zero", () => {
   const record = { status: "PASS", phases: [{ id: "status", measurementScope: "product", results: [{

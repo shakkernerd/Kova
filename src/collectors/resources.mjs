@@ -47,7 +47,7 @@ export function startResourceSampler(rootPid, options = {}) {
     const summary = summarizeResourceSamples(samples);
     if (cpuAccountant && !cpuAccountant.coverageComplete()) {
       summary.cpuCoverageComplete = false;
-      summary.errors.push("Terminal product CPU wait accounting is incomplete");
+      summary.errors.push("Product CPU interval or terminal wait accounting is incomplete");
     }
     if (options.artifactPath) {
       await mkdir(dirname(options.artifactPath), { recursive: true });
@@ -183,6 +183,9 @@ export function summarizeResourceSamples(samples) {
     sample?.collectionStatus !== "error" && Array.isArray(sample?.processes)
   );
   const failedSamples = samples.filter((sample) => sample?.collectionStatus === "error");
+  const missingCpuInterval = usableSamples.some((sample) => sample.processes.some((process) =>
+    process.cpuIntervalComplete === false && (process.roles?.length || process.reapedRoles?.length)
+  ));
   let peakTotalRssMb = null;
   let maxTotalCpuPercent = null;
   let maxTotalCpuPercentLower = null;
@@ -205,7 +208,7 @@ export function summarizeResourceSamples(samples) {
     peakTotalRssMb = maxNullable(peakTotalRssMb, totalRssMb);
     maxTotalCpuPercent = maxNullable(maxTotalCpuPercent, totalCpuPercent);
     if (sample.cpuUncertaintyPercent !== null && sample.cpuUncertaintyPercent !== undefined) {
-      const certain = sample.processes.reduce((sum, entry) => sum + (entry.roles.length ? entry.ownCpuPercent ?? 0 : 0), 0);
+      const certain = sample.processes.reduce((sum, entry) => sum + (entry.roles.length && entry.cpuIntervalComplete !== false ? entry.ownCpuPercent ?? 0 : 0), 0);
       maxTotalCpuPercentLower = maxNullable(maxTotalCpuPercentLower, Math.floor(Math.max(0, certain - sample.cpuUncertaintyPercent) * 10) / 10);
     }
     peakCommandTreeRssMb = maxNullable(peakCommandTreeRssMb, commandTreeRssMb);
@@ -267,13 +270,16 @@ export function summarizeResourceSamples(samples) {
     successfulSampleCount: usableSamples.length,
     failedSampleCount: failedSamples.length,
     available: usableSamples.length > 0,
-    errors: [...new Set(failedSamples.map((sample) => sample.collectionError).filter(Boolean))].slice(0, 5),
+    errors: [...new Set([
+      ...(missingCpuInterval ? ["CPU interval baseline is missing for a late-discovered product process"] : []),
+      ...failedSamples.map((sample) => sample.collectionError).filter(Boolean)
+    ])].slice(0, 5),
     intervalMs: sampleInterval(usableSamples),
     peakTotalRssMb,
     maxTotalCpuPercent,
     maxTotalCpuPercentLower,
     cpuMeasurementContract: usableSamples.find((sample) => sample.cpuMeasurementContract)?.cpuMeasurementContract ?? null,
-    cpuCoverageComplete: usableSamples.some((sample) => sample.processes.some((process) => typeof process.cpuPercent === "number")) && failedSamples.length === 0,
+    cpuCoverageComplete: !missingCpuInterval && usableSamples.some((sample) => sample.processes.some((process) => typeof process.cpuPercent === "number")) && failedSamples.length === 0,
     peakCommandTreeRssMb,
     peakGatewayRssMb,
     byRole: roleSummaries,
@@ -663,7 +669,7 @@ function updateRolePeaks(byRole, sample) {
       if (typeof process.ownCpuPercent === "number") {
         total.cpuPercent = (total.cpuPercent ?? 0) + (ownsRole ? process.ownCpuPercent : 0) +
           (process.reapedRoles.includes(role) ? process.reapedCpuPercent : 0);
-        total.cpuCertainPercent = (total.cpuCertainPercent ?? 0) + (ownsRole ? process.ownCpuPercent : 0);
+        total.cpuCertainPercent = (total.cpuCertainPercent ?? 0) + (ownsRole && process.cpuIntervalComplete !== false ? process.ownCpuPercent : 0);
       } else if (typeof process.cpuPercent === "number") total.cpuPercent = (total.cpuPercent ?? 0) + process.cpuPercent;
       total.processCount += 1;
       if (!total.topRssProcess || process.rssMb > total.topRssProcess.rssMb) {
