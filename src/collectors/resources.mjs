@@ -84,7 +84,10 @@ export function startResourceSampler(rootPid, options = {}) {
       }
       if (gatewayPid === null && samples.length >= nextGatewayLookupSample) {
         gatewayPid = lookupGatewayPid(options.envName, options.commandEnv);
-        nextGatewayLookupSample = samples.length + 5;
+        // Startup sampling begins before the gateway exists. Retrying on the
+        // next sample lets the CPU accountant establish the gateway's zero
+        // baseline while its birth still falls inside the current interval.
+        nextGatewayLookupSample = samples.length + 1;
       }
     }
 

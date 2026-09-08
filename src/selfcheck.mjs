@@ -21604,15 +21604,15 @@ exec /bin/sh -c "$2"
       "live gateway pid reused across samplers"
     );
     assertEqual(
-      lookups.filter((line) => line.includes(missingEnvName)).length,
-      1,
-      "missing gateway pid lookup backs off"
+      lookups.filter((line) => line.includes(missingEnvName)).length >= 3,
+      true,
+      "missing gateway pid lookup retries on the next sample"
     );
     assertEqual(missingSummary.sampleCount >= 3, true, "missing gateway sampler collected repeated samples");
     return {
       id: "resource-gateway-pid-lookups",
       status: "PASS",
-      command: "reuse live gateway pid and back off missing pid lookups",
+      command: "reuse live gateway pid and retry missing pid lookups",
       durationMs: 600
     };
   } catch (error) {
