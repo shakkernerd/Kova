@@ -62,14 +62,6 @@ export function startResourceSampler(rootPid, options = {}) {
   }
 
   function sample(attempt = 1) {
-    let cpuClock;
-    try {
-      cpuClock = cpuAccountant ? readLinuxCpuClock() : null;
-    } catch (error) {
-      samples.push({ timestamp: new Date().toISOString(), elapsedMs: Date.now() - startedAt,
-        rootPid, gatewayPid, collectionStatus: "error", collectionError: error.message, processes: [] });
-      return;
-    }
     const processResult = (options.processLister ?? listProcesses)(options.redactValues ?? []);
     if (!processResult.ok) {
       samples.push({
@@ -139,9 +131,13 @@ export function startResourceSampler(rootPid, options = {}) {
     }
 
     let measured = tracked;
+    let cpuClock = null;
     let cpuUncertaintyPercent = null;
     if (cpuAccountant) {
       try {
+        // Process discovery is not part of the counter snapshot. Starting the
+        // clock earlier inflates uncertainty with unrelated `ps` latency.
+        cpuClock = readLinuxCpuClock();
         const counters = readLinuxCpuSnapshot(tracked, cpuAccountant.trackedProcessIds());
         cpuClock.finishedMs = performance.now();
         const previousEnd = cpuAccountant.lastSuccessfulClock()?.finishedMs;
