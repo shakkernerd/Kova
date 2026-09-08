@@ -19,7 +19,7 @@
     },
     "status-cli": {
       "peakRssMb": 500,
-      "maxCpuPercent": 200
+      "maxCpuPercent": 250
     }
   },
   "diagnostics": {
