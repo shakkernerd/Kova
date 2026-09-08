@@ -131,6 +131,43 @@ test("late discovery of a roleless wait owner does not invalidate product covera
   assert.equal(accountant.coverageComplete(), true);
 });
 
+test("a discovery gap follows an identity when a product role is assigned later", () => {
+  for (const startTicks of [0, 1020]) {
+    const accountant = createLinuxCpuAccountant();
+    accountant.sample([], clock(10));
+    accountant.sample([], clock(11));
+    const owner = processRow(2, 0, 240, 0, startTicks);
+    accountant.sample([owner], clock(15));
+    assert.equal(accountant.coverageComplete(), true);
+    const processes = accountant.sample([{ ...owner, cpuTicks: 260, roles: ["gateway"] }], clock(16));
+    const summary = summarizeResourceSamples([{ processes, collectionStatus: "ok", cpuUncertaintyPercent: 0 }]);
+    assert.equal(summary.byRole.gateway.maxCpuPercent, 20);
+    assert.equal(summary.byRole.gateway.maxCpuPercentLower, 20, "the current interval is known despite the historical gap");
+    assert.equal(summary.cpuCoverageComplete, false);
+    assert.equal(accountant.coverageComplete(), false);
+  }
+});
+
+test("reaping preserves a roleless child's discovery gap for a later product owner", () => {
+  for (const startTicks of [0, 1020]) {
+    for (const roleAtReap of [true, false]) {
+      const accountant = createLinuxCpuAccountant();
+      const owner = processRow(1, 0, 0);
+      accountant.sample([owner], clock(10));
+      accountant.sample([owner], clock(11));
+      accountant.sample([owner, processRow(2, 1, 240, 0, startTicks)], clock(15));
+      let processes = accountant.sample([{ ...owner, childCpuTicks: 260, roles: roleAtReap ? ["gateway"] : [] }], clock(16));
+      if (!roleAtReap) {
+        assert.equal(accountant.coverageComplete(), true);
+        processes = accountant.sample([{ ...owner, cpuTicks: 20, childCpuTicks: 260, roles: ["gateway"] }], clock(17));
+      }
+      const summary = summarizeResourceSamples([{ processes, collectionStatus: "ok", cpuUncertaintyPercent: 0 }]);
+      assert.equal(summary.cpuCoverageComplete, false);
+      assert.equal(accountant.coverageComplete(), false);
+    }
+  }
+});
+
 test("missing CPU counter coverage blocks qualification rather than passing as zero", () => {
   const record = { status: "PASS", phases: [{ id: "status", measurementScope: "product", results: [{
     command: "openclaw status", status: 0, stdout: "", stderr: "", durationMs: 10, resourceSamples: { sampleCount: 2, cpuMeasurementContract: process.platform === "linux" ? "linux-process-interval-v1" : "ps-process-cpu-v1", cpuCoverageComplete: false, errors: ["missing CPU baseline"] }
@@ -323,4 +360,6 @@ test("a new Gateway introduces its existing wait owner without importing host CP
   assert.equal(retired.reapedCpuPercent, 10);
   assert.deepEqual(retired.reapedRoles, ["gateway"]);
   assert.equal(accountant.coverageComplete(), true);
+  const summary = summarizeResourceSamples([{ processes: completed, collectionStatus: "ok", cpuUncertaintyPercent: 0 }]);
+  assert.equal(summary.cpuCoverageComplete, true, "an external owner's historical host CPU does not invalidate a fully sampled product child");
 });

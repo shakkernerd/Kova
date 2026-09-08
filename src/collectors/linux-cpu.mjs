@@ -98,6 +98,7 @@ export function createLinuxCpuAccountant({ accountingRootPid } = {}) {
         return { ...entry, roles, role: roles.join(",") };
       });
       const current = new Map(processes.map((process) => [identity(process), process]));
+      const inheritedIncompleteHistory = new Set();
       const previousByPid = new Map([...previous.values()].map((process) => [process.pid, process]));
       const intervalTicks = previousClock === undefined ? null :
         (clock.monotonicMs - (previousClock.finishedMs ?? previousClock.monotonicMs)) * clock.hz / 1000;
@@ -121,6 +122,7 @@ export function createLinuxCpuAccountant({ accountingRootPid } = {}) {
             debt.ticks += process.cpuTicks + process.childCpuTicks;
             debt.processes.push(process);
             nextDebt.set(ancestorKey, debt);
+            if (process.cpuHistoryComplete === false) inheritedIncompleteHistory.add(ancestorKey);
             foundWaitOwner = true;
             break;
           }
@@ -141,8 +143,7 @@ export function createLinuxCpuAccountant({ accountingRootPid } = {}) {
           const newlyObservedExistingOwner = !before && process.startTicks < Math.floor(previousClock.ticks) - 1;
           const bornDuringSampling = !before && process.startTicks >= Math.floor(initialClock.ticks) - 1;
           const lateSessionProcess = newlyObservedExistingOwner && bornDuringSampling;
-          cpuIntervalComplete = !lateSessionProcess;
-          if (lateSessionProcess && process.roles.length) nextMissingIntervalBaseline = true;
+          cpuIntervalComplete = !newlyObservedExistingOwner;
           if (newlyObservedExistingOwner && process.roles.length && !bornDuringSampling) {
             throw new Error(`Missing CPU baseline for process ${process.pid}`);
           }
@@ -164,7 +165,11 @@ export function createLinuxCpuAccountant({ accountingRootPid } = {}) {
           ownCpuPercent = (process.pid === accountingRootPid ? 0 : ownTicks) / intervalTicks * 100;
           reapedCpuPercent = newlyReapedTicks / intervalTicks * 100;
         }
-        measured.push({ ...process, ownCpuPercent, reapedCpuPercent, reapedRoles, reapedProcesses, cpuIntervalComplete,
+        const cpuHistoryComplete = before?.cpuHistoryComplete !== false &&
+          !inheritedIncompleteHistory.has(key) && cpuIntervalComplete;
+        current.set(key, { ...process, cpuHistoryComplete });
+        if (!cpuHistoryComplete && process.roles.length) nextMissingIntervalBaseline = true;
+        measured.push({ ...process, ownCpuPercent, reapedCpuPercent, reapedRoles, reapedProcesses, cpuIntervalComplete, cpuHistoryComplete,
           cpuPercent: ownCpuPercent === null ? null : ownCpuPercent + reapedCpuPercent });
       }
       for (const key of nextDebt.keys()) if (!current.has(key)) nextDebt.delete(key);

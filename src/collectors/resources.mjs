@@ -183,8 +183,10 @@ export function summarizeResourceSamples(samples) {
     sample?.collectionStatus !== "error" && Array.isArray(sample?.processes)
   );
   const failedSamples = samples.filter((sample) => sample?.collectionStatus === "error");
+  // An external wait owner's host history cannot invalidate a fully sampled product child.
   const missingCpuInterval = usableSamples.some((sample) => sample.processes.some((process) =>
-    process.cpuIntervalComplete === false && (process.roles?.length || process.reapedRoles?.length)
+    (process.roles?.length && (process.cpuIntervalComplete === false || process.cpuHistoryComplete === false)) ||
+    (process.reapedRoles?.length && process.cpuIntervalComplete === false)
   ));
   let peakTotalRssMb = null;
   let maxTotalCpuPercent = null;
